@@ -51,13 +51,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run a disposable GoShipit e2e flow against an explicit target repo clone.")
     parser.add_argument("--target-id", required=True, help="GoShipit target id to register for this run.")
     parser.add_argument("--target-path", required=True, help="Path to the source target repo to clone.")
-    parser.add_argument("--setup-command", required=True, help="Setup command to register for the target clone.")
-    parser.add_argument("--test-command", required=True, help="Test command to register for the target clone.")
+    parser.add_argument("--setup-command", required=True, type=non_empty_command, help="Setup command to register for the target clone.")
+    parser.add_argument("--test-command", required=True, type=non_empty_command, help="Test command to register for the target clone.")
     parser.add_argument("--default-branch", default="main", help="Default branch for generated worktrees.")
     parser.add_argument("--run-root", help="Optional run root. Defaults to a temp directory.")
     parser.add_argument("--cleanup-worktree", action="store_true", help="Run GoShipit cleanup at the end.")
     parser.add_argument("--remove-run-root", action="store_true", help="Delete the temp run root after a successful run.")
     return parser.parse_args(argv)
+
+
+def non_empty_command(value: str) -> str:
+    if not value.strip():
+        raise argparse.ArgumentTypeError("command must not be empty")
+    return value
 
 
 def validate_target_id(target_id: str) -> None:
@@ -101,6 +107,10 @@ def write_report(
     records: list[CommandRecord],
     result: str,
     notes: list[str],
+    started_at: str | None = None,
+    finished_at: str | None = None,
+    final_state: str | None = None,
+    exported_run: Path | None = None,
 ) -> None:
     lines = [
         "# GoShipit Target E2E Report",
@@ -112,6 +122,8 @@ def write_report(
         f"- Target clone: `{paths.target_clone}`",
         f"- Issue id: `{issue_id}`",
         f"- Worktree: `{worktree}`",
+        f"- Started at: `{started_at or 'unknown'}`",
+        f"- Finished at: `{finished_at or 'unknown'}`",
         f"- Result: `{result}`",
         "",
         "## Commands",
@@ -142,6 +154,17 @@ def write_report(
                     "",
                 ]
             )
+    lines.extend(["", "## Final State", ""])
+    if final_state:
+        lines.extend(["```text", final_state.rstrip(), "```", ""])
+    else:
+        lines.extend(["No final state captured.", ""])
+    lines.extend(["## Exported Issue", ""])
+    if exported_run is not None:
+        lines.append(f"- Path: `{exported_run}`")
+        lines.append(f"- Exists: `{'yes' if exported_run.exists() else 'no'}`")
+    else:
+        lines.append("No exported issue path captured.")
     lines.extend(["", "## Notes", ""])
     lines.extend(f"- {note}" for note in notes)
     lines.append("")
@@ -167,6 +190,9 @@ def main(argv: list[str] | None = None) -> int:
     issue_id = "issue-001"
     worktree = ""
     result = "failure"
+    started_at = datetime.now(timezone.utc).isoformat()
+    final_state = ""
+    exported_run = paths.run_root / "exported-run.md"
     notes: list[str] = []
 
     try:
@@ -287,7 +313,7 @@ def main(argv: list[str] | None = None) -> int:
         checked(
             records,
             "export run",
-            go_ship_it_argv(paths, "export-run", issue_id, "--output", str(paths.run_root / "exported-run.md")),
+            go_ship_it_argv(paths, "export-run", issue_id, "--output", str(exported_run)),
             cwd=ROOT,
         )
         if args.cleanup_worktree:
@@ -306,8 +332,9 @@ def main(argv: list[str] | None = None) -> int:
                 ),
                 cwd=ROOT,
             )
-        checked(records, "status", go_ship_it_argv(paths, "status"), cwd=ROOT)
-        checked(records, "doctor", go_ship_it_argv(paths, "doctor"), cwd=ROOT)
+        status = checked(records, "status", go_ship_it_argv(paths, "status"), cwd=ROOT)
+        doctor = checked(records, "doctor", go_ship_it_argv(paths, "doctor"), cwd=ROOT)
+        final_state = "\n\n".join(part for part in (status.stdout.rstrip(), doctor.stdout.rstrip()) if part)
         result = "success"
         notes.append("Preserved run root for inspection." if not args.remove_run_root else "Removed run root after success.")
         return_code = 0
@@ -324,6 +351,10 @@ def main(argv: list[str] | None = None) -> int:
             records=records,
             result=result,
             notes=notes,
+            started_at=started_at,
+            finished_at=datetime.now(timezone.utc).isoformat(),
+            final_state=final_state,
+            exported_run=exported_run,
         )
         print(f"Report: {paths.report}")
         if args.remove_run_root and result == "success":

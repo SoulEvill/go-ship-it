@@ -5,6 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 HARNESS_PATH = ROOT / "scripts" / "run-target-e2e.py"
 
@@ -40,6 +42,25 @@ def test_parser_requires_explicit_target_arguments():
     assert args.setup_command == "python -c 'print(\"setup\")'"
     assert args.test_command == "python -c 'print(\"test\")'"
     assert args.default_branch == "main"
+
+
+@pytest.mark.parametrize("flag", ["--setup-command", "--test-command"])
+def test_parser_rejects_empty_required_commands(flag):
+    harness = load_harness()
+    argv = [
+        "--target-id",
+        "sample",
+        "--target-path",
+        "/tmp/sample",
+        "--setup-command",
+        "python -c 'print(\"setup\")'",
+        "--test-command",
+        "python -c 'print(\"test\")'",
+    ]
+    argv[argv.index(flag) + 1] = "   "
+
+    with pytest.raises(SystemExit):
+        harness.parse_args(argv)
 
 
 def test_run_paths_are_target_agnostic(tmp_path):
@@ -113,6 +134,35 @@ def test_report_writer_quotes_commands_and_includes_output(tmp_path):
     assert "`go-ship-it register-repo --setup-command 'env -u VIRTUAL_ENV uv sync --extra dev'`" in text
     assert "partial stdout" in text
     assert "argument error" in text
+
+
+def test_report_writer_includes_run_metadata_final_state_and_export(tmp_path):
+    harness = load_harness()
+    paths = harness.RunPaths.from_root(tmp_path, "sample")
+    exported_run = tmp_path / "exported-run.md"
+
+    harness.write_report(
+        paths=paths,
+        target_id="sample",
+        source_target=Path("/tmp/sample"),
+        issue_id="issue-001",
+        worktree="worktrees/sample/issue-001",
+        records=[],
+        result="success",
+        notes=[],
+        started_at="2026-06-30T00:00:00+00:00",
+        finished_at="2026-06-30T00:00:01+00:00",
+        final_state="No active issues.",
+        exported_run=exported_run,
+    )
+
+    text = paths.report.read_text()
+    assert "- Started at: `2026-06-30T00:00:00+00:00`" in text
+    assert "- Finished at: `2026-06-30T00:00:01+00:00`" in text
+    assert "## Final State" in text
+    assert "No active issues." in text
+    assert "## Exported Issue" in text
+    assert f"- Path: `{exported_run}`" in text
 
 
 def test_harness_runs_against_fake_target_repo(tmp_path):
