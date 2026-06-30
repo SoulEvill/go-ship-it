@@ -60,6 +60,109 @@ def test_parser_has_evidence_commands():
     assert check.check == "test"
 
 
+def test_parser_has_repo_config_commands():
+    parser = build_parser()
+
+    show = parser.parse_args(["show-repo", "parawave"])
+    assert show.command == "show-repo"
+    assert show.repo_id == "parawave"
+
+    update = parser.parse_args(
+        [
+            "update-repo",
+            "parawave",
+            "--test-command",
+            "env -u VIRTUAL_ENV uv run --extra dev pytest -q",
+            "--clear-lint-command",
+        ]
+    )
+    assert update.command == "update-repo"
+    assert update.repo_id == "parawave"
+    assert update.test_command == "env -u VIRTUAL_ENV uv run --extra dev pytest -q"
+    assert update.clear_lint_command is True
+
+
+def test_main_show_repo_prints_yaml(tmp_path, capsys):
+    register_repo(
+        tmp_path,
+        repo_id="sample",
+        path=Path("../sample"),
+        default_branch="main",
+        setup_command="uv sync",
+        test_command="uv run pytest",
+        lint_command=None,
+    )
+
+    exit_code = main(["--root", str(tmp_path), "show-repo", "sample"])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert captured.out == (
+        "id: sample\n"
+        "path: ../sample\n"
+        "default_branch: main\n"
+        "worktree_root: worktrees/sample\n"
+        "setup_command: uv sync\n"
+        "test_command: uv run pytest\n"
+        "lint_command: null\n"
+    )
+
+
+def test_main_update_repo_changes_command(tmp_path):
+    register_repo(
+        tmp_path,
+        repo_id="sample",
+        path=Path("../sample"),
+        default_branch="main",
+        setup_command="uv sync",
+        test_command="uv run pytest",
+        lint_command=None,
+    )
+
+    exit_code = main(
+        [
+            "--root",
+            str(tmp_path),
+            "update-repo",
+            "sample",
+            "--test-command",
+            "env -u VIRTUAL_ENV uv run --extra dev pytest -q",
+        ]
+    )
+
+    assert exit_code == 0
+    text = (tmp_path / "state" / "repos" / "sample.yaml").read_text()
+    assert "test_command: env -u VIRTUAL_ENV uv run --extra dev pytest -q" in text
+
+
+def test_main_update_repo_rejects_command_and_clear_conflict(tmp_path, capsys):
+    register_repo(
+        tmp_path,
+        repo_id="sample",
+        path=Path("../sample"),
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+    )
+
+    exit_code = main(
+        [
+            "--root",
+            str(tmp_path),
+            "update-repo",
+            "sample",
+            "--test-command",
+            "pytest",
+            "--clear-test-command",
+        ]
+    )
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "clear-test-command" in captured.err
+
+
 def test_main_append_note_records_journal_entry(tmp_path):
     _started_issue_root(tmp_path)
 

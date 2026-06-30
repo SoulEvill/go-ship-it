@@ -5,6 +5,8 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+import yaml
+
 from go_ship_it.state import (
     CheckFailedError,
     GoShipitError,
@@ -12,10 +14,12 @@ from go_ship_it.state import (
     append_note,
     cleanup_issue,
     ensure_layout,
+    read_repo_config,
     register_repo,
     run_check,
     set_phase,
     start_issue,
+    update_repo_config,
 )
 
 
@@ -36,6 +40,21 @@ def build_parser() -> argparse.ArgumentParser:
     register.add_argument("--setup-command", default=None)
     register.add_argument("--test-command", default=None)
     register.add_argument("--lint-command", default=None)
+
+    show_repo = subparsers.add_parser("show-repo", help="Print a registered repo configuration.")
+    show_repo.add_argument("repo_id")
+
+    update_repo = subparsers.add_parser("update-repo", help="Update a registered repo configuration.")
+    update_repo.add_argument("repo_id")
+    update_repo.add_argument("--path", default=None)
+    update_repo.add_argument("--default-branch", default=None)
+    update_repo.add_argument("--worktree-root", default=None)
+    update_repo.add_argument("--setup-command", default=None)
+    update_repo.add_argument("--test-command", default=None)
+    update_repo.add_argument("--lint-command", default=None)
+    update_repo.add_argument("--clear-setup-command", action="store_true")
+    update_repo.add_argument("--clear-test-command", action="store_true")
+    update_repo.add_argument("--clear-lint-command", action="store_true")
 
     issue = subparsers.add_parser("add-issue", help="Create a todo issue.")
     issue.add_argument("--repo", required=True)
@@ -75,6 +94,32 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _repo_updates(args: argparse.Namespace) -> tuple[dict[str, object], set[str]]:
+    pairs = {
+        "path": args.path,
+        "default_branch": args.default_branch,
+        "worktree_root": args.worktree_root,
+        "setup_command": args.setup_command,
+        "test_command": args.test_command,
+        "lint_command": args.lint_command,
+    }
+    updates = {key: value for key, value in pairs.items() if value is not None}
+    clears = {
+        field
+        for field, flag in {
+            "setup_command": args.clear_setup_command,
+            "test_command": args.clear_test_command,
+            "lint_command": args.clear_lint_command,
+        }.items()
+        if flag
+    }
+    conflicts = sorted(set(updates) & clears)
+    if conflicts:
+        flags = ", ".join(f"--clear-{field.replace('_', '-')}" for field in conflicts)
+        raise ValueError(f"Cannot set and clear the same command field: {flags}")
+    return updates, clears
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     try:
@@ -99,6 +144,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                 test_command=args.test_command,
                 lint_command=args.lint_command,
             )
+            print(repo_file)
+            return 0
+
+        if args.command == "show-repo":
+            config = read_repo_config(root, args.repo_id)
+            print(yaml.safe_dump(config, sort_keys=False, default_flow_style=False), end="")
+            return 0
+
+        if args.command == "update-repo":
+            updates, clears = _repo_updates(args)
+            repo_file = update_repo_config(root, args.repo_id, updates=updates, clears=clears)
             print(repo_file)
             return 0
 
