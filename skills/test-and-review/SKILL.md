@@ -15,6 +15,16 @@ Use after implementation and before cleanup.
 - Worktree path
 - Repo registry commands
 
+## Orientation
+
+Before checks, run:
+
+```sh
+go-ship-it show-run <issue-id>
+```
+
+Confirm the active run and configured checks before using `go-ship-it run-check`.
+
 ## Allowed State Reads
 
 - Active issue file

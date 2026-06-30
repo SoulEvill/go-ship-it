@@ -14,6 +14,17 @@ Use after investigation and before editing target source files.
 - Active issue id
 - Investigation notes
 
+## Orientation
+
+Before proposing, run:
+
+```sh
+go-ship-it show-issue <issue-id>
+go-ship-it show-run <issue-id>
+```
+
+Read the issue and journal before choosing an approach.
+
 ## Allowed State Reads
 
 - Active issue file

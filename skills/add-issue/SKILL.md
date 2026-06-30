@@ -17,6 +17,16 @@ Use when the user wants to capture new work before starting implementation.
 - Context
 - Acceptance criteria
 
+## Orientation
+
+Before adding an issue, run:
+
+```sh
+go-ship-it status
+```
+
+If repo setup is uncertain, also run `go-ship-it doctor` and confirm the target repo is registered.
+
 ## Allowed State Reads
 
 - `state/repos/<repo>.yaml`

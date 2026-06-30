@@ -14,6 +14,17 @@ Use after `start-issue` when the agent needs to understand the code, reproduce b
 - Active issue id
 - Worktree path
 
+## Orientation
+
+Before investigating, run:
+
+```sh
+go-ship-it show-issue <issue-id>
+go-ship-it show-run <issue-id>
+```
+
+Confirm the active issue, worktree, and current journal context before reading target repo files.
+
 ## Allowed State Reads
 
 - Active issue file

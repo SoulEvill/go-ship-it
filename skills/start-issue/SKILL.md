@@ -14,6 +14,17 @@ Use when the user picks a todo issue and wants to begin work in an isolated work
 - Issue id
 - Optional claimed-by label for the current human or agent thread
 
+## Orientation
+
+Before starting, run:
+
+```sh
+go-ship-it list-issues --state todo
+go-ship-it show-issue <issue-id>
+```
+
+Confirm the issue is still in `todo` and the target repo is the expected repo.
+
 ## Allowed State Reads
 
 - `state/issues/todo/<issue-id>.md`

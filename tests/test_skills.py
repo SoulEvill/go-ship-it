@@ -27,6 +27,16 @@ PHASE_SKILL_COMMANDS = {
     "cleanup-issue": ("go-ship-it set-phase", "go-ship-it cleanup-issue"),
 }
 
+ORIENTATION_COMMANDS = {
+    "add-issue": ("go-ship-it status",),
+    "start-issue": ("go-ship-it list-issues --state todo", "go-ship-it show-issue"),
+    "investigate-issue": ("go-ship-it show-issue", "go-ship-it show-run"),
+    "propose-fix": ("go-ship-it show-issue", "go-ship-it show-run"),
+    "implement-fix": ("go-ship-it show-run",),
+    "test-and-review": ("go-ship-it show-run",),
+    "cleanup-issue": ("go-ship-it doctor", "go-ship-it show-run"),
+}
+
 
 def test_expected_skill_folders_exist():
     root = Path(__file__).resolve().parents[1]
@@ -58,5 +68,14 @@ def test_phase_skills_reference_evidence_commands():
     root = Path(__file__).resolve().parents[1]
     for skill, commands in PHASE_SKILL_COMMANDS.items():
         text = (root / "skills" / skill / "SKILL.md").read_text()
+        for command in commands:
+            assert command in text, f"{skill} should mention {command}"
+
+
+def test_skills_include_orientation_commands():
+    root = Path(__file__).resolve().parents[1]
+    for skill, commands in ORIENTATION_COMMANDS.items():
+        text = (root / "skills" / skill / "SKILL.md").read_text()
+        assert "## Orientation" in text
         for command in commands:
             assert command in text, f"{skill} should mention {command}"

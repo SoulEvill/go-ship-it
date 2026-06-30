@@ -18,6 +18,10 @@ Detailed progress is stored as issue metadata:
 setup -> investigate -> propose -> implement -> test -> cleanup
 ```
 
+## Readiness Checks
+
+Use `go-ship-it status` for daily orientation and `go-ship-it doctor` before user e2e testing, cleanup, or handoff. `doctor` is read-only and reports inconsistent state, missing repos, stale locks, and skill packaging issues.
+
 Cleanup only changes state in two ways:
 
 ```text

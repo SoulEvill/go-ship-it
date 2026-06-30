@@ -16,6 +16,17 @@ Use when the user decides the active issue should leave execution.
 - Human-readable note
 - Whether to remove the managed worktree. This is required for `todo`.
 
+## Orientation
+
+Before cleanup, run:
+
+```sh
+go-ship-it show-run <issue-id>
+go-ship-it doctor
+```
+
+Confirm the active run, worktree, and cleanup destination before removing any worktree.
+
 ## Allowed State Reads
 
 - Active issue file

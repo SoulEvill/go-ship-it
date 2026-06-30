@@ -15,6 +15,16 @@ Use after a proposal is approved or the user explicitly asks to implement a narr
 - Worktree path
 - Approved proposal or explicit user instruction
 
+## Orientation
+
+Before editing, run:
+
+```sh
+go-ship-it show-run <issue-id>
+```
+
+Confirm proposal approval and the active worktree path before modifying target repo files.
+
 ## Allowed State Reads
 
 - Active issue file
