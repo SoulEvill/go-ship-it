@@ -7,6 +7,7 @@ from pathlib import Path
 
 import yaml
 
+from go_ship_it.portable import portable_path_value, portable_text, relative_to_root
 from go_ship_it.state import (
     CheckFailedError,
     GoShipitError,
@@ -161,7 +162,7 @@ def _format_issue_detail(detail: object, root: Path) -> str:
         f"Phase: {summary.phase}",
         f"Branch: {_display_value(branch)}",
         f"Worktree: {_display_value(worktree)}",
-        f"Issue File: {_relative_to_root(root, summary.issue_file)}",
+        f"Issue File: {relative_to_root(root, summary.issue_file)}",
         "",
         detail.body or "No issue body found.",
     ]
@@ -172,7 +173,7 @@ def _format_run_detail(detail: object, root: Path, *, include_commands: bool) ->
     lines = [
         f"# Run: {detail.issue_id}",
         "",
-        f"Run File: {_relative_to_root(root, detail.run_file)}",
+        f"Run File: {relative_to_root(root, detail.run_file)}",
         f"Phase: {_display_value(detail.run.get('phase'))}",
         f"Branch: {_display_value(detail.run.get('branch'))}",
         f"Worktree: {_display_value(detail.run.get('worktree'))}",
@@ -183,12 +184,12 @@ def _format_run_detail(detail: object, root: Path, *, include_commands: bool) ->
         for command in detail.commands:
             check = _display_value(command.get("check"))
             exit_code = _display_value(command.get("exit_code"))
-            command_text = _portable_text(root, command.get("command"))
+            command_text = portable_text(root, command.get("command"))
             lines.append(f"- {check} exit {exit_code}: {command_text}")
     else:
         lines.append("No command records found.")
 
-    journal = _portable_text(root, detail.journal).strip()
+    journal = portable_text(root, detail.journal).strip()
     lines.extend(["", "## Journal", "", journal or "No journal found."])
 
     if include_commands and detail.commands:
@@ -201,14 +202,14 @@ def _format_run_detail(detail: object, root: Path, *, include_commands: bool) ->
 
 def _format_command_record(command: dict[str, object], root: Path) -> list[str]:
     record_file = command.get("record_file")
-    record_label = _relative_to_root(root, record_file) if isinstance(record_file, Path) else str(record_file)
+    record_label = relative_to_root(root, record_file) if isinstance(record_file, Path) else str(record_file)
     return [
         "",
         f"### {record_label}",
         "",
         f"- Check: `{_display_value(command.get('check'))}`",
-        f"- Command: `{_portable_text(root, command.get('command'))}`",
-        f"- CWD: `{_portable_path_value(root, command.get('cwd'))}`",
+        f"- Command: `{portable_text(root, command.get('command'))}`",
+        f"- CWD: `{portable_path_value(root, command.get('cwd'))}`",
         f"- Exit Code: `{_display_value(command.get('exit_code'))}`",
         f"- Started: `{_display_value(command.get('started_at'))}`",
         f"- Ended: `{_display_value(command.get('ended_at'))}`",
@@ -216,13 +217,13 @@ def _format_command_record(command: dict[str, object], root: Path) -> list[str]:
         "Stdout tail:",
         "",
         "```text",
-        _portable_text(root, command.get("stdout_tail")).strip(),
+        portable_text(root, command.get("stdout_tail")).strip(),
         "```",
         "",
         "Stderr tail:",
         "",
         "```text",
-        _portable_text(root, command.get("stderr_tail")).strip(),
+        portable_text(root, command.get("stderr_tail")).strip(),
         "```",
     ]
 
@@ -251,34 +252,6 @@ def _format_status(status: object) -> str:
     else:
         lines.append("No preserved worktrees.")
     return "\n".join(lines)
-
-
-def _relative_to_root(root: Path, path: Path) -> str:
-    try:
-        return path.relative_to(root).as_posix()
-    except ValueError:
-        return str(path)
-
-
-def _portable_path_value(root: Path, value: object) -> str:
-    if not isinstance(value, str):
-        return _display_value(value)
-    path = Path(value)
-    if path.is_absolute():
-        return _relative_to_root(root, path)
-    return _portable_text(root, value)
-
-
-def _portable_text(root: Path, value: object) -> str:
-    if value is None:
-        return ""
-    text = str(value)
-    root_text = str(root)
-    return (
-        text.replace(f"file://{root_text}/", "file://go-ship-it-root/")
-        .replace(f"{root_text}/", "")
-        .replace(root_text, ".")
-    )
 
 
 def _display_value(value: object) -> str:
