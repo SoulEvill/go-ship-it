@@ -1,0 +1,7 @@
+id: parawave
+path: ../parawave
+default_branch: main
+worktree_root: worktrees/parawave
+setup_command: uv sync
+test_command: uv run pytest
+lint_command: null
