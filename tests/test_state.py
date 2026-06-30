@@ -9,6 +9,7 @@ from go_ship_it.state import (
     add_issue,
     cleanup_issue,
     ensure_layout,
+    next_issue_id,
     register_repo,
     start_issue,
 )
@@ -98,6 +99,13 @@ def test_add_issue_rejects_unregistered_repo(tmp_path):
         )
 
     assert not list((tmp_path / "state" / "issues" / "todo").glob("issue-*.md"))
+
+
+def test_next_issue_id_counts_preserved_managed_worktrees(tmp_path):
+    ensure_layout(tmp_path)
+    (tmp_path / "worktrees" / "sample" / "issue-001").mkdir(parents=True)
+
+    assert next_issue_id(tmp_path) == "issue-002"
 
 
 def _run_git(repo: Path, *args: str) -> None:

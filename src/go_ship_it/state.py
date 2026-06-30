@@ -83,6 +83,8 @@ def next_issue_id(root: Path) -> str:
         root / "state" / "issues" / "archive",
     )
     existing = [path for directory in issue_dirs for path in _collect_issue_files(directory)]
+    existing.extend(_collect_issue_dirs(root / "state" / "runs"))
+    existing.extend(_collect_worktree_issue_dirs(root / "worktrees"))
     next_number = max((_issue_number(path) for path in existing), default=0) + 1
     return f"issue-{next_number:03d}"
 
@@ -571,8 +573,24 @@ def _collect_issue_files(directory: Path) -> list[Path]:
     return sorted(directory.glob("issue-*.md"))
 
 
+def _collect_issue_dirs(directory: Path) -> list[Path]:
+    if not directory.exists():
+        return []
+    return sorted(path for path in directory.glob("issue-*") if path.is_dir())
+
+
+def _collect_worktree_issue_dirs(worktrees_root: Path) -> list[Path]:
+    if not worktrees_root.exists():
+        return []
+    issue_dirs: list[Path] = []
+    for repo_dir in worktrees_root.iterdir():
+        if repo_dir.is_dir():
+            issue_dirs.extend(path for path in repo_dir.glob("issue-*") if path.is_dir())
+    return sorted(issue_dirs)
+
+
 def _issue_number(path: Path) -> int:
-    match = re.fullmatch(r"issue-(\d+)\.md", path.name)
+    match = re.fullmatch(r"issue-(\d+)(?:\.md)?", path.name)
     return int(match.group(1)) if match else 0
 
 
