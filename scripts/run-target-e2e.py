@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -43,7 +44,7 @@ class CommandRecord:
 
     @property
     def command_text(self) -> str:
-        return " ".join(self.command)
+        return shlex.join(self.command)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -120,6 +121,27 @@ def write_report(
     ]
     for record in records:
         lines.append(f"| {record.step} | `{record.command_text}` | `{record.cwd}` | {record.exit_code} |")
+    if records:
+        lines.extend(["", "## Command Output", ""])
+        for record in records:
+            lines.extend(
+                [
+                    f"### {record.step}",
+                    "",
+                    "Stdout:",
+                    "",
+                    "```text",
+                    record.stdout.rstrip(),
+                    "```",
+                    "",
+                    "Stderr:",
+                    "",
+                    "```text",
+                    record.stderr.rstrip(),
+                    "```",
+                    "",
+                ]
+            )
     lines.extend(["", "## Notes", ""])
     lines.extend(f"- {note}" for note in notes)
     lines.append("")

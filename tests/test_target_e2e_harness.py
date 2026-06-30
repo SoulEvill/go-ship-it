@@ -84,6 +84,37 @@ def test_report_writer_includes_command_records(tmp_path):
     assert "Preserved run root for inspection." in text
 
 
+def test_report_writer_quotes_commands_and_includes_output(tmp_path):
+    harness = load_harness()
+    paths = harness.RunPaths.from_root(tmp_path, "sample")
+    records = [
+        harness.CommandRecord(
+            step="register target",
+            command=["go-ship-it", "register-repo", "--setup-command", "env -u VIRTUAL_ENV uv sync --extra dev"],
+            cwd=str(ROOT),
+            exit_code=2,
+            stdout="partial stdout",
+            stderr="argument error",
+        )
+    ]
+
+    harness.write_report(
+        paths=paths,
+        target_id="sample",
+        source_target=Path("/tmp/sample"),
+        issue_id="issue-001",
+        worktree="",
+        records=records,
+        result="failure",
+        notes=["register target failed with exit code 2"],
+    )
+
+    text = paths.report.read_text()
+    assert "`go-ship-it register-repo --setup-command 'env -u VIRTUAL_ENV uv sync --extra dev'`" in text
+    assert "partial stdout" in text
+    assert "argument error" in text
+
+
 def test_harness_runs_against_fake_target_repo(tmp_path):
     harness = load_harness()
     source = _create_fake_target_repo(tmp_path / "source-target")
