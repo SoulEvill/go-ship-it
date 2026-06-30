@@ -15,12 +15,16 @@ from go_ship_it.state import (
     cleanup_issue,
     ensure_layout,
     export_run,
+    list_issues,
     read_repo_config,
     register_repo,
     run_check,
     set_phase,
+    show_issue,
+    show_run,
     start_issue,
     update_repo_config,
+    workspace_status,
 )
 
 
@@ -93,6 +97,19 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument("issue_id")
     check.add_argument("--check", choices=["setup", "test", "lint"], required=True)
 
+    list_cmd = subparsers.add_parser("list-issues", help="List issues.")
+    list_cmd.add_argument("--state", choices=["todo", "execution", "archive", "all"], default="all")
+    list_cmd.add_argument("--repo", default=None)
+
+    show_issue_cmd = subparsers.add_parser("show-issue", help="Show one issue.")
+    show_issue_cmd.add_argument("issue_id")
+
+    show_run_cmd = subparsers.add_parser("show-run", help="Show one run.")
+    show_run_cmd.add_argument("issue_id")
+    show_run_cmd.add_argument("--commands", action="store_true")
+
+    subparsers.add_parser("status", help="Show workspace status.")
+
     export = subparsers.add_parser("export-run", help="Export run evidence to Markdown.")
     export.add_argument("issue_id")
     export.add_argument("--output", required=True)
@@ -123,6 +140,149 @@ def _repo_updates(args: argparse.Namespace) -> tuple[dict[str, object], set[str]
         flags = ", ".join(f"--clear-{field.replace('_', '-')}" for field in conflicts)
         raise ValueError(f"Cannot set and clear the same command field: {flags}")
     return updates, clears
+
+
+def _format_issue_list(items: list[object]) -> str:
+    if not items:
+        return "No issues found."
+    return "\n".join(f"{item.issue_id} [{item.status}] {item.repo} - {item.title}" for item in items)
+
+
+def _format_issue_detail(detail: object, root: Path) -> str:
+    summary = detail.summary
+    branch = detail.metadata.get("branch")
+    worktree = detail.metadata.get("worktree")
+    lines = [
+        f"# {summary.issue_id}",
+        "",
+        f"Title: {summary.title}",
+        f"Repo: {summary.repo}",
+        f"Status: {summary.status}",
+        f"Phase: {summary.phase}",
+        f"Branch: {_display_value(branch)}",
+        f"Worktree: {_display_value(worktree)}",
+        f"Issue File: {_relative_to_root(root, summary.issue_file)}",
+        "",
+        detail.body or "No issue body found.",
+    ]
+    return "\n".join(lines).rstrip()
+
+
+def _format_run_detail(detail: object, root: Path, *, include_commands: bool) -> str:
+    lines = [
+        f"# Run: {detail.issue_id}",
+        "",
+        f"Run File: {_relative_to_root(root, detail.run_file)}",
+        f"Phase: {_display_value(detail.run.get('phase'))}",
+        f"Branch: {_display_value(detail.run.get('branch'))}",
+        f"Worktree: {_display_value(detail.run.get('worktree'))}",
+        "",
+        "## Command Summary",
+    ]
+    if detail.commands:
+        for command in detail.commands:
+            check = _display_value(command.get("check"))
+            exit_code = _display_value(command.get("exit_code"))
+            command_text = _portable_text(root, command.get("command"))
+            lines.append(f"- {check} exit {exit_code}: {command_text}")
+    else:
+        lines.append("No command records found.")
+
+    journal = _portable_text(root, detail.journal).strip()
+    lines.extend(["", "## Journal", "", journal or "No journal found."])
+
+    if include_commands and detail.commands:
+        lines.extend(["", "## Command Records"])
+        for command in detail.commands:
+            lines.extend(_format_command_record(command, root))
+
+    return "\n".join(lines).rstrip()
+
+
+def _format_command_record(command: dict[str, object], root: Path) -> list[str]:
+    record_file = command.get("record_file")
+    record_label = _relative_to_root(root, record_file) if isinstance(record_file, Path) else str(record_file)
+    return [
+        "",
+        f"### {record_label}",
+        "",
+        f"- Check: `{_display_value(command.get('check'))}`",
+        f"- Command: `{_portable_text(root, command.get('command'))}`",
+        f"- CWD: `{_portable_path_value(root, command.get('cwd'))}`",
+        f"- Exit Code: `{_display_value(command.get('exit_code'))}`",
+        f"- Started: `{_display_value(command.get('started_at'))}`",
+        f"- Ended: `{_display_value(command.get('ended_at'))}`",
+        "",
+        "Stdout tail:",
+        "",
+        "```text",
+        _portable_text(root, command.get("stdout_tail")).strip(),
+        "```",
+        "",
+        "Stderr tail:",
+        "",
+        "```text",
+        _portable_text(root, command.get("stderr_tail")).strip(),
+        "```",
+    ]
+
+
+def _format_status(status: object) -> str:
+    lines = [
+        "# GoShipit Status",
+        "",
+        f"Repos: {status.repo_count}",
+        f"Todo: {status.todo_count}",
+        f"Execution: {status.execution_count}",
+        f"Archive: {status.archive_count}",
+        f"Runs: {status.run_count}",
+        f"Managed Worktrees: {len(status.worktrees)}",
+        "",
+        "## Active Issues",
+    ]
+    if status.active:
+        lines.extend(f"- {item.issue_id} {item.repo} {item.title}" for item in status.active)
+    else:
+        lines.append("No active issues.")
+
+    lines.extend(["", "## Preserved Worktrees"])
+    if status.worktrees:
+        lines.extend(f"- {item}" for item in status.worktrees)
+    else:
+        lines.append("No preserved worktrees.")
+    return "\n".join(lines)
+
+
+def _relative_to_root(root: Path, path: Path) -> str:
+    try:
+        return path.relative_to(root).as_posix()
+    except ValueError:
+        return str(path)
+
+
+def _portable_path_value(root: Path, value: object) -> str:
+    if not isinstance(value, str):
+        return _display_value(value)
+    path = Path(value)
+    if path.is_absolute():
+        return _relative_to_root(root, path)
+    return _portable_text(root, value)
+
+
+def _portable_text(root: Path, value: object) -> str:
+    if value is None:
+        return ""
+    text = str(value)
+    root_text = str(root)
+    return (
+        text.replace(f"file://{root_text}/", "file://go-ship-it-root/")
+        .replace(f"{root_text}/", "")
+        .replace(root_text, ".")
+    )
+
+
+def _display_value(value: object) -> str:
+    return "" if value is None else str(value)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -204,6 +364,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "run-check":
             record = run_check(root, args.issue_id, check=args.check)
             print(record)
+            return 0
+
+        if args.command == "list-issues":
+            print(_format_issue_list(list_issues(root, state=args.state, repo_id=args.repo)))
+            return 0
+
+        if args.command == "show-issue":
+            print(_format_issue_detail(show_issue(root, args.issue_id), root))
+            return 0
+
+        if args.command == "show-run":
+            print(_format_run_detail(show_run(root, args.issue_id), root, include_commands=args.commands))
+            return 0
+
+        if args.command == "status":
+            print(_format_status(workspace_status(root)))
             return 0
 
         if args.command == "export-run":

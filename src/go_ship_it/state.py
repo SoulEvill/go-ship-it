@@ -85,6 +85,7 @@ class IssueSummary:
 @dataclass(frozen=True)
 class IssueDetail:
     summary: IssueSummary
+    metadata: dict[str, object]
     body: str
 
 
@@ -200,7 +201,7 @@ def show_issue(root: Path, issue_id: str) -> IssueDetail:
         phase=str(metadata.get("phase") or ""),
         issue_file=issue_file,
     )
-    return IssueDetail(summary=summary, body=body.strip())
+    return IssueDetail(summary=summary, metadata=metadata, body=body.strip())
 
 
 def show_run(root: Path, issue_id: str) -> RunDetail:

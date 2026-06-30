@@ -4,7 +4,7 @@ import subprocess
 from go_ship_it import __version__
 from go_ship_it.cli import build_parser, main
 from go_ship_it.frontmatter import parse_frontmatter
-from go_ship_it.state import add_issue, register_repo, start_issue
+from go_ship_it.state import add_issue, append_note, register_repo, run_check, start_issue
 
 
 def test_version_is_defined():
@@ -85,6 +85,15 @@ def test_parser_has_repo_config_commands():
     assert update.repo_id == "parawave"
     assert update.test_command == "env -u VIRTUAL_ENV uv run --extra dev pytest -q"
     assert update.clear_lint_command is True
+
+
+def test_parser_has_navigation_commands():
+    parser = build_parser()
+    assert parser.parse_args(["list-issues"]).command == "list-issues"
+    assert parser.parse_args(["list-issues", "--state", "execution", "--repo", "parawave"]).state == "execution"
+    assert parser.parse_args(["show-issue", "issue-001"]).command == "show-issue"
+    assert parser.parse_args(["show-run", "issue-001", "--commands"]).commands is True
+    assert parser.parse_args(["status"]).command == "status"
 
 
 def test_main_show_repo_prints_yaml(tmp_path, capsys):
@@ -168,6 +177,82 @@ def test_main_update_repo_rejects_command_and_clear_conflict(tmp_path, capsys):
     assert "clear-test-command" in captured.err
 
 
+def test_main_list_issues_prints_issue_summary(tmp_path, capsys):
+    _started_issue_root(tmp_path)
+
+    exit_code = main(["--root", str(tmp_path), "list-issues"])
+
+    assert exit_code == 0
+    assert "issue-001 [execution] sample - Change README" in capsys.readouterr().out
+
+
+def test_main_list_issues_prints_no_matches(tmp_path, capsys):
+    exit_code = main(["--root", str(tmp_path), "list-issues"])
+
+    assert exit_code == 0
+    assert capsys.readouterr().out == "No issues found.\n"
+
+
+def test_main_show_issue_prints_body_and_metadata(tmp_path, capsys):
+    _started_issue_root(tmp_path)
+
+    exit_code = main(["--root", str(tmp_path), "show-issue", "issue-001"])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "# issue-001" in out
+    assert "Branch: go-ship-it/issue-001" in out
+    assert "Worktree: worktrees/sample/issue-001" in out
+    assert "Issue File: state/issues/execution/issue-001.md" in out
+    assert "README needs another line." in out
+
+
+def test_main_show_run_prints_summary_without_command_tails(tmp_path, capsys):
+    root = _started_issue_root(tmp_path, test_command="python -c 'print(\"ok\")'")
+    append_note(root, "issue-001", section="Investigation", note="Read files.", phase="investigate")
+    run_check(root, "issue-001", check="test")
+
+    exit_code = main(["--root", str(tmp_path), "show-run", "issue-001"])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "# Run: issue-001" in out
+    assert "- test exit 0: python -c 'print(\"ok\")'" in out
+    assert "Read files." in out
+    assert "Stdout tail:" not in out
+
+
+def test_main_show_run_commands_prints_portable_tails(tmp_path, capsys):
+    root = _started_issue_root(tmp_path, test_command="python -c 'print(\"ok\")'")
+    run_check(root, "issue-001", check="test")
+    capsys.readouterr()
+
+    exit_code = main(["--root", str(tmp_path), "show-run", "issue-001", "--commands"])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "## Command Records" in out
+    assert "- CWD: `worktrees/sample/issue-001`" in out
+    assert "Stdout tail:" in out
+    assert "ok" in out
+    assert str(tmp_path) not in out
+
+
+def test_main_status_prints_workspace_summary(tmp_path, capsys):
+    _started_issue_root(tmp_path)
+
+    exit_code = main(["--root", str(tmp_path), "status"])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "# GoShipit Status" in out
+    assert "Repos: 1" in out
+    assert "Execution: 1" in out
+    assert "Managed Worktrees: 1" in out
+    assert "- issue-001 sample Change README" in out
+    assert "- sample/issue-001" in out
+
+
 def test_main_export_run_relative_output_uses_root(tmp_path):
     _started_issue_root(tmp_path)
 
@@ -228,7 +313,7 @@ def test_main_set_phase_updates_active_issue(tmp_path):
     assert "Ready to propose" in journal
 
 
-def _started_issue_root(tmp_path: Path) -> Path:
+def _started_issue_root(tmp_path: Path, *, test_command: str | None = None) -> Path:
     target = _create_git_repo(tmp_path / "target")
     register_repo(
         tmp_path,
@@ -236,7 +321,7 @@ def _started_issue_root(tmp_path: Path) -> Path:
         path=target,
         default_branch="main",
         setup_command=None,
-        test_command=None,
+        test_command=test_command,
         lint_command=None,
     )
     add_issue(
