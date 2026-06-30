@@ -14,6 +14,7 @@ from go_ship_it.state import (
     append_note,
     cleanup_issue,
     ensure_layout,
+    export_run,
     read_repo_config,
     register_repo,
     run_check,
@@ -91,6 +92,10 @@ def build_parser() -> argparse.ArgumentParser:
     check = subparsers.add_parser("run-check", help="Run a registered repo check and record evidence.")
     check.add_argument("issue_id")
     check.add_argument("--check", choices=["setup", "test", "lint"], required=True)
+
+    export = subparsers.add_parser("export-run", help="Export run evidence to Markdown.")
+    export.add_argument("issue_id")
+    export.add_argument("--output", required=True)
     return parser
 
 
@@ -199,6 +204,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "run-check":
             record = run_check(root, args.issue_id, check=args.check)
             print(record)
+            return 0
+
+        if args.command == "export-run":
+            output = export_run(root, args.issue_id, output=Path(args.output))
+            print(output)
             return 0
     except CheckFailedError as exc:
         print(exc, file=sys.stderr)

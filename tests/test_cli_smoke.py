@@ -59,6 +59,11 @@ def test_parser_has_evidence_commands():
     assert check.issue_id == "issue-001"
     assert check.check == "test"
 
+    export = parser.parse_args(["export-run", "issue-001", "--output", "docs/dogfood/issue-001-evidence.md"])
+    assert export.command == "export-run"
+    assert export.issue_id == "issue-001"
+    assert export.output == "docs/dogfood/issue-001-evidence.md"
+
 
 def test_parser_has_repo_config_commands():
     parser = build_parser()
