@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 from pathlib import Path
 
@@ -81,3 +82,61 @@ def test_report_writer_includes_command_records(tmp_path):
     assert "# GoShipit Target E2E Report" in text
     assert "| status | `uv run go-ship-it status` |" in text
     assert "Preserved run root for inspection." in text
+
+
+def test_harness_runs_against_fake_target_repo(tmp_path):
+    harness = load_harness()
+    source = _create_fake_target_repo(tmp_path / "source-target")
+    run_root = tmp_path / "run"
+
+    exit_code = harness.main(
+        [
+            "--target-id",
+            "fake",
+            "--target-path",
+            str(source),
+            "--setup-command",
+            "python -c 'print(\"setup ok\")'",
+            "--test-command",
+            "python -c 'print(\"test ok\")'",
+            "--run-root",
+            str(run_root),
+            "--cleanup-worktree",
+        ]
+    )
+
+    assert exit_code == 0
+    report = (run_root / "report.md").read_text()
+    assert "Result: `success`" in report
+    assert "add issue" in report
+    assert "start issue" in report
+    assert "run test check" in report
+    assert "cleanup issue" in report
+
+
+def _create_fake_target_repo(path: Path) -> Path:
+    path.mkdir(parents=True)
+    (path / "pyproject.toml").write_text(
+        "[project]\n"
+        'name = "fake-target"\n'
+        'version = "0.1.0"\n'
+        'requires-python = ">=3.11"\n'
+    )
+    (path / "README.md").write_text("# Fake Target\n")
+    _git(path, "init", "-b", "main")
+    _git(path, "add", ".")
+    _git(
+        path,
+        "-c",
+        "user.name=GoShipit Test",
+        "-c",
+        "user.email=go-ship-it@example.test",
+        "commit",
+        "-m",
+        "initial fake target",
+    )
+    return path
+
+
+def _git(cwd: Path, *args: str) -> None:
+    subprocess.run(["git", *args], cwd=cwd, check=True, text=True, capture_output=True)

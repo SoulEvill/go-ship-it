@@ -4,6 +4,8 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import re
+import shutil
+import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -67,6 +69,27 @@ def make_run_root() -> Path:
     return Path(tempfile.mkdtemp(prefix=f"go-ship-it-target-e2e-{timestamp}-"))
 
 
+def checked(records: list[CommandRecord], step: str, command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+    completed = subprocess.run(command, cwd=cwd, text=True, capture_output=True)
+    records.append(
+        CommandRecord(
+            step=step,
+            command=command,
+            cwd=str(cwd),
+            exit_code=completed.returncode,
+            stdout=completed.stdout,
+            stderr=completed.stderr,
+        )
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(f"{step} failed with exit code {completed.returncode}")
+    return completed
+
+
+def go_ship_it_argv(paths: RunPaths, *args: str) -> list[str]:
+    return ["uv", "run", "go-ship-it", "--root", str(paths.state_root), *args]
+
+
 def write_report(
     *,
     paths: RunPaths,
@@ -106,12 +129,187 @@ def write_report(
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     validate_target_id(args.target_id)
+    source_target = Path(args.target_path).resolve()
+    if not source_target.exists():
+        raise SystemExit(f"target path does not exist: {source_target}")
+    if not (source_target / ".git").exists():
+        raise SystemExit(f"target path is not a git repo: {source_target}")
+
     run_root = Path(args.run_root).resolve() if args.run_root else make_run_root()
     paths = RunPaths.from_root(run_root, args.target_id)
     paths.run_root.mkdir(parents=True, exist_ok=True)
-    print(f"Run root: {paths.run_root}")
-    print(f"Report: {paths.report}")
-    return 0
+    paths.state_root.mkdir(parents=True, exist_ok=True)
+    paths.target_clone.parent.mkdir(parents=True, exist_ok=True)
+
+    records: list[CommandRecord] = []
+    issue_id = "issue-001"
+    worktree = ""
+    result = "failure"
+    notes: list[str] = []
+
+    try:
+        checked(records, "clone target", ["git", "clone", str(source_target), str(paths.target_clone)], cwd=run_root)
+        checked(
+            records,
+            "register target",
+            go_ship_it_argv(
+                paths,
+                "register-repo",
+                args.target_id,
+                str(paths.target_clone),
+                "--default-branch",
+                args.default_branch,
+                "--setup-command",
+                args.setup_command,
+                "--test-command",
+                args.test_command,
+            ),
+            cwd=ROOT,
+        )
+        add = checked(
+            records,
+            "add issue",
+            go_ship_it_argv(
+                paths,
+                "add-issue",
+                "--repo",
+                args.target_id,
+                "--title",
+                "Run disposable target e2e",
+                "--problem",
+                "Exercise GoShipit lifecycle against an isolated target clone.",
+                "--context",
+                "Created by scripts/run-target-e2e.py.",
+                "--acceptance",
+                "Configured setup and test checks pass.",
+            ),
+            cwd=ROOT,
+        )
+        issue_path = Path(add.stdout.strip())
+        if issue_path.name:
+            issue_id = issue_path.stem
+        start = checked(records, "start issue", go_ship_it_argv(paths, "start-issue", issue_id, "--claimed-by", "target-e2e"), cwd=ROOT)
+        worktree = start.stdout.strip()
+        worktree_path = Path(worktree)
+        if not worktree_path.is_absolute():
+            worktree_path = paths.state_root / worktree_path
+        marker_dir = worktree_path / ".go-ship-it-e2e"
+        marker_dir.mkdir(parents=True, exist_ok=True)
+        (marker_dir / f"{issue_id}.txt").write_text("GoShipit disposable target e2e marker.\n")
+        checked(records, "git add marker", ["git", "add", ".go-ship-it-e2e"], cwd=worktree_path)
+        checked(
+            records,
+            "git commit marker",
+            [
+                "git",
+                "-c",
+                "user.name=GoShipit E2E",
+                "-c",
+                "user.email=go-ship-it-e2e@example.test",
+                "commit",
+                "-m",
+                "test: add go ship it e2e marker",
+            ],
+            cwd=worktree_path,
+        )
+        checked(
+            records,
+            "note investigation",
+            go_ship_it_argv(
+                paths,
+                "append-note",
+                issue_id,
+                "--section",
+                "Investigation",
+                "--phase",
+                "investigate",
+                "--note",
+                "Disposable target clone and worktree were created successfully.",
+            ),
+            cwd=ROOT,
+        )
+        checked(
+            records,
+            "note proposal",
+            go_ship_it_argv(
+                paths,
+                "append-note",
+                issue_id,
+                "--section",
+                "Proposal",
+                "--phase",
+                "propose",
+                "--note",
+                "Use a harmless marker file to prove implementation and check execution.",
+            ),
+            cwd=ROOT,
+        )
+        checked(records, "run setup check", go_ship_it_argv(paths, "run-check", issue_id, "--check", "setup"), cwd=ROOT)
+        checked(records, "run test check", go_ship_it_argv(paths, "run-check", issue_id, "--check", "test"), cwd=ROOT)
+        checked(
+            records,
+            "note review",
+            go_ship_it_argv(
+                paths,
+                "append-note",
+                issue_id,
+                "--section",
+                "Review",
+                "--phase",
+                "test",
+                "--note",
+                "Configured setup and test checks passed in the disposable target clone.",
+            ),
+            cwd=ROOT,
+        )
+        checked(
+            records,
+            "export run",
+            go_ship_it_argv(paths, "export-run", issue_id, "--output", str(paths.run_root / "exported-run.md")),
+            cwd=ROOT,
+        )
+        if args.cleanup_worktree:
+            checked(
+                records,
+                "cleanup issue",
+                go_ship_it_argv(
+                    paths,
+                    "cleanup-issue",
+                    issue_id,
+                    "--destination",
+                    "archive",
+                    "--note",
+                    "Disposable target e2e complete.",
+                    "--remove-worktree",
+                ),
+                cwd=ROOT,
+            )
+        checked(records, "status", go_ship_it_argv(paths, "status"), cwd=ROOT)
+        checked(records, "doctor", go_ship_it_argv(paths, "doctor"), cwd=ROOT)
+        result = "success"
+        notes.append("Preserved run root for inspection." if not args.remove_run_root else "Removed run root after success.")
+        return_code = 0
+    except Exception as exc:
+        notes.append(str(exc))
+        return_code = 1
+    finally:
+        write_report(
+            paths=paths,
+            target_id=args.target_id,
+            source_target=source_target,
+            issue_id=issue_id,
+            worktree=worktree,
+            records=records,
+            result=result,
+            notes=notes,
+        )
+        print(f"Report: {paths.report}")
+        if args.remove_run_root and result == "success":
+            shutil.rmtree(paths.run_root)
+            print("Removed run root after successful run.")
+        else:
+            print(f"Preserved run root: {paths.run_root}")
+    return return_code
 
 
 if __name__ == "__main__":
