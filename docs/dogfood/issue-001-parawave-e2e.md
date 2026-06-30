@@ -68,3 +68,8 @@ same worktree passed the full suite when run with dev extras explicitly.
 Add a small command-inspection or repo-command update path so GoShipit can show
 the registered setup/test/lint commands before a run and make command
 misconfiguration easier to spot before test/review.
+
+## Follow-Up Applied
+
+The next milestone updates the Parawave registered commands to use the dev-extra
+command that passed during this dogfood run.
