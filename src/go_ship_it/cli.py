@@ -5,7 +5,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from go_ship_it.state import GoShipitError, add_issue, ensure_layout, register_repo, start_issue
+from go_ship_it.state import GoShipitError, add_issue, cleanup_issue, ensure_layout, register_repo, start_issue
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -36,6 +36,16 @@ def build_parser() -> argparse.ArgumentParser:
     start = subparsers.add_parser("start-issue", help="Claim a todo issue and create its worktree.")
     start.add_argument("issue_id")
     start.add_argument("--claimed-by", default=None)
+
+    cleanup = subparsers.add_parser("cleanup-issue", help="Return an execution issue to todo or archive it.")
+    cleanup.add_argument("issue_id")
+    cleanup.add_argument("--destination", choices=["todo", "archive"], required=True)
+    cleanup.add_argument("--note", required=True)
+    cleanup.add_argument(
+        "--remove-worktree",
+        action="store_true",
+        help="Remove the managed worktree. Required when returning to todo.",
+    )
     return parser
 
 
@@ -81,6 +91,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "start-issue":
             run = start_issue(root, args.issue_id, claimed_by=args.claimed_by)
             print(run.worktree)
+            return 0
+
+        if args.command == "cleanup-issue":
+            issue_file = cleanup_issue(
+                root,
+                args.issue_id,
+                destination=args.destination,
+                note=args.note,
+                remove_worktree=args.remove_worktree,
+            )
+            print(issue_file)
             return 0
     except (GoShipitError, OSError, ValueError) as exc:
         print(exc, file=sys.stderr)

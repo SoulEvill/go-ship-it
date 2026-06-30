@@ -7,6 +7,7 @@ from go_ship_it.frontmatter import parse_frontmatter
 from go_ship_it.state import (
     IssueAlreadyActiveError,
     add_issue,
+    cleanup_issue,
     ensure_layout,
     register_repo,
     start_issue,
@@ -77,6 +78,11 @@ def test_add_issue_creates_todo_markdown(tmp_path):
 
 def _run_git(repo: Path, *args: str) -> None:
     subprocess.run(["git", "-C", str(repo), *args], check=True)
+
+
+def _git_output(repo: Path, *args: str) -> str:
+    result = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, check=True, text=True)
+    return result.stdout
 
 
 def _create_git_repo(path: Path) -> Path:
@@ -197,3 +203,80 @@ def test_start_issue_leaves_todo_unmoved_when_target_repo_is_missing(tmp_path):
     assert not (tmp_path / "state" / "issues" / "execution" / "issue-001.md").exists()
     assert not (tmp_path / "state" / "runs" / "issue-001" / "claim.lock").exists()
     assert not (tmp_path / "worktrees" / "sample" / "issue-001").exists()
+
+
+def _started_issue_root(tmp_path: Path) -> Path:
+    target = _create_git_repo(tmp_path / "target")
+    register_repo(
+        tmp_path,
+        repo_id="sample",
+        path=target,
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+    )
+    _add_sample_issue(tmp_path)
+    start_issue(tmp_path, "issue-001", claimed_by="test-thread")
+    return tmp_path
+
+
+def test_cleanup_return_to_todo_moves_issue_back_and_removes_active_worktree(tmp_path):
+    root = _started_issue_root(tmp_path)
+
+    active_worktree = root / "worktrees" / "sample" / "issue-001"
+    assert active_worktree.exists()
+
+    result = cleanup_issue(root, "issue-001", destination="todo", note="Needs a clearer ask.", remove_worktree=True)
+
+    assert result == root / "state" / "issues" / "todo" / "issue-001.md"
+    assert result.exists()
+    assert not active_worktree.exists()
+    assert not (root / "state" / "issues" / "execution" / "issue-001.md").exists()
+    metadata, _body = parse_frontmatter(result.read_text())
+    assert metadata["status"] == "todo"
+    assert metadata["phase"] == "setup"
+    assert metadata["worktree"] is None
+    assert metadata["branch"] is None
+    assert (root / "state" / "runs" / "issue-001" / "run.yaml").exists()
+    assert "cleanup_destination: todo\n" in (root / "state" / "runs" / "issue-001" / "run.yaml").read_text()
+    assert "Needs a clearer ask." in (root / "state" / "runs" / "issue-001" / "journal.md").read_text()
+    assert not (root / "state" / "runs" / "issue-001" / "claim.lock").exists()
+    assert "go-ship-it/issue-001" not in _git_output(root / "target", "branch", "--list", "go-ship-it/issue-001")
+
+
+def test_cleanup_return_to_todo_requires_worktree_removal(tmp_path):
+    root = _started_issue_root(tmp_path)
+
+    with pytest.raises(ValueError, match="returning an issue to todo requires remove_worktree=True"):
+        cleanup_issue(root, "issue-001", destination="todo", note="Needs a clearer ask.", remove_worktree=False)
+
+    assert (root / "state" / "issues" / "execution" / "issue-001.md").exists()
+    assert (root / "worktrees" / "sample" / "issue-001").exists()
+    assert (root / "state" / "runs" / "issue-001" / "claim.lock").exists()
+
+
+def test_cleanup_archive_moves_issue_to_archive_and_preserves_worktree(tmp_path):
+    root = _started_issue_root(tmp_path)
+    active_worktree = root / "worktrees" / "sample" / "issue-001"
+
+    result = cleanup_issue(root, "issue-001", destination="archive", note="Closed after review.", remove_worktree=False)
+
+    assert result == root / "state" / "issues" / "archive" / "issue-001.md"
+    assert result.exists()
+    assert active_worktree.exists()
+    assert not (root / "state" / "issues" / "execution" / "issue-001.md").exists()
+    metadata, body = parse_frontmatter(result.read_text())
+    assert metadata["status"] == "archive"
+    assert metadata["phase"] == "cleanup"
+    assert "Closed after review." in body
+    assert not (root / "state" / "runs" / "issue-001" / "claim.lock").exists()
+
+
+def test_cleanup_archive_can_remove_managed_worktree(tmp_path):
+    root = _started_issue_root(tmp_path)
+    active_worktree = root / "worktrees" / "sample" / "issue-001"
+
+    cleanup_issue(root, "issue-001", destination="archive", note="Closed after review.", remove_worktree=True)
+
+    assert not active_worktree.exists()

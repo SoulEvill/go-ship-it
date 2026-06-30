@@ -208,6 +208,75 @@ def start_issue(root: Path, issue_id: str, *, claimed_by: str | None = None) -> 
         raise
 
 
+def cleanup_issue(
+    root: Path,
+    issue_id: str,
+    *,
+    destination: str,
+    note: str,
+    remove_worktree: bool,
+) -> Path:
+    ensure_layout(root)
+    safe_issue_id = _safe_id(issue_id)
+    if destination not in {"todo", "archive"}:
+        raise ValueError("destination must be 'todo' or 'archive'")
+    if destination == "todo" and not remove_worktree:
+        raise ValueError("returning an issue to todo requires remove_worktree=True")
+
+    execution_file = root / "state" / "issues" / "execution" / f"{safe_issue_id}.md"
+    if not execution_file.exists():
+        raise FileNotFoundError(f"No execution issue found at {execution_file}")
+
+    metadata, body = parse_frontmatter(execution_file.read_text())
+    repo = _read_repo(root, _required_string(metadata, "repo"))
+    target_repo = _resolve_repo_path(root, repo.get("path"))
+    worktree_value = metadata.get("worktree")
+    branch_value = metadata.get("branch")
+    timestamp = _now_iso()
+
+    if remove_worktree and isinstance(worktree_value, str):
+        worktree = root / worktree_value
+        if _is_managed_worktree(root, worktree) and worktree.exists():
+            _ensure_git_repo(target_repo)
+            _remove_worktree(target_repo, worktree)
+            metadata["worktree"] = None
+
+    if destination == "todo":
+        if isinstance(branch_value, str):
+            _ensure_git_repo(target_repo)
+            _delete_branch(target_repo, branch_value)
+        metadata["status"] = "todo"
+        metadata["phase"] = "setup"
+        metadata["worktree"] = None
+        metadata["branch"] = None
+        metadata.pop("claimed_by", None)
+        metadata.pop("started_at", None)
+        metadata["last_activity_at"] = timestamp
+        target_file = root / "state" / "issues" / "todo" / f"{safe_issue_id}.md"
+    else:
+        metadata["status"] = "archive"
+        metadata["phase"] = "cleanup"
+        metadata["last_activity_at"] = timestamp
+        target_file = root / "state" / "issues" / "archive" / f"{safe_issue_id}.md"
+        body = f"{body.rstrip()}\n\n## Final Note\n\n{note.strip()}\n"
+
+    run_dir = root / "state" / "runs" / safe_issue_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    _append_journal(run_dir / "journal.md", destination=destination, note=note)
+    _write_run_cleanup(
+        run_dir / "run.yaml",
+        destination=destination,
+        note=note,
+        branch=branch_value if isinstance(branch_value, str) else None,
+        timestamp=timestamp,
+    )
+
+    target_file.write_text(render_frontmatter(metadata, body))
+    execution_file.unlink()
+    shutil.rmtree(run_dir / "claim.lock", ignore_errors=True)
+    return target_file
+
+
 def _safe_id(value: str) -> str:
     normalized = re.sub(r"[^a-zA-Z0-9_-]+", "-", value.strip().lower()).strip("-")
     if not normalized:
@@ -287,6 +356,39 @@ def _delete_branch(target_repo: Path, branch: str) -> None:
         _git(target_repo, "branch", "-D", branch)
     except GoShipitError:
         pass
+
+
+def _is_managed_worktree(root: Path, worktree: Path) -> bool:
+    managed_root = (root / "worktrees").resolve()
+    resolved_worktree = worktree.resolve()
+    try:
+        resolved_worktree.relative_to(managed_root)
+    except ValueError:
+        return False
+    return True
+
+
+def _append_journal(journal: Path, *, destination: str, note: str) -> None:
+    with journal.open("a") as handle:
+        handle.write(f"\n## Cleanup\n\nDestination: {destination}\n\n{note.strip()}\n")
+
+
+def _write_run_cleanup(
+    run_file: Path,
+    *,
+    destination: str,
+    note: str,
+    branch: str | None,
+    timestamp: str,
+) -> None:
+    run = _parse_mapping(run_file.read_text()) if run_file.exists() else {}
+    run["phase"] = "cleanup"
+    run["cleanup_destination"] = destination
+    run["cleanup_note"] = note.strip()
+    run["closed_at"] = timestamp
+    if branch is not None:
+        run["closed_branch"] = branch
+    run_file.write_text(_render_mapping(run))
 
 
 def _remove_empty_directory(path: Path) -> None:
