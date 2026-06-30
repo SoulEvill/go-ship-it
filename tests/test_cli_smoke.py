@@ -17,3 +17,11 @@ def test_main_help_exits_cleanly(capsys):
     captured = capsys.readouterr()
     assert exit_code == 0
     assert "GoShipit" in captured.out
+
+
+def test_main_init_creates_state_layout(tmp_path):
+    exit_code = main(["--root", str(tmp_path), "init"])
+
+    assert exit_code == 0
+    assert (tmp_path / "state" / "repos").is_dir()
+    assert (tmp_path / "state" / "issues" / "todo").is_dir()
