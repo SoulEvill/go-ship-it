@@ -23,6 +23,7 @@ Use when the user decides the active issue should leave execution.
 
 ## Allowed State Writes
 
+- Set phase to `cleanup` when archiving or otherwise closing the run
 - Move issue from `execution` to `todo` or `archive`
 - Append cleanup note to `state/runs/<issue-id>/journal.md`
 - Append cleanup fields to `state/runs/<issue-id>/run.yaml`
@@ -33,9 +34,12 @@ Only removing a known GoShipit-managed worktree when requested.
 
 ## Scripts Or Commands
 
+Use the local template at `references/cleanup-template.md`.
+
 Run:
 
 ```sh
+go-ship-it set-phase <issue-id> cleanup --note "<cleanup started>"
 go-ship-it cleanup-issue <issue-id> --destination todo --note <note> --remove-worktree
 go-ship-it cleanup-issue <issue-id> --destination archive --note <note>
 ```
@@ -47,6 +51,8 @@ Ask before removing a worktree. Returning to `todo` requires removal so the next
 ## Evidence To Write
 
 Cleanup note and final issue location.
+
+Phase completion evidence is the archived or returned issue file plus cleanup fields in `run.yaml`.
 
 ## Next Recommended Skill
 

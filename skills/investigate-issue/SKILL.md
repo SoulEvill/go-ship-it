@@ -22,7 +22,8 @@ Use after `start-issue` when the agent needs to understand the code, reproduce b
 
 ## Allowed State Writes
 
-- Append investigation notes to `state/runs/<issue-id>/journal.md`
+- Set phase to `investigate`
+- Append investigation notes to `state/runs/<issue-id>/journal.md` through GoShipit
 
 ## Allowed Target Repo Writes
 
@@ -30,7 +31,14 @@ None.
 
 ## Scripts Or Commands
 
-No required command in v0. Use normal read-only repo inspection commands from the issue worktree.
+Use the local template at `references/investigation-template.md`.
+
+```sh
+go-ship-it set-phase <issue-id> investigate --note "<why investigation started or resumed>"
+go-ship-it append-note <issue-id> --section "Investigation" --phase investigate --note "<filled investigation notes>"
+```
+
+Use normal read-only repo inspection commands from the issue worktree.
 
 ## Human Approval Gates
 
@@ -39,6 +47,8 @@ Ask when the problem statement or acceptance criteria are ambiguous.
 ## Evidence To Write
 
 Relevant files, observed behavior, reproduction notes, constraints, and open questions.
+
+Phase completion evidence is a readable `Investigation` journal section recorded with `go-ship-it append-note`.
 
 ## Next Recommended Skill
 

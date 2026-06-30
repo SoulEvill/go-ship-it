@@ -22,7 +22,8 @@ Use after investigation and before editing target source files.
 
 ## Allowed State Writes
 
-- Append proposal notes to `state/runs/<issue-id>/journal.md`
+- Set phase to `propose`
+- Append proposal notes to `state/runs/<issue-id>/journal.md` through GoShipit
 
 ## Allowed Target Repo Writes
 
@@ -30,7 +31,12 @@ None.
 
 ## Scripts Or Commands
 
-No required command in v0.
+Use the local template at `references/proposal-template.md`.
+
+```sh
+go-ship-it set-phase <issue-id> propose --note "<investigation summary>"
+go-ship-it append-note <issue-id> --section "Proposal" --phase propose --note "<filled proposal>"
+```
 
 ## Human Approval Gates
 
@@ -39,6 +45,8 @@ Ask for approval before implementation when the change affects behavior, public 
 ## Evidence To Write
 
 Recommended approach, alternatives considered, risks, and acceptance checks.
+
+Phase completion evidence is a proposal journal section recorded with `go-ship-it append-note`.
 
 ## Next Recommended Skill
 

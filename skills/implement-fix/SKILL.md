@@ -23,7 +23,8 @@ Use after a proposal is approved or the user explicitly asks to implement a narr
 
 ## Allowed State Writes
 
-- Append implementation notes to `state/runs/<issue-id>/journal.md`
+- Set phase to `implement`
+- Append implementation notes to `state/runs/<issue-id>/journal.md` through GoShipit
 
 ## Allowed Target Repo Writes
 
@@ -31,7 +32,12 @@ Only files inside the active issue worktree.
 
 ## Scripts Or Commands
 
-No required command in v0.
+Use the local template at `references/implementation-notes-template.md`.
+
+```sh
+go-ship-it set-phase <issue-id> implement --note "<implementation started>"
+go-ship-it append-note <issue-id> --section "Implementation" --phase implement --note "<filled implementation notes>"
+```
 
 ## Human Approval Gates
 
@@ -40,6 +46,8 @@ Ask before changing scope beyond the proposal.
 ## Evidence To Write
 
 Changed files and implementation notes.
+
+Phase completion evidence is an implementation journal section recorded with `go-ship-it append-note`.
 
 ## Next Recommended Skill
 
