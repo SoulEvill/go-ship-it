@@ -2,16 +2,47 @@
 
 GoShipit is a local-first control repo for agent-assisted software work.
 
-Version 0 manages a simple lifecycle:
+## Lifecycle
 
 ```text
 todo -> execution -> archive
 ```
 
-Target repositories stay outside this repo. Each active issue gets its own Git worktree under `worktrees/<repo>/<issue-id>/`.
+Detailed phase progress is tracked as metadata and journal evidence:
+
+```text
+setup -> investigate -> propose -> implement -> test -> cleanup
+```
 
 ## Development
 
 ```sh
-uv run pytest
+uv sync
+uv run pytest -v
+uv run go-ship-it --help
 ```
+
+## Local Install From A Clone
+
+```sh
+uv tool install .
+go-ship-it --help
+```
+
+## First Health Check
+
+```sh
+go-ship-it doctor
+go-ship-it status
+```
+
+## Agent Tool Setup
+
+- Claude Code: `scripts/install-claude-skills.sh`
+- Cursor: `scripts/install-cursor-adapter.sh`
+
+See `docs/install.md`.
+
+## User E2E Test
+
+See `docs/user-e2e.md`.
