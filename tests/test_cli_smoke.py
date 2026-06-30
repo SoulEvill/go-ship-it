@@ -96,6 +96,27 @@ def test_parser_has_navigation_commands():
     assert parser.parse_args(["status"]).command == "status"
 
 
+def test_parser_has_doctor_command():
+    parser = build_parser()
+
+    args = parser.parse_args(["doctor"])
+
+    assert args.command == "doctor"
+    assert args.repo is None
+    assert args.strict is False
+
+
+def test_main_doctor_prints_summary(tmp_path, capsys):
+    main(["--root", str(tmp_path), "init"])
+
+    exit_code = main(["--root", str(tmp_path), "doctor"])
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "# GoShipit Doctor" in output
+    assert "Summary:" in output
+
+
 def test_main_show_repo_prints_yaml(tmp_path, capsys):
     register_repo(
         tmp_path,

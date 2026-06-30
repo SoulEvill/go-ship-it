@@ -7,6 +7,7 @@ from pathlib import Path
 
 import yaml
 
+from go_ship_it.doctor import run_doctor
 from go_ship_it.portable import portable_path_value, portable_text, relative_to_root
 from go_ship_it.state import (
     CheckFailedError,
@@ -110,6 +111,10 @@ def build_parser() -> argparse.ArgumentParser:
     show_run_cmd.add_argument("--commands", action="store_true")
 
     subparsers.add_parser("status", help="Show workspace status.")
+
+    doctor = subparsers.add_parser("doctor", help="Check local GoShipit workspace health.")
+    doctor.add_argument("--repo", default=None)
+    doctor.add_argument("--strict", action="store_true", help="Exit non-zero when warnings exist.")
 
     export = subparsers.add_parser("export-run", help="Export run evidence to Markdown.")
     export.add_argument("issue_id")
@@ -254,6 +259,23 @@ def _format_status(status: object) -> str:
     return "\n".join(lines)
 
 
+def _format_doctor_report(report: object) -> str:
+    lines = [
+        "# GoShipit Doctor",
+        "",
+        f"Summary: {report.error_count} errors, {report.warning_count} warnings, {report.ok_count} ok",
+        "",
+    ]
+    for title, items in (("Errors", report.errors), ("Warnings", report.warnings), ("OK", report.ok)):
+        lines.extend([f"## {title}"])
+        if items:
+            lines.extend(f"- {item.subject}: {item.message} ({item.code})" for item in items)
+        else:
+            lines.append("None.")
+        lines.append("")
+    return "\n".join(lines).rstrip()
+
+
 def _display_value(value: object) -> str:
     return "" if value is None else str(value)
 
@@ -353,6 +375,15 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         if args.command == "status":
             print(_format_status(workspace_status(root)))
+            return 0
+
+        if args.command == "doctor":
+            report = run_doctor(root, repo_id=args.repo)
+            print(_format_doctor_report(report))
+            if report.error_count:
+                return 1
+            if args.strict and report.warning_count:
+                return 1
             return 0
 
         if args.command == "export-run":
