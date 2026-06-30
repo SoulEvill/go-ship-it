@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from go_ship_it.state import add_issue, ensure_layout, register_repo
+from go_ship_it.state import GoShipitError, add_issue, ensure_layout, register_repo, start_issue
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -31,6 +32,10 @@ def build_parser() -> argparse.ArgumentParser:
     issue.add_argument("--problem", required=True)
     issue.add_argument("--context", default="")
     issue.add_argument("--acceptance", action="append", default=[])
+
+    start = subparsers.add_parser("start-issue", help="Claim a todo issue and create its worktree.")
+    start.add_argument("issue_id")
+    start.add_argument("--claimed-by", default=None)
     return parser
 
 
@@ -42,35 +47,44 @@ def main(argv: Sequence[str] | None = None) -> int:
         return int(exc.code) if isinstance(exc.code, int) else 1
     root = Path(args.root).resolve()
 
-    if args.command == "init":
-        ensure_layout(root)
-        print(f"Initialized GoShipit state at {root}")
-        return 0
+    try:
+        if args.command == "init":
+            ensure_layout(root)
+            print(f"Initialized GoShipit state at {root}")
+            return 0
 
-    if args.command == "register-repo":
-        repo_file = register_repo(
-            root,
-            repo_id=args.repo_id,
-            path=Path(args.path).resolve(),
-            default_branch=args.default_branch,
-            setup_command=args.setup_command,
-            test_command=args.test_command,
-            lint_command=args.lint_command,
-        )
-        print(repo_file)
-        return 0
+        if args.command == "register-repo":
+            repo_file = register_repo(
+                root,
+                repo_id=args.repo_id,
+                path=Path(args.path).resolve(),
+                default_branch=args.default_branch,
+                setup_command=args.setup_command,
+                test_command=args.test_command,
+                lint_command=args.lint_command,
+            )
+            print(repo_file)
+            return 0
 
-    if args.command == "add-issue":
-        issue_file = add_issue(
-            root,
-            repo_id=args.repo,
-            title=args.title,
-            problem=args.problem,
-            context=args.context,
-            acceptance_criteria=args.acceptance,
-        )
-        print(issue_file)
-        return 0
+        if args.command == "add-issue":
+            issue_file = add_issue(
+                root,
+                repo_id=args.repo,
+                title=args.title,
+                problem=args.problem,
+                context=args.context,
+                acceptance_criteria=args.acceptance,
+            )
+            print(issue_file)
+            return 0
+
+        if args.command == "start-issue":
+            run = start_issue(root, args.issue_id, claimed_by=args.claimed_by)
+            print(run.worktree)
+            return 0
+    except (GoShipitError, OSError, ValueError) as exc:
+        print(exc, file=sys.stderr)
+        return 1
 
     parser.error(f"Unhandled command: {args.command}")
     return 2

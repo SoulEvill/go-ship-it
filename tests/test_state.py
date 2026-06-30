@@ -1,7 +1,16 @@
 from pathlib import Path
+import subprocess
+
+import pytest
 
 from go_ship_it.frontmatter import parse_frontmatter
-from go_ship_it.state import add_issue, ensure_layout, register_repo
+from go_ship_it.state import (
+    IssueAlreadyActiveError,
+    add_issue,
+    ensure_layout,
+    register_repo,
+    start_issue,
+)
 
 
 def test_ensure_layout_creates_state_directories(tmp_path):
@@ -64,3 +73,127 @@ def test_add_issue_creates_todo_markdown(tmp_path):
     assert metadata["branch"] is None
     assert "## Problem" in body
     assert "- A focused test exists." in body
+
+
+def _run_git(repo: Path, *args: str) -> None:
+    subprocess.run(["git", "-C", str(repo), *args], check=True)
+
+
+def _create_git_repo(path: Path) -> Path:
+    path.mkdir()
+    _run_git(path, "init", "-b", "main")
+    _run_git(path, "config", "user.email", "test@example.com")
+    _run_git(path, "config", "user.name", "Test User")
+    (path / "README.md").write_text("# Sample\n")
+    _run_git(path, "add", "README.md")
+    _run_git(path, "commit", "-m", "initial commit")
+    return path
+
+
+def _add_sample_issue(root: Path, *, title: str = "Change README") -> Path:
+    return add_issue(
+        root,
+        repo_id="sample",
+        title=title,
+        problem="README needs another line.",
+        context="Use the test repo.",
+        acceptance_criteria=["README changes."],
+    )
+
+
+def test_start_issue_claims_issue_and_creates_worktree(tmp_path):
+    target = _create_git_repo(tmp_path / "target")
+    register_repo(
+        tmp_path,
+        repo_id="sample",
+        path=target,
+        default_branch="main",
+        setup_command=None,
+        test_command="pytest",
+        lint_command=None,
+    )
+    _add_sample_issue(tmp_path)
+
+    run = start_issue(tmp_path, "issue-001", claimed_by="test-thread")
+
+    assert run.issue_id == "issue-001"
+    assert run.branch == "go-ship-it/issue-001"
+    assert run.worktree == tmp_path / "worktrees" / "sample" / "issue-001"
+    assert (run.worktree / "README.md").exists()
+    assert not (tmp_path / "state" / "issues" / "todo" / "issue-001.md").exists()
+    execution_file = tmp_path / "state" / "issues" / "execution" / "issue-001.md"
+    metadata, _body = parse_frontmatter(execution_file.read_text())
+    assert metadata["status"] == "execution"
+    assert metadata["phase"] == "investigate"
+    assert metadata["branch"] == "go-ship-it/issue-001"
+    assert metadata["worktree"] == "worktrees/sample/issue-001"
+    assert (tmp_path / "state" / "runs" / "issue-001" / "claim.lock").is_dir()
+    run_file = tmp_path / "state" / "runs" / "issue-001" / "run.yaml"
+    assert run_file.exists()
+    assert "claimed_by: test-thread\n" in run_file.read_text()
+
+
+def test_start_issue_rejects_duplicate_active_run(tmp_path):
+    target = _create_git_repo(tmp_path / "target")
+    register_repo(
+        tmp_path,
+        repo_id="sample",
+        path=target,
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+    )
+    _add_sample_issue(tmp_path)
+    start_issue(tmp_path, "issue-001", claimed_by="first-thread")
+
+    with pytest.raises(IssueAlreadyActiveError) as exc_info:
+        start_issue(tmp_path, "issue-001", claimed_by="second-thread")
+    message = str(exc_info.value)
+    assert "issue-001 already has an active run" in message
+    assert "state/issues/execution/issue-001.md" in message
+    assert "worktrees/sample/issue-001" in message
+
+
+def test_start_issue_supports_two_active_issues_for_same_repo(tmp_path):
+    target = _create_git_repo(tmp_path / "target")
+    register_repo(
+        tmp_path,
+        repo_id="sample",
+        path=target,
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+    )
+    _add_sample_issue(tmp_path, title="First")
+    _add_sample_issue(tmp_path, title="Second")
+
+    first = start_issue(tmp_path, "issue-001", claimed_by="first-thread")
+    second = start_issue(tmp_path, "issue-002", claimed_by="second-thread")
+
+    assert first.worktree == tmp_path / "worktrees" / "sample" / "issue-001"
+    assert second.worktree == tmp_path / "worktrees" / "sample" / "issue-002"
+    assert first.worktree.exists()
+    assert second.worktree.exists()
+
+
+def test_start_issue_leaves_todo_unmoved_when_target_repo_is_missing(tmp_path):
+    register_repo(
+        tmp_path,
+        repo_id="sample",
+        path=tmp_path / "missing",
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+    )
+    _add_sample_issue(tmp_path)
+
+    with pytest.raises(FileNotFoundError):
+        start_issue(tmp_path, "issue-001", claimed_by="test-thread")
+
+    assert (tmp_path / "state" / "issues" / "todo" / "issue-001.md").exists()
+    assert not (tmp_path / "state" / "issues" / "execution" / "issue-001.md").exists()
+    assert not (tmp_path / "state" / "runs" / "issue-001" / "claim.lock").exists()
+    assert not (tmp_path / "worktrees" / "sample" / "issue-001").exists()

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import re
+import shutil
+import subprocess
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
 import yaml
 
-from go_ship_it.frontmatter import render_frontmatter
+from go_ship_it.frontmatter import parse_frontmatter, render_frontmatter
 
 
 STATE_DIRS = (
@@ -17,6 +20,42 @@ STATE_DIRS = (
     "state/runs",
     "worktrees",
 )
+
+
+class GoShipitError(RuntimeError):
+    pass
+
+
+class IssueAlreadyActiveError(GoShipitError):
+    def __init__(
+        self,
+        issue_id: str,
+        *,
+        issue_file: Path | None,
+        run_file: Path | None,
+        worktree: str | None,
+    ) -> None:
+        parts = [f"{issue_id} already has an active run"]
+        if issue_file is not None:
+            parts.append(f"issue_path={issue_file}")
+        if run_file is not None:
+            parts.append(f"run_path={run_file}")
+        if worktree is not None:
+            parts.append(f"worktree={worktree}")
+        super().__init__("; ".join(parts))
+        self.issue_id = issue_id
+        self.issue_file = issue_file
+        self.run_file = run_file
+        self.worktree = worktree
+
+
+@dataclass(frozen=True)
+class StartedRun:
+    issue_id: str
+    branch: str
+    worktree: Path
+    issue_file: Path
+    run_file: Path
 
 
 def ensure_layout(root: Path) -> None:
@@ -93,6 +132,82 @@ def add_issue(
     return issue_file
 
 
+def start_issue(root: Path, issue_id: str, *, claimed_by: str | None = None) -> StartedRun:
+    ensure_layout(root)
+    safe_issue_id = _safe_id(issue_id)
+    todo_file = root / "state" / "issues" / "todo" / f"{safe_issue_id}.md"
+    execution_file = root / "state" / "issues" / "execution" / f"{safe_issue_id}.md"
+    run_dir = root / "state" / "runs" / safe_issue_id
+    claim_dir = run_dir / "claim.lock"
+
+    if execution_file.exists() or claim_dir.exists():
+        raise _active_run_error(safe_issue_id, execution_file, run_dir)
+    if not todo_file.exists():
+        raise FileNotFoundError(f"No todo issue found at {todo_file}")
+
+    run_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        claim_dir.mkdir()
+    except FileExistsError as exc:
+        raise _active_run_error(safe_issue_id, execution_file, run_dir) from exc
+
+    worktree_created = False
+    target_repo: Path | None = None
+    branch: str | None = None
+    worktree: Path | None = None
+    try:
+        metadata, body = parse_frontmatter(todo_file.read_text())
+        repo_id = _required_string(metadata, "repo")
+        repo = _read_repo(root, repo_id)
+        target_repo = _resolve_repo_path(root, repo.get("path"))
+        _ensure_git_repo(target_repo)
+
+        branch = f"go-ship-it/{safe_issue_id}"
+        worktree_relative = Path(_required_string(repo, "worktree_root")) / safe_issue_id
+        worktree = root / worktree_relative
+        if worktree.exists():
+            raise FileExistsError(f"Worktree path already exists: {worktree}")
+        worktree.parent.mkdir(parents=True, exist_ok=True)
+        _git(target_repo, "worktree", "add", "-b", branch, str(worktree), _required_string(repo, "default_branch"))
+        worktree_created = True
+
+        timestamp = _now_iso()
+        metadata["status"] = "execution"
+        metadata["phase"] = "investigate"
+        metadata["branch"] = branch
+        metadata["worktree"] = worktree_relative.as_posix()
+        metadata["claimed_by"] = claimed_by
+        metadata["started_at"] = timestamp
+        metadata["last_activity_at"] = timestamp
+        execution_file.write_text(render_frontmatter(metadata, body))
+        todo_file.unlink()
+
+        run_file = run_dir / "run.yaml"
+        run_file.write_text(
+            _render_mapping(
+                {
+                    "issue_id": safe_issue_id,
+                    "repo": repo_id,
+                    "branch": branch,
+                    "worktree": worktree_relative.as_posix(),
+                    "claimed_by": claimed_by,
+                    "phase": "investigate",
+                    "started_at": timestamp,
+                    "last_activity_at": timestamp,
+                }
+            )
+        )
+        return StartedRun(safe_issue_id, branch, worktree, execution_file, run_file)
+    except Exception:
+        if worktree_created and target_repo is not None and worktree is not None:
+            _remove_worktree(target_repo, worktree)
+        if worktree_created and target_repo is not None and branch is not None:
+            _delete_branch(target_repo, branch)
+        shutil.rmtree(claim_dir, ignore_errors=True)
+        _remove_empty_directory(run_dir)
+        raise
+
+
 def _safe_id(value: str) -> str:
     normalized = re.sub(r"[^a-zA-Z0-9_-]+", "-", value.strip().lower()).strip("-")
     if not normalized:
@@ -109,6 +224,94 @@ def _collect_issue_files(directory: Path) -> list[Path]:
 def _issue_number(path: Path) -> int:
     match = re.fullmatch(r"issue-(\d+)\.md", path.name)
     return int(match.group(1)) if match else 0
+
+
+def _active_run_error(issue_id: str, execution_file: Path, run_dir: Path) -> IssueAlreadyActiveError:
+    worktree: str | None = None
+    if execution_file.exists():
+        metadata, _body = parse_frontmatter(execution_file.read_text())
+        value = metadata.get("worktree")
+        worktree = value if isinstance(value, str) else None
+    run_file = run_dir / "run.yaml"
+    return IssueAlreadyActiveError(
+        issue_id,
+        issue_file=execution_file if execution_file.exists() else None,
+        run_file=run_file if run_file.exists() else None,
+        worktree=worktree,
+    )
+
+
+def _read_repo(root: Path, repo_id: str) -> dict[str, object]:
+    repo_file = root / "state" / "repos" / f"{_safe_id(repo_id)}.yaml"
+    if not repo_file.exists():
+        raise FileNotFoundError(f"Repo registry file not found: {repo_file}")
+    return _parse_mapping(repo_file.read_text())
+
+
+def _resolve_repo_path(root: Path, value: object) -> Path:
+    if not isinstance(value, str):
+        raise ValueError("Repo path must be a string")
+    path = Path(value)
+    return path if path.is_absolute() else (root / path).resolve()
+
+
+def _ensure_git_repo(path: Path) -> None:
+    if not path.exists():
+        raise FileNotFoundError(f"Target repo does not exist: {path}")
+    _git(path, "rev-parse", "--is-inside-work-tree")
+
+
+def _git(repo: Path, *args: str) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(repo), *args],
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip()
+        command = " ".join(("git", "-C", str(repo), *args))
+        raise GoShipitError(f"{command} failed: {detail}")
+    return result.stdout
+
+
+def _remove_worktree(target_repo: Path, worktree: Path) -> None:
+    try:
+        _git(target_repo, "worktree", "remove", "--force", str(worktree))
+    except GoShipitError:
+        shutil.rmtree(worktree, ignore_errors=True)
+
+
+def _delete_branch(target_repo: Path, branch: str) -> None:
+    try:
+        _git(target_repo, "branch", "-D", branch)
+    except GoShipitError:
+        pass
+
+
+def _remove_empty_directory(path: Path) -> None:
+    try:
+        path.rmdir()
+    except OSError:
+        pass
+
+
+def _required_string(mapping: dict[str, object], key: str) -> str:
+    value = mapping.get(key)
+    if not isinstance(value, str):
+        raise ValueError(f"{key} must be a string")
+    return value
+
+
+def _parse_mapping(text: str) -> dict[str, object]:
+    loaded = yaml.safe_load(text) or {}
+    if not isinstance(loaded, dict):
+        raise ValueError("YAML file must contain a mapping")
+    return {str(key): value for key, value in loaded.items()}
+
+
+def _now_iso() -> str:
+    return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
 def _render_mapping(values: dict[str, object]) -> str:
