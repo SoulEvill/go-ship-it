@@ -22,6 +22,9 @@ STATE_DIRS = (
 )
 
 ALLOWED_PHASES = {"setup", "investigate", "propose", "implement", "test", "cleanup"}
+OPTIONAL_COMMAND_FIELDS = {"setup_command", "test_command", "lint_command"}
+REQUIRED_REPO_FIELDS = {"id", "path", "default_branch", "worktree_root"}
+UPDATABLE_REPO_FIELDS = REQUIRED_REPO_FIELDS | OPTIONAL_COMMAND_FIELDS
 
 
 class GoShipitError(RuntimeError):
@@ -107,6 +110,47 @@ def register_repo(
         "lint_command": lint_command,
     }
     repo_file.write_text(_render_mapping(values))
+    return repo_file
+
+
+def read_repo_config(root: Path, repo_id: str) -> dict[str, object]:
+    return _read_repo(root, repo_id)
+
+
+def update_repo_config(
+    root: Path,
+    repo_id: str,
+    *,
+    updates: dict[str, object],
+    clears: set[str],
+) -> Path:
+    safe_repo_id = _safe_id(repo_id)
+    repo_file = root / "state" / "repos" / f"{safe_repo_id}.yaml"
+    if not repo_file.exists():
+        raise FileNotFoundError(f"Repo registry file not found: {repo_file}")
+
+    unknown = (set(updates) | clears) - UPDATABLE_REPO_FIELDS
+    if unknown:
+        raise ValueError(f"Unknown repo config fields: {', '.join(sorted(unknown))}")
+
+    invalid_clears = clears - OPTIONAL_COMMAND_FIELDS
+    if invalid_clears:
+        raise ValueError(f"Only command fields can be cleared: {', '.join(sorted(invalid_clears))}")
+
+    config = _parse_mapping(repo_file.read_text())
+    for key, value in updates.items():
+        if key in REQUIRED_REPO_FIELDS and (not isinstance(value, str) or not value.strip()):
+            raise ValueError(f"{key} must not be empty")
+        config[key] = value
+    for key in clears:
+        config[key] = None
+
+    for key in REQUIRED_REPO_FIELDS:
+        value = config.get(key)
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"{key} must not be empty")
+
+    repo_file.write_text(_render_mapping(config))
     return repo_file
 
 
