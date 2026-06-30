@@ -21,6 +21,7 @@ STATE_DIRS = (
     "worktrees",
 )
 
+ISSUE_STATES = ("todo", "execution", "archive")
 ALLOWED_PHASES = {"setup", "investigate", "propose", "implement", "test", "cleanup"}
 OPTIONAL_COMMAND_FIELDS = {"setup_command", "test_command", "lint_command"}
 REQUIRED_REPO_FIELDS = {"id", "path", "default_branch", "worktree_root"}
@@ -71,6 +72,16 @@ class StartedRun:
     run_file: Path
 
 
+@dataclass(frozen=True)
+class IssueSummary:
+    issue_id: str
+    status: str
+    repo: str
+    title: str
+    phase: str
+    issue_file: Path
+
+
 def ensure_layout(root: Path) -> None:
     for relative in STATE_DIRS:
         (root / relative).mkdir(parents=True, exist_ok=True)
@@ -117,6 +128,35 @@ def register_repo(
 
 def read_repo_config(root: Path, repo_id: str) -> dict[str, object]:
     return _read_repo(root, repo_id)
+
+
+def list_issues(root: Path, *, state: str = "all", repo_id: str | None = None) -> list[IssueSummary]:
+    if state != "all" and state not in ISSUE_STATES:
+        raise ValueError("state must be one of: todo, execution, archive, all")
+
+    states = ISSUE_STATES if state == "all" else (state,)
+    safe_repo = _safe_id(repo_id) if repo_id is not None else None
+    summaries: list[IssueSummary] = []
+
+    for issue_state in states:
+        directory = root / "state" / "issues" / issue_state
+        for issue_file in _collect_issue_files(directory):
+            metadata, _body = parse_frontmatter(issue_file.read_text())
+            repo = _required_string(metadata, "repo")
+            if safe_repo is not None and repo != safe_repo:
+                continue
+            summaries.append(
+                IssueSummary(
+                    issue_id=_required_string(metadata, "id"),
+                    status=issue_state,
+                    repo=repo,
+                    title=_required_string(metadata, "title"),
+                    phase=str(metadata.get("phase") or ""),
+                    issue_file=issue_file,
+                )
+            )
+
+    return sorted(summaries, key=lambda item: item.issue_id)
 
 
 def update_repo_config(
