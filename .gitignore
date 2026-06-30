@@ -1,0 +1,14 @@
+.venv/
+.pytest_cache/
+__pycache__/
+*.pyc
+worktrees/*
+!worktrees/.gitkeep
+state/runs/*
+!state/runs/.gitkeep
+state/issues/todo/*.md
+!state/issues/todo/.gitkeep
+state/issues/execution/*.md
+!state/issues/execution/.gitkeep
+state/issues/archive/*.md
+!state/issues/archive/.gitkeep

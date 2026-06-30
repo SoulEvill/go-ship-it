@@ -1,0 +1,23 @@
+[project]
+name = "go-ship-it"
+version = "0.1.0"
+description = "Local-first issue lifecycle and worktree orchestration for agent-assisted development."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["PyYAML>=6.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+go-ship-it = "go_ship_it.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
