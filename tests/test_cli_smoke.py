@@ -168,6 +168,17 @@ def test_main_update_repo_rejects_command_and_clear_conflict(tmp_path, capsys):
     assert "clear-test-command" in captured.err
 
 
+def test_main_export_run_relative_output_uses_root(tmp_path):
+    _started_issue_root(tmp_path)
+
+    exit_code = main(["--root", str(tmp_path), "export-run", "issue-001", "--output", "docs/dogfood/issue-001.md"])
+
+    output = tmp_path / "docs" / "dogfood" / "issue-001.md"
+    assert exit_code == 0
+    assert output.exists()
+    assert "# GoShipit Run Evidence: issue-001" in output.read_text()
+
+
 def test_main_append_note_records_journal_entry(tmp_path):
     _started_issue_root(tmp_path)
 

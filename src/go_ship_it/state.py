@@ -432,13 +432,14 @@ def export_run(root: Path, issue_id: str, *, output: Path) -> Path:
     if issue_file is None and not run_dir.exists():
         raise FileNotFoundError(f"No issue or run evidence found for {safe_issue_id}")
 
+    output = output if output.is_absolute() else root / output
     output.parent.mkdir(parents=True, exist_ok=True)
     run_file = run_dir / "run.yaml"
     sections = [f"# GoShipit Run Evidence: {safe_issue_id}", ""]
     sections.extend(_issue_export_section(root, issue_file))
-    sections.extend(_run_metadata_export_section(run_file))
-    sections.extend(_journal_export_section(run_dir / "journal.md"))
-    sections.extend(_command_records_export_section(run_dir / "commands"))
+    sections.extend(_run_metadata_export_section(root, run_file))
+    sections.extend(_journal_export_section(root, run_dir / "journal.md"))
+    sections.extend(_command_records_export_section(root, run_dir / "commands"))
     sections.extend(_worktree_export_section(issue_file, run_file))
     sections.extend(_notes_export_section())
     output.write_text("\n".join(sections).rstrip() + "\n")
@@ -462,25 +463,25 @@ def _issue_export_section(root: Path, issue_file: Path | None) -> list[str]:
         f"Source: `{_relative_to_root(root, issue_file)}`",
         "",
         "```markdown",
-        issue_file.read_text().strip(),
+        _portable_text(root, issue_file.read_text()).strip(),
         "```",
         "",
     ]
 
 
-def _run_metadata_export_section(run_file: Path) -> list[str]:
+def _run_metadata_export_section(root: Path, run_file: Path) -> list[str]:
     if not run_file.exists():
         return ["## Run Metadata", "", "No run metadata found.", ""]
-    return ["## Run Metadata", "", "```yaml", run_file.read_text().strip(), "```", ""]
+    return ["## Run Metadata", "", "```yaml", _portable_text(root, run_file.read_text()).strip(), "```", ""]
 
 
-def _journal_export_section(journal: Path) -> list[str]:
+def _journal_export_section(root: Path, journal: Path) -> list[str]:
     if not journal.exists():
         return ["## Journal", "", "No journal found.", ""]
-    return ["## Journal", "", journal.read_text().strip(), ""]
+    return ["## Journal", "", _portable_text(root, journal.read_text()).strip(), ""]
 
 
-def _command_records_export_section(commands_dir: Path) -> list[str]:
+def _command_records_export_section(root: Path, commands_dir: Path) -> list[str]:
     lines = ["## Command Records", ""]
     records = sorted(commands_dir.glob("*.yaml")) if commands_dir.exists() else []
     if not records:
@@ -493,8 +494,8 @@ def _command_records_export_section(commands_dir: Path) -> list[str]:
                 f"### {record.name}",
                 "",
                 f"- Check: `{data.get('check')}`",
-                f"- Command: `{data.get('command')}`",
-                f"- CWD: `{data.get('cwd')}`",
+                f"- Command: `{_portable_text(root, data.get('command'))}`",
+                f"- CWD: `{_portable_path_value(root, data.get('cwd'))}`",
                 f"- Exit Code: `{data.get('exit_code')}`",
                 f"- Started: `{data.get('started_at')}`",
                 f"- Ended: `{data.get('ended_at')}`",
@@ -502,13 +503,13 @@ def _command_records_export_section(commands_dir: Path) -> list[str]:
                 "Stdout tail:",
                 "",
                 "```text",
-                str(data.get("stdout_tail") or "").strip(),
+                _portable_text(root, data.get("stdout_tail")).strip(),
                 "```",
                 "",
                 "Stderr tail:",
                 "",
                 "```text",
-                str(data.get("stderr_tail") or "").strip(),
+                _portable_text(root, data.get("stderr_tail")).strip(),
                 "```",
                 "",
             ]
@@ -558,6 +559,27 @@ def _relative_to_root(root: Path, path: Path) -> str:
         return path.relative_to(root).as_posix()
     except ValueError:
         return str(path)
+
+
+def _portable_path_value(root: Path, value: object) -> str:
+    if not isinstance(value, str):
+        return str(value)
+    path = Path(value)
+    if path.is_absolute():
+        return _relative_to_root(root, path)
+    return _portable_text(root, value)
+
+
+def _portable_text(root: Path, value: object) -> str:
+    if value is None:
+        return ""
+    text = str(value)
+    root_text = str(root)
+    return (
+        text.replace(f"file://{root_text}/", "file://go-ship-it-root/")
+        .replace(f"{root_text}/", "")
+        .replace(root_text, ".")
+    )
 
 
 def _safe_id(value: str) -> str:

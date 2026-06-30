@@ -38,6 +38,19 @@ def test_export_run_writes_archived_issue_evidence_snapshot(tmp_path):
     assert "## Notes" in text
 
 
+def test_export_run_removes_root_absolute_paths_from_snapshot(tmp_path):
+    root = _started_issue_root(tmp_path, test_command="python -c 'print(\"ok\")'")
+    run_check(root, "issue-001", check="test")
+    cleanup_issue(root, "issue-001", destination="archive", note="Done.", remove_worktree=False)
+
+    output = export_run(root, "issue-001", output=tmp_path / "issue-001-evidence.md")
+
+    text = output.read_text()
+    assert str(root) not in text
+    assert "- CWD: `worktrees/sample/issue-001`" in text
+    assert "Evidence: `state/runs/issue-001/commands/" in text
+
+
 def test_export_run_includes_failed_command_exit_code(tmp_path):
     root = _started_issue_root(tmp_path, test_command="python -c 'import sys; print(\"bad\"); sys.exit(3)'")
     with pytest.raises(CheckFailedError):

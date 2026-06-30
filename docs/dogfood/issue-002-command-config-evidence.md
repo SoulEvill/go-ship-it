@@ -95,7 +95,7 @@ Command: `env -u VIRTUAL_ENV uv sync --extra dev`
 
 Exit code: 0
 
-Evidence: `/Users/zhengisamazing/1.python_dir/go_ship_it_working_dir/go-ship-it/state/runs/issue-002/commands/2026-06-30T11-21-30-07-00-setup.yaml`
+Evidence: `state/runs/issue-002/commands/2026-06-30T11-21-30-07-00-setup.yaml`
 
 ## Check: test
 
@@ -106,7 +106,7 @@ Command: `env -u VIRTUAL_ENV uv run --extra dev pytest -q`
 
 Exit code: 0
 
-Evidence: `/Users/zhengisamazing/1.python_dir/go_ship_it_working_dir/go-ship-it/state/runs/issue-002/commands/2026-06-30T11-21-35-07-00-test.yaml`
+Evidence: `state/runs/issue-002/commands/2026-06-30T11-21-35-07-00-test.yaml`
 
 ## Cleanup
 
@@ -120,7 +120,7 @@ Command configuration validation complete; evidence exported.
 
 - Check: `setup`
 - Command: `env -u VIRTUAL_ENV uv sync --extra dev`
-- CWD: `/Users/zhengisamazing/1.python_dir/go_ship_it_working_dir/go-ship-it/worktrees/parawave/issue-002`
+- CWD: `worktrees/parawave/issue-002`
 - Exit Code: `0`
 - Started: `2026-06-30T11:21:30-07:00`
 - Ended: `2026-06-30T11:21:30-07:00`
@@ -137,8 +137,8 @@ Stderr tail:
 Using CPython 3.13.5
 Creating virtual environment at: .venv
 Resolved 184 packages in 0.96ms
-   Building parawave @ file:///Users/zhengisamazing/1.python_dir/go_ship_it_working_dir/go-ship-it/worktrees/parawave/issue-002
-      Built parawave @ file:///Users/zhengisamazing/1.python_dir/go_ship_it_working_dir/go-ship-it/worktrees/parawave/issue-002
+   Building parawave @ file://go-ship-it-root/worktrees/parawave/issue-002
+      Built parawave @ file://go-ship-it-root/worktrees/parawave/issue-002
 Prepared 1 package in 390ms
 Installed 82 packages in 108ms
  + aiofiles==25.1.0
@@ -183,7 +183,7 @@ Installed 82 packages in 108ms
  + nh3==0.3.3
  + packaging==26.0
  + papermill==2.7.0
- + parawave==0.1.0 (from file:///Users/zhengisamazing/1.python_dir/go_ship_it_working_dir/go-ship-it/worktrees/parawave/issue-002)
+ + parawave==0.1.0 (from file://go-ship-it-root/worktrees/parawave/issue-002)
  + pathspec==1.0.4
  + pexpect==4.9.0
  + platformdirs==4.9.4
@@ -229,7 +229,7 @@ Installed 82 packages in 108ms
 
 - Check: `test`
 - Command: `env -u VIRTUAL_ENV uv run --extra dev pytest -q`
-- CWD: `/Users/zhengisamazing/1.python_dir/go_ship_it_working_dir/go-ship-it/worktrees/parawave/issue-002`
+- CWD: `worktrees/parawave/issue-002`
 - Exit Code: `0`
 - Started: `2026-06-30T11:21:35-07:00`
 - Ended: `2026-06-30T11:21:50-07:00`

@@ -207,7 +207,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
 
         if args.command == "export-run":
-            output = export_run(root, args.issue_id, output=Path(args.output))
+            output_path = Path(args.output)
+            output = export_run(root, args.issue_id, output=output_path)
             print(output)
             return 0
     except CheckFailedError as exc:
