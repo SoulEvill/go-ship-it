@@ -52,7 +52,15 @@ def test_register_repo_writes_simple_registry_file(tmp_path):
 
 
 def test_add_issue_creates_todo_markdown(tmp_path):
-    ensure_layout(tmp_path)
+    register_repo(
+        tmp_path,
+        repo_id="parawave",
+        path=tmp_path / "parawave",
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+    )
 
     issue_file = add_issue(
         tmp_path,
@@ -74,6 +82,22 @@ def test_add_issue_creates_todo_markdown(tmp_path):
     assert metadata["branch"] is None
     assert "## Problem" in body
     assert "- A focused test exists." in body
+
+
+def test_add_issue_rejects_unregistered_repo(tmp_path):
+    ensure_layout(tmp_path)
+
+    with pytest.raises(FileNotFoundError, match="Repo registry file not found"):
+        add_issue(
+            tmp_path,
+            repo_id="typo",
+            title="Unknown repo issue",
+            problem="This repo id is not registered.",
+            context="",
+            acceptance_criteria=["No issue should be created."],
+        )
+
+    assert not list((tmp_path / "state" / "issues" / "todo").glob("issue-*.md"))
 
 
 def _run_git(repo: Path, *args: str) -> None:

@@ -67,7 +67,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             repo_file = register_repo(
                 root,
                 repo_id=args.repo_id,
-                path=Path(args.path).resolve(),
+                path=Path(args.path),
                 default_branch=args.default_branch,
                 setup_command=args.setup_command,
                 test_command=args.test_command,

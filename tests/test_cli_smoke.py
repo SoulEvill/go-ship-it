@@ -25,3 +25,10 @@ def test_main_init_creates_state_layout(tmp_path):
     assert exit_code == 0
     assert (tmp_path / "state" / "repos").is_dir()
     assert (tmp_path / "state" / "issues" / "todo").is_dir()
+
+
+def test_register_repo_cli_preserves_relative_paths(tmp_path):
+    exit_code = main(["--root", str(tmp_path), "register-repo", "sample", "../sample-target"])
+
+    assert exit_code == 0
+    assert "path: ../sample-target\n" in (tmp_path / "state" / "repos" / "sample.yaml").read_text()

@@ -110,11 +110,13 @@ def add_issue(
     acceptance_criteria: list[str],
 ) -> Path:
     ensure_layout(root)
+    safe_repo_id = _safe_id(repo_id)
+    _read_repo(root, safe_repo_id)
     issue_id = next_issue_id(root)
     issue_file = root / "state" / "issues" / "todo" / f"{issue_id}.md"
     metadata = {
         "id": issue_id,
-        "repo": _safe_id(repo_id),
+        "repo": safe_repo_id,
         "status": "todo",
         "phase": "setup",
         "title": title,
