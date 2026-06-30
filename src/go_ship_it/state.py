@@ -28,6 +28,14 @@ class GoShipitError(RuntimeError):
     pass
 
 
+class CheckFailedError(GoShipitError):
+    def __init__(self, check: str, exit_code: int, record_file: Path) -> None:
+        super().__init__(f"{check} check failed with exit code {exit_code}; evidence={record_file}")
+        self.check = check
+        self.exit_code = exit_code
+        self.record_file = record_file
+
+
 class IssueAlreadyActiveError(GoShipitError):
     def __init__(
         self,
@@ -244,6 +252,62 @@ def set_phase(root: Path, issue_id: str, phase: str, *, note: str) -> Path:
 
     _append_note_to_journal(run_dir / "journal.md", section=f"Phase: {safe_phase}", note=note, phase=safe_phase)
     return issue_file
+
+
+def run_check(root: Path, issue_id: str, *, check: str) -> Path:
+    safe_issue_id = _safe_id(issue_id)
+    safe_check = check.strip().lower()
+    if safe_check not in {"setup", "test", "lint"}:
+        raise ValueError("check must be one of: setup, test, lint")
+
+    issue_file = _active_issue_file(root, safe_issue_id)
+    run_dir = _run_dir(root, safe_issue_id)
+    metadata, _body = parse_frontmatter(issue_file.read_text())
+    repo_id = _required_string(metadata, "repo")
+    repo = _read_repo(root, repo_id)
+    command = repo.get(f"{safe_check}_command")
+    if not isinstance(command, str) or not command.strip():
+        raise GoShipitError(f"No {safe_check} command configured for repo {repo_id}")
+
+    worktree_value = metadata.get("worktree")
+    if not isinstance(worktree_value, str):
+        raise ValueError("worktree must be a string")
+    worktree = root / worktree_value
+    if not worktree.is_dir():
+        raise FileNotFoundError(f"Worktree not found: {worktree}")
+
+    started_at = _now_iso()
+    result = subprocess.run(
+        command,
+        cwd=worktree,
+        shell=True,
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+    ended_at = _now_iso()
+
+    commands_dir = run_dir / "commands"
+    commands_dir.mkdir(parents=True, exist_ok=True)
+    record_file = commands_dir / f"{_timestamp_slug(started_at)}-{safe_check}.yaml"
+    record = {
+        "check": safe_check,
+        "command": command,
+        "cwd": str(worktree),
+        "exit_code": result.returncode,
+        "stdout_tail": _tail(result.stdout),
+        "stderr_tail": _tail(result.stderr),
+        "started_at": started_at,
+        "ended_at": ended_at,
+    }
+    record_file.write_text(_render_mapping(record))
+
+    note = f"Command: `{command}`\n\nExit code: {result.returncode}\n\nEvidence: `{record_file}`"
+    _append_note_to_journal(run_dir / "journal.md", section=f"Check: {safe_check}", note=note, phase="test")
+
+    if result.returncode != 0:
+        raise CheckFailedError(safe_check, result.returncode, record_file)
+    return record_file
 
 
 def cleanup_issue(
@@ -485,6 +549,14 @@ def _validate_phase(phase: str) -> str:
         allowed = ", ".join(sorted(ALLOWED_PHASES))
         raise ValueError(f"phase must be one of: {allowed}")
     return safe_phase
+
+
+def _timestamp_slug(timestamp: str) -> str:
+    return re.sub(r"[^0-9A-Za-z]+", "-", timestamp).strip("-")
+
+
+def _tail(value: str, *, limit: int = 4000) -> str:
+    return value[-limit:]
 
 
 def _parse_mapping(text: str) -> dict[str, object]:

@@ -6,12 +6,14 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from go_ship_it.state import (
+    CheckFailedError,
     GoShipitError,
     add_issue,
     append_note,
     cleanup_issue,
     ensure_layout,
     register_repo,
+    run_check,
     set_phase,
     start_issue,
 )
@@ -137,6 +139,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             issue_file = set_phase(root, args.issue_id, args.phase, note=args.note)
             print(issue_file)
             return 0
+
+        if args.command == "run-check":
+            record = run_check(root, args.issue_id, check=args.check)
+            print(record)
+            return 0
+    except CheckFailedError as exc:
+        print(exc, file=sys.stderr)
+        return exc.exit_code
     except (GoShipitError, OSError, ValueError) as exc:
         print(exc, file=sys.stderr)
         return 1
