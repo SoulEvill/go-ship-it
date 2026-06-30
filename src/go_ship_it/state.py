@@ -82,6 +82,21 @@ class IssueSummary:
     issue_file: Path
 
 
+@dataclass(frozen=True)
+class IssueDetail:
+    summary: IssueSummary
+    body: str
+
+
+@dataclass(frozen=True)
+class RunDetail:
+    issue_id: str
+    run_file: Path
+    run: dict[str, object]
+    journal: str
+    commands: list[dict[str, object]]
+
+
 def ensure_layout(root: Path) -> None:
     for relative in STATE_DIRS:
         (root / relative).mkdir(parents=True, exist_ok=True)
@@ -157,6 +172,46 @@ def list_issues(root: Path, *, state: str = "all", repo_id: str | None = None) -
             )
 
     return sorted(summaries, key=lambda item: item.issue_id)
+
+
+def show_issue(root: Path, issue_id: str) -> IssueDetail:
+    safe_issue_id = _safe_id(issue_id)
+    issue_file = _find_issue_file(root, safe_issue_id)
+    if issue_file is None:
+        raise FileNotFoundError(f"No issue found for {safe_issue_id}")
+
+    metadata, body = parse_frontmatter(issue_file.read_text())
+    summary = IssueSummary(
+        issue_id=_required_string(metadata, "id"),
+        status=issue_file.parent.name,
+        repo=_required_string(metadata, "repo"),
+        title=_required_string(metadata, "title"),
+        phase=str(metadata.get("phase") or ""),
+        issue_file=issue_file,
+    )
+    return IssueDetail(summary=summary, body=body.strip())
+
+
+def show_run(root: Path, issue_id: str) -> RunDetail:
+    safe_issue_id = _safe_id(issue_id)
+    run_dir = root / "state" / "runs" / safe_issue_id
+    if not run_dir.is_dir():
+        raise FileNotFoundError(f"Run directory not found: {run_dir}")
+
+    run_file = run_dir / "run.yaml"
+    journal_file = run_dir / "journal.md"
+    commands_dir = run_dir / "commands"
+    commands = [
+        _parse_mapping(command_file.read_text()) | {"record_file": command_file}
+        for command_file in sorted(commands_dir.glob("*.yaml"))
+    ] if commands_dir.exists() else []
+    return RunDetail(
+        issue_id=safe_issue_id,
+        run_file=run_file,
+        run=_load_run(run_file),
+        journal=journal_file.read_text().strip() if journal_file.exists() else "",
+        commands=commands,
+    )
 
 
 def update_repo_config(
