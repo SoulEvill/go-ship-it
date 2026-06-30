@@ -21,6 +21,8 @@ STATE_DIRS = (
     "worktrees",
 )
 
+ALLOWED_PHASES = {"setup", "investigate", "propose", "implement", "test", "cleanup"}
+
 
 class GoShipitError(RuntimeError):
     pass
@@ -210,6 +212,40 @@ def start_issue(root: Path, issue_id: str, *, claimed_by: str | None = None) -> 
         raise
 
 
+def append_note(root: Path, issue_id: str, *, section: str, note: str, phase: str | None = None) -> Path:
+    safe_issue_id = _safe_id(issue_id)
+    if phase is not None:
+        _validate_phase(phase)
+    _active_issue_file(root, safe_issue_id)
+    run_dir = _run_dir(root, safe_issue_id)
+
+    journal = run_dir / "journal.md"
+    _append_note_to_journal(journal, section=section, note=note, phase=phase)
+    return journal
+
+
+def set_phase(root: Path, issue_id: str, phase: str, *, note: str) -> Path:
+    safe_issue_id = _safe_id(issue_id)
+    safe_phase = _validate_phase(phase)
+    issue_file = _active_issue_file(root, safe_issue_id)
+    run_dir = _run_dir(root, safe_issue_id)
+    run_file = run_dir / "run.yaml"
+
+    metadata, body = parse_frontmatter(issue_file.read_text())
+    timestamp = _now_iso()
+    metadata["phase"] = safe_phase
+    metadata["last_activity_at"] = timestamp
+    issue_file.write_text(render_frontmatter(metadata, body))
+
+    run = _load_run(run_file)
+    run["phase"] = safe_phase
+    run["last_activity_at"] = timestamp
+    run_file.write_text(_render_mapping(run))
+
+    _append_note_to_journal(run_dir / "journal.md", section=f"Phase: {safe_phase}", note=note, phase=safe_phase)
+    return issue_file
+
+
 def cleanup_issue(
     root: Path,
     issue_id: str,
@@ -312,6 +348,26 @@ def _active_run_error(issue_id: str, execution_file: Path, run_dir: Path) -> Iss
     )
 
 
+def _active_issue_file(root: Path, issue_id: str) -> Path:
+    issue_file = root / "state" / "issues" / "execution" / f"{_safe_id(issue_id)}.md"
+    if not issue_file.exists():
+        raise FileNotFoundError(f"No execution issue found at {issue_file}")
+    return issue_file
+
+
+def _run_dir(root: Path, issue_id: str) -> Path:
+    run_dir = root / "state" / "runs" / _safe_id(issue_id)
+    if not run_dir.is_dir():
+        raise FileNotFoundError(f"Run directory not found: {run_dir}")
+    return run_dir
+
+
+def _load_run(run_file: Path) -> dict[str, object]:
+    if not run_file.exists():
+        raise FileNotFoundError(f"Run file not found: {run_file}")
+    return _parse_mapping(run_file.read_text())
+
+
 def _read_repo(root: Path, repo_id: str) -> dict[str, object]:
     repo_file = root / "state" / "repos" / f"{_safe_id(repo_id)}.yaml"
     if not repo_file.exists():
@@ -370,6 +426,22 @@ def _is_managed_worktree(root: Path, worktree: Path) -> bool:
     return True
 
 
+def _append_note_to_journal(journal: Path, *, section: str, note: str, phase: str | None) -> None:
+    title = section.strip()
+    if not title:
+        raise ValueError("section must not be empty")
+    body = note.strip()
+    if not body:
+        raise ValueError("note must not be empty")
+
+    lines = [f"\n## {title}", "", f"Timestamp: {_now_iso()}"]
+    if phase is not None:
+        lines.append(f"Phase: {phase}")
+    lines.extend(["", body, ""])
+    with journal.open("a") as handle:
+        handle.write("\n".join(lines))
+
+
 def _append_journal(journal: Path, *, destination: str, note: str) -> None:
     with journal.open("a") as handle:
         handle.write(f"\n## Cleanup\n\nDestination: {destination}\n\n{note.strip()}\n")
@@ -405,6 +477,14 @@ def _required_string(mapping: dict[str, object], key: str) -> str:
     if not isinstance(value, str):
         raise ValueError(f"{key} must be a string")
     return value
+
+
+def _validate_phase(phase: str) -> str:
+    safe_phase = phase.strip().lower()
+    if safe_phase not in ALLOWED_PHASES:
+        allowed = ", ".join(sorted(ALLOWED_PHASES))
+        raise ValueError(f"phase must be one of: {allowed}")
+    return safe_phase
 
 
 def _parse_mapping(text: str) -> dict[str, object]:
