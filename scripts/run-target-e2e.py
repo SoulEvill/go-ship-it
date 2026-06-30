@@ -30,6 +30,20 @@ class RunPaths:
         )
 
 
+@dataclasses.dataclass(frozen=True)
+class CommandRecord:
+    step: str
+    command: list[str]
+    cwd: str
+    exit_code: int
+    stdout: str
+    stderr: str
+
+    @property
+    def command_text(self) -> str:
+        return " ".join(self.command)
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run a disposable GoShipit e2e flow against an explicit target repo clone.")
     parser.add_argument("--target-id", required=True, help="GoShipit target id to register for this run.")
@@ -51,6 +65,42 @@ def validate_target_id(target_id: str) -> None:
 def make_run_root() -> Path:
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     return Path(tempfile.mkdtemp(prefix=f"go-ship-it-target-e2e-{timestamp}-"))
+
+
+def write_report(
+    *,
+    paths: RunPaths,
+    target_id: str,
+    source_target: Path,
+    issue_id: str,
+    worktree: str,
+    records: list[CommandRecord],
+    result: str,
+    notes: list[str],
+) -> None:
+    lines = [
+        "# GoShipit Target E2E Report",
+        "",
+        f"- Target id: `{target_id}`",
+        f"- Source target: `{source_target}`",
+        f"- Run root: `{paths.run_root}`",
+        f"- State root: `{paths.state_root}`",
+        f"- Target clone: `{paths.target_clone}`",
+        f"- Issue id: `{issue_id}`",
+        f"- Worktree: `{worktree}`",
+        f"- Result: `{result}`",
+        "",
+        "## Commands",
+        "",
+        "| Step | Command | Cwd | Exit |",
+        "| --- | --- | --- | --- |",
+    ]
+    for record in records:
+        lines.append(f"| {record.step} | `{record.command_text}` | `{record.cwd}` | {record.exit_code} |")
+    lines.extend(["", "## Notes", ""])
+    lines.extend(f"- {note}" for note in notes)
+    lines.append("")
+    paths.report.write_text("\n".join(lines))
 
 
 def main(argv: list[str] | None = None) -> int:

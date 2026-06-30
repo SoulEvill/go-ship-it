@@ -50,3 +50,34 @@ def test_run_paths_are_target_agnostic(tmp_path):
     assert paths.state_root == tmp_path / "go-ship-it-state"
     assert paths.target_clone == tmp_path / "target" / "sample"
     assert paths.report == tmp_path / "report.md"
+
+
+def test_report_writer_includes_command_records(tmp_path):
+    harness = load_harness()
+    paths = harness.RunPaths.from_root(tmp_path, "sample")
+    records = [
+        harness.CommandRecord(
+            step="status",
+            command=["uv", "run", "go-ship-it", "status"],
+            cwd=str(ROOT),
+            exit_code=0,
+            stdout="ok",
+            stderr="",
+        )
+    ]
+
+    harness.write_report(
+        paths=paths,
+        target_id="sample",
+        source_target=Path("/tmp/sample"),
+        issue_id="issue-001",
+        worktree="worktrees/sample/issue-001",
+        records=records,
+        result="success",
+        notes=["Preserved run root for inspection."],
+    )
+
+    text = paths.report.read_text()
+    assert "# GoShipit Target E2E Report" in text
+    assert "| status | `uv run go-ship-it status` |" in text
+    assert "Preserved run root for inspection." in text
