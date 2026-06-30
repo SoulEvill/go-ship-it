@@ -9,6 +9,24 @@ go-ship-it doctor
 go-ship-it status
 ```
 
+## Disposable Target Harness
+
+For a repeatable local smoke test against any Git repo, use the generic target harness with explicit target values:
+
+```bash
+scripts/run-target-e2e.py \
+  --target-id my-repo \
+  --target-path /path/to/my-repo \
+  --setup-command "uv sync" \
+  --test-command "uv run pytest"
+```
+
+The harness clones the target into a temporary run root, registers that clone with isolated GoShipit state, drives the issue lifecycle through the CLI, and writes a Markdown report. It does not choose a default target repo.
+
+### Contributor Fixture: Parawave
+
+GoShipit contributors can use `scripts/dev/run-parawave-e2e.sh` inside this development workspace. Parawave is a local fixture for dogfooding; it is not a default target for users.
+
 ## Issue Flow
 
 1. Register or inspect the target repo with `go-ship-it show-repo <repo>`.

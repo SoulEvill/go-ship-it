@@ -114,6 +114,17 @@ def test_harness_runs_against_fake_target_repo(tmp_path):
     assert "cleanup issue" in report
 
 
+def test_dev_parawave_wrapper_is_explicit_about_target_values():
+    wrapper = ROOT / "scripts" / "dev" / "run-parawave-e2e.sh"
+    text = wrapper.read_text()
+
+    assert "run-target-e2e.py" in text
+    assert "--target-id parawave" in text
+    assert '--target-path "$ROOT/../parawave"' in text
+    assert "uv sync --extra dev" in text
+    assert "uv run --extra dev pytest -q" in text
+
+
 def _create_fake_target_repo(path: Path) -> Path:
     path.mkdir(parents=True)
     (path / "pyproject.toml").write_text(
