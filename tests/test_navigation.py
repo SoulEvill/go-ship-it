@@ -11,6 +11,7 @@ from go_ship_it.state import (
     show_issue,
     show_run,
     start_issue,
+    workspace_status,
 )
 
 
@@ -87,6 +88,23 @@ def test_show_run_returns_journal_and_command_summaries(tmp_path):
     assert "Read files." in detail.journal
     assert len(detail.commands) == 1
     assert detail.commands[0]["check"] == "test"
+
+
+def test_workspace_status_counts_state(tmp_path):
+    root = _root_with_repo(tmp_path)
+    add_issue(root, repo_id="sample", title="Todo", problem="P", context="", acceptance_criteria=["A"])
+    add_issue(root, repo_id="sample", title="Archive", problem="P", context="", acceptance_criteria=["A"])
+    start_issue(root, "issue-002", claimed_by="test")
+    cleanup_issue(root, "issue-002", destination="archive", note="Done.", remove_worktree=False)
+
+    status = workspace_status(root)
+
+    assert status.repo_count == 1
+    assert status.todo_count == 1
+    assert status.execution_count == 0
+    assert status.archive_count == 1
+    assert status.run_count == 1
+    assert "sample/issue-002" in status.worktrees
 
 
 def _root_with_repo(tmp_path: Path) -> Path:

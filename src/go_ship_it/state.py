@@ -97,6 +97,17 @@ class RunDetail:
     commands: list[dict[str, object]]
 
 
+@dataclass(frozen=True)
+class WorkspaceStatus:
+    repo_count: int
+    todo_count: int
+    execution_count: int
+    archive_count: int
+    run_count: int
+    active: list[IssueSummary]
+    worktrees: list[str]
+
+
 def ensure_layout(root: Path) -> None:
     for relative in STATE_DIRS:
         (root / relative).mkdir(parents=True, exist_ok=True)
@@ -211,6 +222,26 @@ def show_run(root: Path, issue_id: str) -> RunDetail:
         run=_load_run(run_file),
         journal=journal_file.read_text().strip() if journal_file.exists() else "",
         commands=commands,
+    )
+
+
+def workspace_status(root: Path) -> WorkspaceStatus:
+    repo_dir = root / "state" / "repos"
+    repos = sorted(repo_dir.glob("*.yaml")) if repo_dir.exists() else []
+    todo = list_issues(root, state="todo")
+    execution = list_issues(root, state="execution")
+    archive = list_issues(root, state="archive")
+    runs = _collect_issue_dirs(root / "state" / "runs")
+    worktrees_root = root / "worktrees"
+    worktrees = [path.relative_to(worktrees_root).as_posix() for path in _collect_worktree_issue_dirs(worktrees_root)]
+    return WorkspaceStatus(
+        repo_count=len(repos),
+        todo_count=len(todo),
+        execution_count=len(execution),
+        archive_count=len(archive),
+        run_count=len(runs),
+        active=execution,
+        worktrees=worktrees,
     )
 
 
