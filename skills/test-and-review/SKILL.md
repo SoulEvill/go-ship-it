@@ -63,6 +63,8 @@ Ask before skipping a failing check or accepting a review finding as intentional
 
 Commands run, results, failures, review findings, and final readiness summary.
 
+Before declaring readiness, compare acceptance criteria against concrete evidence. Passing tests are necessary but not always sufficient; call out any criterion that lacks a matching test, command record, or review note.
+
 Phase completion evidence is command YAML under `state/runs/<issue-id>/commands/` plus a review note recorded with `go-ship-it append-note`.
 
 ## Next Recommended Skill

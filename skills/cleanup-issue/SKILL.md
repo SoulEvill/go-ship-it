@@ -55,6 +55,12 @@ go-ship-it cleanup-issue <issue-id> --destination todo --note <note> --remove-wo
 go-ship-it cleanup-issue <issue-id> --destination archive --note <note>
 ```
 
+After cleanup, run a final export when the user needs archived-state evidence:
+
+```sh
+go-ship-it export-run <issue-id> --output <path>
+```
+
 ## Human Approval Gates
 
 Ask before removing a worktree. Returning to `todo` requires removal so the next start is clean.
