@@ -2,6 +2,7 @@ from pathlib import Path
 import subprocess
 
 import pytest
+import yaml
 
 from go_ship_it.state import (
     CheckFailedError,
@@ -67,6 +68,22 @@ def test_export_run_includes_failed_command_exit_code(tmp_path):
 def test_export_run_fails_for_missing_issue_and_run(tmp_path):
     with pytest.raises(FileNotFoundError, match="No issue or run evidence"):
         export_run(tmp_path, "issue-999", output=tmp_path / "out.md")
+
+
+def test_export_run_records_export_metadata(tmp_path):
+    root = _started_issue_root(tmp_path, test_command="python -c 'print(\"ok\")'")
+    run_check(root, "issue-001", check="test")
+    cleanup_issue(root, "issue-001", destination="archive", note="Done.", remove_worktree=False)
+
+    output = export_run(root, "issue-001", output=tmp_path / "docs" / "dogfood" / "issue-001-evidence.md")
+
+    run = yaml.safe_load((root / "state" / "runs" / "issue-001" / "run.yaml").read_text())
+    assert len(run["exports"]) == 1
+    export = run["exports"][0]
+    assert export["path"] == output.relative_to(root).as_posix()
+    assert export["issue_status"] == "archive"
+    assert export["run_phase"] == "cleanup"
+    assert isinstance(export["exported_at"], str)
 
 
 def _started_issue_root(tmp_path: Path, *, test_command: str) -> Path:

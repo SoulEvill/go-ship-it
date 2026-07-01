@@ -563,6 +563,7 @@ def export_run(root: Path, issue_id: str, *, output: Path) -> Path:
     output = output if output.is_absolute() else root / output
     output.parent.mkdir(parents=True, exist_ok=True)
     run_file = run_dir / "run.yaml"
+    _record_export_metadata(root, issue_file, run_file, output)
     sections = [f"# GoShipit Run Evidence: {safe_issue_id}", ""]
     sections.extend(_issue_export_section(root, issue_file))
     sections.extend(_run_metadata_export_section(root, run_file))
@@ -601,6 +602,26 @@ def _run_metadata_export_section(root: Path, run_file: Path) -> list[str]:
     if not run_file.exists():
         return ["## Run Metadata", "", "No run metadata found.", ""]
     return ["## Run Metadata", "", "```yaml", portable_text(root, run_file.read_text()).strip(), "```", ""]
+
+
+def _record_export_metadata(root: Path, issue_file: Path | None, run_file: Path, output: Path) -> None:
+    if not run_file.exists():
+        return
+    run = _parse_mapping(run_file.read_text())
+    issue_status = issue_file.parent.name if issue_file is not None else None
+    exports = run.get("exports")
+    if not isinstance(exports, list):
+        exports = []
+    exports.append(
+        {
+            "path": relative_to_root(root, output),
+            "exported_at": _now_iso(),
+            "issue_status": issue_status,
+            "run_phase": run.get("phase"),
+        }
+    )
+    run["exports"] = exports
+    run_file.write_text(_render_mapping(run))
 
 
 def _journal_export_section(root: Path, journal: Path) -> list[str]:
