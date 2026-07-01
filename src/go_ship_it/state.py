@@ -100,6 +100,13 @@ class RunDetail:
 
 
 @dataclass(frozen=True)
+class RunEvent:
+    timestamp: str
+    kind: str
+    detail: str
+
+
+@dataclass(frozen=True)
 class WorkspaceStatus:
     repo_count: int
     todo_count: int
@@ -225,6 +232,54 @@ def show_run(root: Path, issue_id: str) -> RunDetail:
         journal=journal_file.read_text().strip() if journal_file.exists() else "",
         commands=commands,
     )
+
+
+def run_timeline(root: Path, issue_id: str) -> list[RunEvent]:
+    safe_issue_id = _safe_id(issue_id)
+    issue_file = _find_issue_file(root, safe_issue_id)
+    run_dir = root / "state" / "runs" / safe_issue_id
+    run_file = run_dir / "run.yaml"
+    events: list[RunEvent] = []
+
+    if issue_file is not None:
+        metadata, _body = parse_frontmatter(issue_file.read_text())
+        created = metadata.get("created_at")
+        if isinstance(created, str):
+            events.append(RunEvent(created, "issue.created", _required_string(metadata, "title")))
+
+    if run_file.exists():
+        run = _parse_mapping(run_file.read_text())
+        started = run.get("started_at")
+        if isinstance(started, str):
+            branch = run.get("branch")
+            worktree = run.get("worktree")
+            events.append(RunEvent(started, "run.started", f"branch={branch} worktree={worktree}"))
+        closed = run.get("closed_at")
+        if isinstance(closed, str):
+            destination = run.get("cleanup_destination")
+            events.append(RunEvent(closed, "run.cleanup", f"destination={destination}"))
+        exports = run.get("exports")
+        if isinstance(exports, list):
+            for item in exports:
+                if isinstance(item, dict) and isinstance(item.get("exported_at"), str):
+                    events.append(RunEvent(str(item["exported_at"]), "export.written", str(item.get("path"))))
+
+    journal = run_dir / "journal.md"
+    if journal.exists():
+        events.extend(_journal_timeline_events(journal.read_text()))
+
+    commands_dir = run_dir / "commands"
+    if commands_dir.exists():
+        for record in sorted(commands_dir.glob("*.yaml")):
+            data = _parse_mapping(record.read_text())
+            started = data.get("started_at")
+            check = data.get("check")
+            exit_code = data.get("exit_code")
+            command = data.get("command")
+            if isinstance(started, str):
+                events.append(RunEvent(started, f"check.{check}", f"exit={exit_code} command={command}"))
+
+    return sorted(events, key=lambda event: event.timestamp)
 
 
 def workspace_status(root: Path) -> WorkspaceStatus:
@@ -622,6 +677,31 @@ def _record_export_metadata(root: Path, issue_file: Path | None, run_file: Path,
     )
     run["exports"] = exports
     run_file.write_text(_render_mapping(run))
+
+
+def _journal_timeline_events(text: str) -> list[RunEvent]:
+    events: list[RunEvent] = []
+    for block in re.split(r"\n## ", "\n" + text.strip()):
+        block = block.strip()
+        if not block:
+            continue
+        lines = block.splitlines()
+        title = lines[0].strip()
+        timestamp_index = next(
+            (index for index, line in enumerate(lines[1:], start=1) if line.startswith("Timestamp:")),
+            None,
+        )
+        if timestamp_index is None:
+            continue
+        timestamp = lines[timestamp_index].split(":", 1)[1].strip()
+        body_start = timestamp_index + 1
+        for index, line in enumerate(lines[timestamp_index + 1 :], start=timestamp_index + 1):
+            if line == "":
+                body_start = index + 1
+                break
+        detail = " ".join(line.strip() for line in lines[body_start:] if line.strip())
+        events.append(RunEvent(timestamp, f"journal.{title}", detail))
+    return events
 
 
 def _journal_export_section(root: Path, journal: Path) -> list[str]:
