@@ -2,21 +2,21 @@
 
 ## Issue
 
-Source: `state/issues/execution/issue-003.md`
+Source: `state/issues/archive/issue-003.md`
 
 ```markdown
 ---
 id: issue-003
 repo: parawave
-status: execution
-phase: test
+status: archive
+phase: cleanup
 title: Make validation errors deterministic and easier to read
 created_at: '2026-06-30T17:12:19-07:00'
 worktree: worktrees/parawave/issue-003
 branch: go-ship-it/issue-003
 claimed_by: parawave-real-enhancement-dogfood
 started_at: '2026-06-30T17:12:22-07:00'
-last_activity_at: '2026-06-30T17:14:46-07:00'
+last_activity_at: '2026-06-30T17:16:22-07:00'
 ---
 
 ## Problem
@@ -33,6 +33,10 @@ Target parawave/validation.py and tests/test_validation.py. Keep the change smal
 - Missing required argument errors list keys in sorted deterministic order.
 - Accepted function parameters in the unexpected-key error are listed in sorted deterministic order.
 - Targeted validation tests and the configured Parawave test check pass.
+
+## Final Note
+
+Parawave deterministic validation error enhancement completed and evidence exported.
 ```
 
 ## Run Metadata
@@ -43,9 +47,19 @@ repo: parawave
 branch: go-ship-it/issue-003
 worktree: worktrees/parawave/issue-003
 claimed_by: parawave-real-enhancement-dogfood
-phase: test
+phase: cleanup
 started_at: '2026-06-30T17:12:22-07:00'
-last_activity_at: '2026-06-30T17:14:46-07:00'
+last_activity_at: '2026-06-30T17:16:14-07:00'
+cleanup_destination: archive
+cleanup_note: Parawave deterministic validation error enhancement completed and evidence
+  exported.
+closed_at: '2026-06-30T17:16:22-07:00'
+closed_branch: go-ship-it/issue-003
+exports:
+- path: docs/dogfood/issue-006-parawave-real-enhancement-export.md
+  exported_at: '2026-07-01T00:58:10-07:00'
+  issue_status: archive
+  run_phase: cleanup
 ```
 
 ## Journal
@@ -128,6 +142,19 @@ Phase: test
 
 Targeted validation tests passed and configured setup/test checks passed through GoShipit run-check. The target change is ready for human review or optional Parawave branch integration.
 
+## Phase: cleanup
+
+Timestamp: 2026-06-30T17:16:14-07:00
+Phase: cleanup
+
+Archiving dogfood issue after successful checks and export.
+
+## Cleanup
+
+Destination: archive
+
+Parawave deterministic validation error enhancement completed and evidence exported.
+
 ## Command Records
 
 ### 2026-06-30T17-14-56-07-00-setup.yaml
@@ -185,6 +212,7 @@ Stderr tail:
 - Repo: `parawave`
 - Branch: `go-ship-it/issue-003`
 - Worktree: `worktrees/parawave/issue-003`
+- Closed Branch: `go-ship-it/issue-003`
 
 ## Notes
 
