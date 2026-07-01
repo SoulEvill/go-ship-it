@@ -93,7 +93,18 @@ def test_parser_has_navigation_commands():
     assert parser.parse_args(["list-issues", "--state", "execution", "--repo", "parawave"]).state == "execution"
     assert parser.parse_args(["show-issue", "issue-001"]).command == "show-issue"
     assert parser.parse_args(["show-run", "issue-001", "--commands"]).commands is True
+    assert parser.parse_args(["show-run", "issue-001", "--trace"]).trace is True
     assert parser.parse_args(["status"]).command == "status"
+
+
+def test_parser_has_verify_run_command():
+    parser = build_parser()
+
+    args = parser.parse_args(["verify-run", "issue-001", "--strict"])
+
+    assert args.command == "verify-run"
+    assert args.issue_id == "issue-001"
+    assert args.strict is True
 
 
 def test_parser_has_doctor_command():
@@ -257,6 +268,29 @@ def test_main_show_run_commands_prints_portable_tails(tmp_path, capsys):
     assert "Stdout tail:" in out
     assert "ok" in out
     assert str(tmp_path) not in out
+
+
+def test_main_show_run_trace_prints_timeline(tmp_path, capsys):
+    _started_issue_root(tmp_path)
+
+    exit_code = main(["--root", str(tmp_path), "show-run", "issue-001", "--trace"])
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert "# Trace: issue-001" in output
+    assert "issue.created" in output
+    assert "run.started" in output
+
+
+def test_main_verify_run_prints_report(tmp_path, capsys):
+    _started_issue_root(tmp_path)
+
+    exit_code = main(["--root", str(tmp_path), "verify-run", "issue-001"])
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert "# GoShipit Run Verification: issue-001" in output
+    assert "Summary:" in output
 
 
 def test_main_status_prints_workspace_summary(tmp_path, capsys):

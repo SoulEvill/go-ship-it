@@ -21,6 +21,7 @@ from go_ship_it.state import (
     read_repo_config,
     register_repo,
     run_check,
+    run_timeline,
     set_phase,
     show_issue,
     show_run,
@@ -28,6 +29,7 @@ from go_ship_it.state import (
     update_repo_config,
     workspace_status,
 )
+from go_ship_it.verify import verify_run
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -109,12 +111,17 @@ def build_parser() -> argparse.ArgumentParser:
     show_run_cmd = subparsers.add_parser("show-run", help="Show one run.")
     show_run_cmd.add_argument("issue_id")
     show_run_cmd.add_argument("--commands", action="store_true")
+    show_run_cmd.add_argument("--trace", action="store_true", help="Show chronological run trace.")
 
     subparsers.add_parser("status", help="Show workspace status.")
 
     doctor = subparsers.add_parser("doctor", help="Check local GoShipit workspace health.")
     doctor.add_argument("--repo", default=None)
     doctor.add_argument("--strict", action="store_true", help="Exit non-zero when warnings exist.")
+
+    verify = subparsers.add_parser("verify-run", help="Verify one run's evidence structure.")
+    verify.add_argument("issue_id")
+    verify.add_argument("--strict", action="store_true", help="Exit non-zero when warnings exist.")
 
     export = subparsers.add_parser("export-run", help="Export run evidence to Markdown.")
     export.add_argument("issue_id")
@@ -205,6 +212,16 @@ def _format_run_detail(detail: object, root: Path, *, include_commands: bool) ->
     return "\n".join(lines).rstrip()
 
 
+def _format_timeline(issue_id: str, events: list[object]) -> str:
+    lines = [f"# Trace: {issue_id}", ""]
+    if not events:
+        lines.append("No trace events found.")
+        return "\n".join(lines)
+    for event in events:
+        lines.append(f"- {event.timestamp} {event.kind} {event.detail}".rstrip())
+    return "\n".join(lines)
+
+
 def _format_command_record(command: dict[str, object], root: Path) -> list[str]:
     record_file = command.get("record_file")
     record_label = relative_to_root(root, record_file) if isinstance(record_file, Path) else str(record_file)
@@ -268,6 +285,23 @@ def _format_doctor_report(report: object) -> str:
     ]
     for title, items in (("Errors", report.errors), ("Warnings", report.warnings), ("OK", report.ok)):
         lines.extend([f"## {title}"])
+        if items:
+            lines.extend(f"- {item.subject}: {item.message} ({item.code})" for item in items)
+        else:
+            lines.append("None.")
+        lines.append("")
+    return "\n".join(lines).rstrip()
+
+
+def _format_verify_report(issue_id: str, report: object) -> str:
+    lines = [
+        f"# GoShipit Run Verification: {issue_id}",
+        "",
+        f"Summary: {report.error_count} errors, {report.warning_count} warnings, {report.ok_count} ok",
+        "",
+    ]
+    for title, items in (("Errors", report.errors), ("Warnings", report.warnings), ("OK", report.ok)):
+        lines.append(f"## {title}")
         if items:
             lines.extend(f"- {item.subject}: {item.message} ({item.code})" for item in items)
         else:
@@ -370,7 +404,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
 
         if args.command == "show-run":
-            print(_format_run_detail(show_run(root, args.issue_id), root, include_commands=args.commands))
+            if args.trace:
+                print(_format_timeline(args.issue_id, run_timeline(root, args.issue_id)))
+            else:
+                print(_format_run_detail(show_run(root, args.issue_id), root, include_commands=args.commands))
             return 0
 
         if args.command == "status":
@@ -380,6 +417,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "doctor":
             report = run_doctor(root, repo_id=args.repo)
             print(_format_doctor_report(report))
+            if report.error_count:
+                return 1
+            if args.strict and report.warning_count:
+                return 1
+            return 0
+
+        if args.command == "verify-run":
+            report = verify_run(root, args.issue_id)
+            print(_format_verify_report(args.issue_id, report))
             if report.error_count:
                 return 1
             if args.strict and report.warning_count:
