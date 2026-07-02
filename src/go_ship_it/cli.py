@@ -14,6 +14,7 @@ from go_ship_it.state import (
     GoShipitError,
     add_issue,
     append_note,
+    append_run_log,
     cleanup_issue,
     ensure_layout,
     export_run,
@@ -92,6 +93,12 @@ def build_parser() -> argparse.ArgumentParser:
     note.add_argument("--note", required=True)
     note.add_argument("--phase", default=None)
 
+    log = subparsers.add_parser("append-log", help="Append a freeform run log comment.")
+    log.add_argument("issue_id")
+    log.add_argument("--note", required=True)
+    log.add_argument("--author", default=None)
+    log.add_argument("--source", action="append", default=[])
+
     phase = subparsers.add_parser("set-phase", help="Set the current workflow phase for an active issue.")
     phase.add_argument("issue_id")
     phase.add_argument("phase")
@@ -111,6 +118,7 @@ def build_parser() -> argparse.ArgumentParser:
     show_run_cmd = subparsers.add_parser("show-run", help="Show one run.")
     show_run_cmd.add_argument("issue_id")
     show_run_cmd.add_argument("--commands", action="store_true")
+    show_run_cmd.add_argument("--logs", action="store_true", help="Include freeform run log comments.")
     show_run_cmd.add_argument("--trace", action="store_true", help="Show chronological run trace.")
 
     subparsers.add_parser("status", help="Show workspace status.")
@@ -181,7 +189,7 @@ def _format_issue_detail(detail: object, root: Path) -> str:
     return "\n".join(lines).rstrip()
 
 
-def _format_run_detail(detail: object, root: Path, *, include_commands: bool) -> str:
+def _format_run_detail(detail: object, root: Path, *, include_commands: bool, include_logs: bool) -> str:
     lines = [
         f"# Run: {detail.issue_id}",
         "",
@@ -203,6 +211,10 @@ def _format_run_detail(detail: object, root: Path, *, include_commands: bool) ->
 
     journal = portable_text(root, detail.journal).strip()
     lines.extend(["", "## Journal", "", journal or "No journal found."])
+
+    if include_logs:
+        run_log = portable_text(root, detail.run_log).strip()
+        lines.extend(["", "## Run Log", "", run_log or "No run log found."])
 
     if include_commands and detail.commands:
         lines.extend(["", "## Command Records"])
@@ -385,6 +397,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(journal)
             return 0
 
+        if args.command == "append-log":
+            run_log = append_run_log(
+                root,
+                args.issue_id,
+                note=args.note,
+                author=args.author,
+                sources=args.source,
+            )
+            print(run_log)
+            return 0
+
         if args.command == "set-phase":
             issue_file = set_phase(root, args.issue_id, args.phase, note=args.note)
             print(issue_file)
@@ -407,7 +430,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             if args.trace:
                 print(_format_timeline(args.issue_id, run_timeline(root, args.issue_id)))
             else:
-                print(_format_run_detail(show_run(root, args.issue_id), root, include_commands=args.commands))
+                print(
+                    _format_run_detail(
+                        show_run(root, args.issue_id),
+                        root,
+                        include_commands=args.commands,
+                        include_logs=args.logs,
+                    )
+                )
             return 0
 
         if args.command == "status":

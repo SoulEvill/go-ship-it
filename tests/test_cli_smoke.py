@@ -4,7 +4,7 @@ import subprocess
 from go_ship_it import __version__
 from go_ship_it.cli import build_parser, main
 from go_ship_it.frontmatter import parse_frontmatter
-from go_ship_it.state import add_issue, append_note, register_repo, run_check, start_issue
+from go_ship_it.state import add_issue, append_note, append_run_log, register_repo, run_check, start_issue
 
 
 def test_version_is_defined():
@@ -63,6 +63,34 @@ def test_parser_has_evidence_commands():
     assert export.command == "export-run"
     assert export.issue_id == "issue-001"
     assert export.output == "docs/dogfood/issue-001-evidence.md"
+
+
+def test_parser_has_append_log_command():
+    parser = build_parser()
+
+    args = parser.parse_args(
+        [
+            "append-log",
+            "issue-001",
+            "--note",
+            "Agent recovered with --root.",
+            "--author",
+            "codex",
+            "--source",
+            "transcript:/tmp/session.jsonl",
+            "--source",
+            "command:state/runs/issue-001/commands/test.yaml",
+        ]
+    )
+
+    assert args.command == "append-log"
+    assert args.issue_id == "issue-001"
+    assert args.note == "Agent recovered with --root."
+    assert args.author == "codex"
+    assert args.source == [
+        "transcript:/tmp/session.jsonl",
+        "command:state/runs/issue-001/commands/test.yaml",
+    ]
 
 
 def test_parser_has_repo_config_commands():
@@ -351,6 +379,43 @@ def test_main_append_note_records_journal_entry(tmp_path):
     assert "## Investigation" in journal
     assert "Read README" in journal
     assert "Phase: investigate" in journal
+
+
+def test_main_append_log_records_run_comment(tmp_path, capsys):
+    _started_issue_root(tmp_path)
+
+    exit_code = main(
+        [
+            "--root",
+            str(tmp_path),
+            "append-log",
+            "issue-001",
+            "--note",
+            "Agent recovered with --root.",
+            "--author",
+            "codex",
+            "--source",
+            "transcript:/tmp/session.jsonl",
+        ]
+    )
+
+    output = capsys.readouterr().out
+    run_log = tmp_path / "state" / "runs" / "issue-001" / "run-log.md"
+    assert exit_code == 0
+    assert str(run_log) in output
+    assert "Agent recovered with --root." in run_log.read_text()
+
+
+def test_main_show_run_logs_prints_run_log(tmp_path, capsys):
+    root = _started_issue_root(tmp_path)
+    append_run_log(root, "issue-001", note="Agent recovered with --root.", author="codex", sources=[])
+
+    exit_code = main(["--root", str(tmp_path), "show-run", "issue-001", "--logs"])
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert "## Run Log" in output
+    assert "Agent recovered with --root." in output
 
 
 def test_main_set_phase_updates_active_issue(tmp_path):
