@@ -271,6 +271,10 @@ def run_timeline(root: Path, issue_id: str) -> list[RunEvent]:
     if journal.exists():
         events.extend(_journal_timeline_events(journal.read_text()))
 
+    run_log = run_dir / "run-log.md"
+    if run_log.exists():
+        events.extend(_run_log_timeline_events(run_log.read_text()))
+
     commands_dir = run_dir / "commands"
     if commands_dir.exists():
         for record in sorted(commands_dir.glob("*.yaml")):
@@ -673,6 +677,9 @@ def export_run(root: Path, issue_id: str, *, output: Path) -> Path:
     sections.extend(_issue_export_section(root, issue_file))
     sections.extend(_run_metadata_export_section(root, run_file))
     sections.extend(_journal_export_section(root, run_dir / "journal.md"))
+    run_log = read_run_log(root, safe_issue_id)
+    if run_log:
+        sections.extend(["## Run Log", "", portable_text(root, run_log), ""])
     sections.extend(_command_records_export_section(root, run_dir / "commands"))
     sections.extend(_worktree_export_section(issue_file, run_file))
     sections.extend(_notes_export_section())
@@ -751,6 +758,25 @@ def _journal_timeline_events(text: str) -> list[RunEvent]:
                 break
         detail = " ".join(line.strip() for line in lines[body_start:] if line.strip())
         events.append(RunEvent(timestamp, f"journal.{title}", detail))
+    return events
+
+
+def _run_log_timeline_events(text: str) -> list[RunEvent]:
+    events: list[RunEvent] = []
+    for block in re.split(r"\n## ", "\n" + text.strip()):
+        block = block.strip()
+        if not block:
+            continue
+        lines = block.splitlines()
+        timestamp = lines[0].strip()
+        body_lines = [
+            line.strip()
+            for line in lines[1:]
+            if line.strip() and not line.startswith("Author:") and line != "Sources:" and not line.startswith("- ")
+        ]
+        detail = " ".join(body_lines)
+        if timestamp:
+            events.append(RunEvent(timestamp, "log.entry", detail[:240]))
     return events
 
 

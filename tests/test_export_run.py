@@ -8,6 +8,7 @@ from go_ship_it.state import (
     CheckFailedError,
     add_issue,
     append_note,
+    append_run_log,
     cleanup_issue,
     export_run,
     register_repo,
@@ -84,6 +85,24 @@ def test_export_run_records_export_metadata(tmp_path):
     assert export["issue_status"] == "archive"
     assert export["run_phase"] == "cleanup"
     assert isinstance(export["exported_at"], str)
+
+
+def test_export_run_includes_run_log_when_present(tmp_path):
+    root = _started_issue_root(tmp_path, test_command="python -c 'print(\"ok\")'")
+    append_run_log(
+        root,
+        "issue-001",
+        note="Agent recovered with --root.",
+        author="codex",
+        sources=["transcript:/tmp/session.jsonl"],
+    )
+
+    output = export_run(root, "issue-001", output=tmp_path / "issue-001-evidence.md")
+
+    text = output.read_text()
+    assert "## Run Log" in text
+    assert "Agent recovered with --root." in text
+    assert "transcript:/tmp/session.jsonl" in text
 
 
 def _started_issue_root(tmp_path: Path, *, test_command: str) -> Path:

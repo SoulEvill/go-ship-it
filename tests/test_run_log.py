@@ -62,6 +62,17 @@ def test_read_run_log_returns_existing_text(tmp_path):
     assert "Something happened." in read_run_log(root, "issue-001")
 
 
+def test_run_timeline_includes_run_log_entries(tmp_path):
+    from go_ship_it.state import run_timeline
+
+    root = _started_issue_root(tmp_path)
+    append_run_log(root, "issue-001", note="Agent recovered with --root.", author="codex", sources=[])
+
+    events = run_timeline(root, "issue-001")
+
+    assert any(event.kind == "log.entry" and "Agent recovered with --root." in event.detail for event in events)
+
+
 def _started_issue_root(tmp_path: Path) -> Path:
     target = _create_git_repo(tmp_path / "target")
     register_repo(
