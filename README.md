@@ -55,6 +55,12 @@ Local fallback installers remain available for dogfood:
 
 See `docs/install.md`.
 
+Validate local agent CLI package loading with:
+
+```sh
+scripts/validate-agent-cli-integration.py
+```
+
 ## User E2E Test
 
 See `docs/user-e2e.md`.

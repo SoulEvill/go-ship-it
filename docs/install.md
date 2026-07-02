@@ -98,6 +98,23 @@ go-ship-it doctor
 
 `doctor` reports lifecycle state issues and package health warnings, including missing manifests, missing bootstrap skill, and missing hook files.
 
+## Agent CLI Validation
+
+Run this before trying a live agent session:
+
+```sh
+scripts/validate-agent-cli-integration.py
+```
+
+This validates the local package against installed agent CLIs without creating persistent plugin installs:
+
+- Claude Code: validates `.claude-plugin/plugin.json` and checks `claude --plugin-dir <repo>`.
+- Cursor Agent: checks `cursor-agent --plugin-dir <repo>`.
+- Codex: checks that `codex plugin list --json` is available.
+- Fallback installers: copies Claude skills and Cursor adapter files into temporary directories that are removed automatically.
+
+Persistent install/uninstall is intentionally not exercised here. Claude and Cursor both support session-local `--plugin-dir` loading, which is safer for local development. Marketplace-based installs should get their own test once GoShipit is published through a marketplace.
+
 ## Remote Integrations
 
 GitHub, PR creation, Jira, and other remote services are intentionally not part of the first install path. Add them only after local e2e passes.
