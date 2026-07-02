@@ -17,7 +17,7 @@ The GoShipit repo owns lifecycle state, skills, references, diagnostics, and evi
 
 ## First Commands
 
-Run these before changing state:
+Before changing state, run these from the GoShipit control repo root:
 
 ```sh
 go-ship-it status
@@ -25,6 +25,33 @@ go-ship-it doctor
 ```
 
 Use `status` for orientation and `doctor` for consistency checks.
+
+## Working Directory Guard
+
+Before any lifecycle work, prove which repository you are in:
+
+```sh
+pwd
+git rev-parse --show-toplevel
+```
+
+The control root is the GoShipit repo. It should contain:
+
+```text
+pyproject.toml
+skills/using-go-ship-it/SKILL.md
+state/
+worktrees/
+```
+
+If the session starts somewhere else, either change to the control root or pass it explicitly:
+
+```sh
+go-ship-it --root <control-root> status
+go-ship-it --root <control-root> doctor
+```
+
+Do not continue lifecycle work from a target repo checkout or target issue worktree. Target repo code changes happen inside the active issue worktree only after `go-ship-it show-run <issue-id>` confirms the worktree path.
 
 ## State Rules
 

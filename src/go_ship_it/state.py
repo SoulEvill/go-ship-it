@@ -283,6 +283,7 @@ def run_timeline(root: Path, issue_id: str) -> list[RunEvent]:
 
 
 def workspace_status(root: Path) -> WorkspaceStatus:
+    _require_layout(root)
     repo_dir = root / "state" / "repos"
     repos = sorted(repo_dir.glob("*.yaml")) if repo_dir.exists() else []
     todo = list_issues(root, state="todo")
@@ -300,6 +301,16 @@ def workspace_status(root: Path) -> WorkspaceStatus:
         active=execution,
         worktrees=worktrees,
     )
+
+
+def _require_layout(root: Path) -> None:
+    missing = [relative for relative in STATE_DIRS if not (root / relative).exists()]
+    if missing:
+        raise GoShipitError(
+            "not an initialized GoShipit control repo: "
+            f"{root}; missing {', '.join(missing)}. "
+            "Run from the GoShipit control repo root or pass --root <control-root>."
+        )
 
 
 def update_repo_config(

@@ -308,6 +308,15 @@ def test_main_status_prints_workspace_summary(tmp_path, capsys):
     assert "- sample/issue-001" in out
 
 
+def test_main_status_rejects_uninitialized_root(tmp_path, capsys):
+    exit_code = main(["--root", str(tmp_path), "status"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "not an initialized GoShipit control repo" in captured.err
+    assert "--root" in captured.err
+
+
 def test_main_export_run_relative_output_uses_root(tmp_path):
     _started_issue_root(tmp_path)
 

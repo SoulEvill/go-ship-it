@@ -43,6 +43,7 @@ def test_session_start_hook_outputs_cursor_context():
     assert "additional_context" in payload
     assert "You have GoShipit." in payload["additional_context"]
     assert "using-go-ship-it" in payload["additional_context"]
+    assert f"GoShipit package root: {ROOT}" in payload["additional_context"]
 
 
 def test_session_start_hook_outputs_claude_context():
@@ -53,6 +54,7 @@ def test_session_start_hook_outputs_claude_context():
     assert payload["hookSpecificOutput"]["hookEventName"] == "SessionStart"
     assert "You have GoShipit." in context
     assert "go-ship-it doctor" in context
+    assert f"GoShipit package root: {ROOT}" in context
 
 
 def test_session_start_hook_outputs_generic_context():
@@ -61,6 +63,16 @@ def test_session_start_hook_outputs_generic_context():
 
     assert "additionalContext" in payload
     assert "skills/using-go-ship-it/SKILL.md" in payload["additionalContext"]
+    assert f"GoShipit package root: {ROOT}" in payload["additionalContext"]
+
+
+def test_bootstrap_skill_includes_control_root_guard():
+    text = (ROOT / "skills" / "using-go-ship-it" / "SKILL.md").read_text()
+
+    assert "## Working Directory Guard" in text
+    assert "git rev-parse --show-toplevel" in text
+    assert "go-ship-it --root <control-root> status" in text
+    assert "Do not continue lifecycle work" in text
 
 
 def _run_hook(extra_env: dict[str, str]) -> str:

@@ -63,6 +63,19 @@ I want to work on a GoShipit issue.
 
 The session should orient to `using-go-ship-it`, `go-ship-it status`, and `go-ship-it doctor`.
 
+## Clean Session Acceptance
+
+For any harness, the first reliability check is working-directory safety. The session should either start from the GoShipit control repo root or pass that path explicitly:
+
+```sh
+go-ship-it --root <control-root> status
+go-ship-it --root <control-root> doctor
+```
+
+The control root should contain `pyproject.toml`, `skills/using-go-ship-it/SKILL.md`, `state/`, and `worktrees/`.
+
+If a session is accidentally in a target repo or target worktree, `go-ship-it status` should fail instead of showing an empty-looking workspace.
+
 ## Cursor
 
 Use the Cursor plugin package metadata in `.cursor-plugin/plugin.json`. Cursor should load the shared `skills/` folder and session-start hook configuration.

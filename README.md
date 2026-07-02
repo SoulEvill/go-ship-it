@@ -36,6 +36,8 @@ go-ship-it doctor
 go-ship-it status
 ```
 
+Agent sessions should run these from the GoShipit control repo root, or pass `--root <control-root>` explicitly. Target repo edits belong only inside the active issue worktree.
+
 ## Agent Tool Setup
 
 GoShipit skills are bundled as one package per agent harness. Install the package separately for Claude Code, Codex, Cursor, or any other agent tool you use.
