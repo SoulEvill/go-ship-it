@@ -1,0 +1,38 @@
+{
+  "name": "go-ship-it",
+  "version": "0.1.0",
+  "description": "Local-first issue lifecycle and worktree orchestration for agent-assisted development.",
+  "author": {
+    "name": "GoShipit contributors"
+  },
+  "homepage": "https://github.com/SoulEvill/go-ship-it",
+  "repository": "https://github.com/SoulEvill/go-ship-it",
+  "license": "MIT",
+  "keywords": [
+    "skills",
+    "workflow",
+    "worktrees",
+    "agentic-development",
+    "issue-lifecycle"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "GoShipit",
+    "shortDescription": "Local issue lifecycle, worktree orchestration, and evidence workflows for coding agents",
+    "longDescription": "Use GoShipit to add issues, claim work in isolated worktrees, investigate, propose, implement, test, review, verify, export evidence, and clean up local agent-assisted development runs.",
+    "developerName": "GoShipit contributors",
+    "category": "Coding",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "I want to work on a GoShipit issue.",
+      "Help me inspect the current GoShipit status."
+    ],
+    "websiteURL": "https://github.com/SoulEvill/go-ship-it",
+    "brandColor": "#2563EB",
+    "screenshots": []
+  }
+}

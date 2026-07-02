@@ -1,0 +1,18 @@
+{
+  "name": "go-ship-it",
+  "description": "Local-first issue lifecycle, worktree orchestration, and evidence workflows for Claude Code.",
+  "version": "0.1.0",
+  "author": {
+    "name": "GoShipit contributors"
+  },
+  "homepage": "https://github.com/SoulEvill/go-ship-it",
+  "repository": "https://github.com/SoulEvill/go-ship-it",
+  "license": "MIT",
+  "keywords": [
+    "skills",
+    "workflow",
+    "worktrees",
+    "agentic-development",
+    "issue-lifecycle"
+  ]
+}
