@@ -96,6 +96,7 @@ class RunDetail:
     run_file: Path
     run: dict[str, object]
     journal: str
+    run_log: str
     commands: list[dict[str, object]]
 
 
@@ -220,6 +221,7 @@ def show_run(root: Path, issue_id: str) -> RunDetail:
 
     run_file = run_dir / "run.yaml"
     journal_file = run_dir / "journal.md"
+    run_log_file = run_dir / "run-log.md"
     commands_dir = run_dir / "commands"
     commands = [
         _parse_mapping(command_file.read_text()) | {"record_file": command_file}
@@ -230,6 +232,7 @@ def show_run(root: Path, issue_id: str) -> RunDetail:
         run_file=run_file,
         run=_load_run(run_file),
         journal=journal_file.read_text().strip() if journal_file.exists() else "",
+        run_log=run_log_file.read_text().strip() if run_log_file.exists() else "",
         commands=commands,
     )
 
@@ -470,6 +473,42 @@ def append_note(root: Path, issue_id: str, *, section: str, note: str, phase: st
     journal = run_dir / "journal.md"
     _append_note_to_journal(journal, section=section, note=note, phase=phase)
     return journal
+
+
+def append_run_log(
+    root: Path,
+    issue_id: str,
+    *,
+    note: str,
+    author: str | None,
+    sources: list[str],
+) -> Path:
+    safe_issue_id = _safe_id(issue_id)
+    run_dir = _run_dir(root, safe_issue_id)
+    run_log = run_dir / "run-log.md"
+    timestamp = _now_iso()
+    cleaned_note = note.strip()
+    if not cleaned_note:
+        raise ValueError("note must not be empty")
+
+    entry = [f"## {timestamp}", ""]
+    if author is not None and author.strip():
+        entry.extend([f"Author: {author.strip()}", ""])
+    cleaned_sources = [source.strip() for source in sources if source.strip()]
+    if cleaned_sources:
+        entry.extend(["Sources:", *[f"- {source}" for source in cleaned_sources], ""])
+    entry.extend([cleaned_note, ""])
+
+    existing = run_log.read_text().rstrip() if run_log.exists() else ""
+    text = "\n\n".join(part for part in (existing, "\n".join(entry).rstrip()) if part)
+    run_log.write_text(f"{text}\n")
+    return run_log
+
+
+def read_run_log(root: Path, issue_id: str) -> str:
+    safe_issue_id = _safe_id(issue_id)
+    run_log = root / "state" / "runs" / safe_issue_id / "run-log.md"
+    return run_log.read_text().strip() if run_log.exists() else ""
 
 
 def set_phase(root: Path, issue_id: str, phase: str, *, note: str) -> Path:
