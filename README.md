@@ -38,6 +38,17 @@ go-ship-it status
 
 Agent sessions should run these from the GoShipit control repo root, or pass `--root <control-root>` explicitly. Target repo edits belong only inside the active issue worktree.
 
+## Run Comments
+
+Use run logs for lightweight process observations and raw-data pointers:
+
+```sh
+go-ship-it append-log issue-001 --note "Agent recovered with --root." --source transcript:/path/to/session.jsonl
+go-ship-it show-run issue-001 --logs
+```
+
+Run logs are comments, not a fixed lesson taxonomy.
+
 ## Agent Tool Setup
 
 GoShipit skills are bundled as one package per agent harness. Install the package separately for Claude Code, Codex, Cursor, or any other agent tool you use.
