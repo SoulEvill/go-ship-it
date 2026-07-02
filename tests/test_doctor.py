@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 import subprocess
 
@@ -86,6 +87,64 @@ def test_doctor_checks_skill_files(tmp_path):
     report = run_doctor(root)
 
     assert any(item.code == "skill.exists" for item in report.ok)
+
+
+def test_doctor_warns_when_plugin_package_files_are_missing(tmp_path):
+    root = _root_with_repo(tmp_path)
+
+    report = run_doctor(root)
+
+    assert report.error_count == 0
+    assert any(item.code == "package.manifest_missing" for item in report.warnings)
+
+
+def test_doctor_errors_when_plugin_manifest_is_invalid_json(tmp_path):
+    root = _root_with_repo(tmp_path)
+    manifest = root / ".codex-plugin" / "plugin.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text("{not-json")
+
+    report = run_doctor(root)
+
+    assert any(item.code == "package.manifest_invalid" for item in report.errors)
+
+
+def test_doctor_accepts_plugin_package_files(tmp_path):
+    root = _root_with_repo(tmp_path)
+    _write_package_files(root)
+
+    report = run_doctor(root)
+
+    assert not any(item.code == "package.manifest_missing" for item in report.warnings)
+    assert any(item.code == "package.manifest_ok" for item in report.ok)
+    assert any(item.code == "package.bootstrap_ok" for item in report.ok)
+
+
+def _write_package_files(root: Path) -> None:
+    (root / "skills" / "using-go-ship-it").mkdir(parents=True)
+    (root / "skills" / "using-go-ship-it" / "SKILL.md").write_text(
+        "---\nname: using-go-ship-it\n---\n\n# Using GoShipit\n"
+    )
+    (root / "hooks").mkdir()
+    (root / "hooks" / "hooks-cursor.json").write_text(
+        '{"version":1,"hooks":{"sessionStart":[{"command":"./hooks/run-hook.cmd session-start"}]}}'
+    )
+    (root / "hooks" / "session-start").write_text("#!/usr/bin/env bash\n")
+    (root / "hooks" / "run-hook.cmd").write_text("#!/usr/bin/env bash\n")
+    for directory, extra in {
+        ".claude-plugin": {},
+        ".codex-plugin": {"skills": "./skills/"},
+        ".cursor-plugin": {"skills": "./skills/", "hooks": "./hooks/hooks-cursor.json"},
+    }.items():
+        path = root / directory / "plugin.json"
+        path.parent.mkdir()
+        payload = {
+            "name": "go-ship-it",
+            "version": "0.1.0",
+            "repository": "https://github.com/SoulEvill/go-ship-it",
+            **extra,
+        }
+        path.write_text(json.dumps(payload))
 
 
 def _root_with_repo(

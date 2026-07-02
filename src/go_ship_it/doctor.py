@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 from dataclasses import dataclass
@@ -45,6 +46,7 @@ def run_doctor(root: Path, *, repo_id: str | None = None) -> DoctorReport:
     findings.extend(_check_issues(root))
     findings.extend(_check_runs_and_worktrees(root))
     findings.extend(_check_skills(root))
+    findings.extend(_check_package(root))
     return _report(findings)
 
 
@@ -317,6 +319,108 @@ def _check_skills(root: Path) -> list[DoctorFinding]:
                     )
                 )
     return findings
+
+
+def _check_package(root: Path) -> list[DoctorFinding]:
+    findings: list[DoctorFinding] = []
+    manifests = {
+        ".claude-plugin/plugin.json": {"skills": None, "hooks": None},
+        ".codex-plugin/plugin.json": {"skills": "./skills/", "hooks": None},
+        ".cursor-plugin/plugin.json": {"skills": "./skills/", "hooks": "./hooks/hooks-cursor.json"},
+    }
+
+    project_version = _project_version(root)
+
+    for relative, expected in manifests.items():
+        path = root / relative
+        subject = f"package/{relative}"
+        if not path.exists():
+            findings.append(DoctorFinding("warning", "package.manifest_missing", subject, "plugin manifest is missing"))
+            continue
+
+        try:
+            manifest = json.loads(path.read_text())
+        except json.JSONDecodeError as exc:
+            findings.append(DoctorFinding("error", "package.manifest_invalid", subject, str(exc)))
+            continue
+
+        findings.append(DoctorFinding("ok", "package.manifest_ok", subject, "plugin manifest exists"))
+
+        if manifest.get("name") != "go-ship-it":
+            findings.append(
+                DoctorFinding("warning", "package.name_mismatch", subject, "manifest name should be go-ship-it")
+            )
+
+        if project_version and manifest.get("version") != project_version:
+            findings.append(
+                DoctorFinding(
+                    "warning",
+                    "package.version_mismatch",
+                    subject,
+                    f"manifest version should match pyproject.toml: {project_version}",
+                )
+            )
+
+        expected_skills = expected["skills"]
+        if expected_skills is not None:
+            if manifest.get("skills") != expected_skills:
+                findings.append(
+                    DoctorFinding(
+                        "warning",
+                        "package.skills_mismatch",
+                        subject,
+                        f"skills should be {expected_skills}",
+                    )
+                )
+            elif not (root / str(expected_skills).rstrip("/")).exists():
+                findings.append(
+                    DoctorFinding("warning", "package.skills_missing", subject, "manifest skills path is missing")
+                )
+
+        expected_hooks = expected["hooks"]
+        if expected_hooks is not None:
+            if manifest.get("hooks") != expected_hooks:
+                findings.append(
+                    DoctorFinding(
+                        "warning",
+                        "package.hooks_mismatch",
+                        subject,
+                        f"hooks should be {expected_hooks}",
+                    )
+                )
+            elif not (root / expected_hooks).exists():
+                findings.append(
+                    DoctorFinding("warning", "package.hooks_missing", subject, "manifest hooks path is missing")
+                )
+
+    bootstrap = root / "skills" / "using-go-ship-it" / "SKILL.md"
+    if bootstrap.exists():
+        findings.append(DoctorFinding("ok", "package.bootstrap_ok", "package/bootstrap", "bootstrap skill exists"))
+    else:
+        findings.append(
+            DoctorFinding("warning", "package.bootstrap_missing", "package/bootstrap", "using-go-ship-it skill is missing")
+        )
+
+    for relative in ("hooks/session-start", "hooks/run-hook.cmd", "hooks/hooks-cursor.json"):
+        path = root / relative
+        if path.exists():
+            findings.append(DoctorFinding("ok", "package.hook_ok", f"package/{relative}", "hook file exists"))
+        else:
+            findings.append(
+                DoctorFinding("warning", "package.hook_missing", f"package/{relative}", "hook file is missing")
+            )
+
+    return findings
+
+
+def _project_version(root: Path) -> str | None:
+    pyproject = root / "pyproject.toml"
+    if not pyproject.exists():
+        return None
+    match = re.search(r'^version\s*=\s*"([^"]+)"', pyproject.read_text(), flags=re.MULTILINE)
+    if match:
+        return match.group(1)
+    return None
 
 
 def _issue_files(root: Path) -> list[tuple[str, Path]]:
