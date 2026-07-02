@@ -116,6 +116,17 @@ go-ship-it doctor
 
 `doctor` reports lifecycle state issues and package health warnings, including missing manifests, missing bootstrap skill, and missing hook files.
 
+## Packaged Install Acceptance
+
+Run this after building a wheel and before trying a live user session:
+
+```sh
+uv build
+scripts/validate-packaged-install.py --wheel dist/go_ship_it-0.1.0-py3-none-any.whl
+```
+
+This creates a temporary fresh room, installs the wheel into a new virtual environment, initializes a temporary control root, runs `go-ship-it package-root`, `go-ship-it init`, and `go-ship-it doctor`, then checks whether Claude Code and Cursor Agent can load the installed package root when those CLIs are available.
+
 ## Agent CLI Validation
 
 Run this before trying a live agent session:

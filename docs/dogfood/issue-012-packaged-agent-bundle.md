@@ -15,6 +15,7 @@ That breaks the intended user experience: install GoShipit once, then point each
 - Made `doctor` check package health from the bundled package root.
 - Clarified package root vs control root in docs, skills, and session-start hook output.
 - Added a wheel-content regression test.
+- Added `scripts/validate-packaged-install.py` to install a built wheel into a temporary fresh room and smoke-test the installed package path.
 
 ## User Model
 
@@ -29,6 +30,13 @@ In clone-based development they can be the same directory. In package-install mo
 go-ship-it package-root
 claude --plugin-dir "$(go-ship-it package-root)" --help
 cursor-agent --plugin-dir "$(go-ship-it package-root)" --help
+```
+
+Release acceptance:
+
+```sh
+uv build
+scripts/validate-packaged-install.py --wheel dist/go_ship_it-0.1.0-py3-none-any.whl
 ```
 
 Then run lifecycle commands from the control root:

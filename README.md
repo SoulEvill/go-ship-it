@@ -80,6 +80,13 @@ Validate local agent CLI package loading with:
 scripts/validate-agent-cli-integration.py
 ```
 
+Validate a built wheel in a fresh temporary install room with:
+
+```sh
+uv build
+scripts/validate-packaged-install.py --wheel dist/go_ship_it-0.1.0-py3-none-any.whl
+```
+
 ## User E2E Test
 
 See `docs/user-e2e.md`.
