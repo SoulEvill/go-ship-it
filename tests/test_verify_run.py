@@ -31,6 +31,25 @@ def test_verify_run_warns_when_export_precedes_cleanup(tmp_path):
     assert any(item.code == "worktree.preserved_after_archive" for item in report.warnings)
 
 
+def test_verify_run_warns_when_legacy_export_lacks_metadata_after_cleanup(tmp_path):
+    root = _started_issue_root(tmp_path)
+    _write_required_notes(root, "issue-001")
+    run_check(root, "issue-001", check="test")
+    cleanup_issue(root, "issue-001", destination="archive", note="Done.", remove_worktree=False)
+    legacy_export = root / "docs" / "dogfood" / "legacy-export.md"
+    legacy_export.parent.mkdir(parents=True)
+    legacy_export.write_text(
+        "# GoShipit Run Evidence: issue-001\n\n"
+        "Source: `state/issues/execution/issue-001.md`\n\n"
+        "```yaml\nphase: test\n```\n"
+    )
+
+    report = verify_run(root, "issue-001")
+
+    assert not report.errors
+    assert any(item.code == "run.export_stale" for item in report.warnings)
+
+
 def test_verify_run_accepts_export_after_cleanup(tmp_path):
     root = _started_issue_root(tmp_path)
     _write_required_notes(root, "issue-001")
