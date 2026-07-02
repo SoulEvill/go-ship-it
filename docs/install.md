@@ -5,7 +5,7 @@ GoShipit has two install surfaces:
 - the `go-ship-it` CLI
 - the bundled agent skill package
 
-Install the CLI once for the control repo. Install the skill package separately for each agent harness you use.
+Install GoShipit once. The CLI exposes the bundled agent package root, and each agent harness can load that one package. Users should not install each skill independently.
 
 ## Development Install
 
@@ -22,7 +22,10 @@ From the GoShipit clone:
 ```sh
 uv tool install .
 go-ship-it --help
+go-ship-it package-root
 ```
+
+`go-ship-it package-root` prints the directory that contains the bundled skills, hooks, manifests, references, and docs.
 
 ## Skill Package Model
 
@@ -39,9 +42,20 @@ The package contains:
 
 Each harness has its own plugin installation mechanism, so install GoShipit separately in Claude Code, Codex, Cursor, or any other agent tool.
 
+There are two roots:
+
+- Package root: printed by `go-ship-it package-root`; contains `skills/`, `hooks/`, and plugin manifests.
+- Control root: the workspace where lifecycle state lives; contains `state/` and `worktrees/`.
+
+In clone-based development those roots may be the same directory. In package-install mode they are usually different.
+
 ## Claude Code
 
-Use the GoShipit plugin package when local plugin installation is available in your Claude Code setup. The package root is the GoShipit repo.
+Use the GoShipit plugin package when local plugin installation is available in your Claude Code setup:
+
+```sh
+claude --plugin-dir "$(go-ship-it package-root)" --help
+```
 
 Development fallback:
 
@@ -55,7 +69,7 @@ The fallback copies skill folders into `.claude/skills/`. It is useful for local
 
 Use the Codex plugin package metadata in `.codex-plugin/plugin.json`.
 
-After installing the package in Codex, start a session from the GoShipit repo and ask:
+After installing the package in Codex, start a session from a GoShipit control root and ask:
 
 ```text
 I want to work on a GoShipit issue.
@@ -72,13 +86,17 @@ go-ship-it --root <control-root> status
 go-ship-it --root <control-root> doctor
 ```
 
-The control root should contain `pyproject.toml`, `skills/using-go-ship-it/SKILL.md`, `state/`, and `worktrees/`.
+The control root should contain `state/` and `worktrees/`. The package root should contain `skills/using-go-ship-it/SKILL.md`, plugin manifests, and hooks.
 
 If a session is accidentally in a target repo or target worktree, `go-ship-it status` should fail instead of showing an empty-looking workspace.
 
 ## Cursor
 
-Use the Cursor plugin package metadata in `.cursor-plugin/plugin.json`. Cursor should load the shared `skills/` folder and session-start hook configuration.
+Use the Cursor plugin package metadata in `.cursor-plugin/plugin.json`. Cursor should load the shared `skills/` folder and session-start hook configuration:
+
+```sh
+cursor-agent --plugin-dir "$(go-ship-it package-root)" --help
+```
 
 Development fallback:
 
@@ -103,6 +121,7 @@ go-ship-it doctor
 Run this before trying a live agent session:
 
 ```sh
+cd "$(go-ship-it package-root)"
 scripts/validate-agent-cli-integration.py
 ```
 

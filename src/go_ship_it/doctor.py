@@ -9,6 +9,7 @@ from pathlib import Path
 import yaml
 
 from go_ship_it.frontmatter import parse_frontmatter
+from go_ship_it.package_assets import package_root
 from go_ship_it.state import STATE_DIRS
 
 
@@ -46,7 +47,7 @@ def run_doctor(root: Path, *, repo_id: str | None = None) -> DoctorReport:
     findings.extend(_check_issues(root))
     findings.extend(_check_runs_and_worktrees(root))
     findings.extend(_check_skills(root))
-    findings.extend(_check_package(root))
+    findings.extend(_check_package(package_root()))
     return _report(findings)
 
 

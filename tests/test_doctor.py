@@ -89,8 +89,19 @@ def test_doctor_checks_skill_files(tmp_path):
     assert any(item.code == "skill.exists" for item in report.ok)
 
 
-def test_doctor_warns_when_plugin_package_files_are_missing(tmp_path):
+def test_doctor_uses_bundled_package_root_for_package_checks(tmp_path):
     root = _root_with_repo(tmp_path)
+
+    report = run_doctor(root)
+
+    assert report.error_count == 0
+    assert not any(item.code == "package.manifest_missing" for item in report.warnings)
+    assert any(item.code == "package.manifest_ok" for item in report.ok)
+
+
+def test_doctor_warns_when_plugin_package_files_are_missing(tmp_path, monkeypatch):
+    root = _root_with_repo(tmp_path)
+    monkeypatch.setattr("go_ship_it.doctor.package_root", lambda: root)
 
     report = run_doctor(root)
 
@@ -98,8 +109,9 @@ def test_doctor_warns_when_plugin_package_files_are_missing(tmp_path):
     assert any(item.code == "package.manifest_missing" for item in report.warnings)
 
 
-def test_doctor_errors_when_plugin_manifest_is_invalid_json(tmp_path):
+def test_doctor_errors_when_plugin_manifest_is_invalid_json(tmp_path, monkeypatch):
     root = _root_with_repo(tmp_path)
+    monkeypatch.setattr("go_ship_it.doctor.package_root", lambda: root)
     manifest = root / ".codex-plugin" / "plugin.json"
     manifest.parent.mkdir(parents=True)
     manifest.write_text("{not-json")
@@ -109,9 +121,10 @@ def test_doctor_errors_when_plugin_manifest_is_invalid_json(tmp_path):
     assert any(item.code == "package.manifest_invalid" for item in report.errors)
 
 
-def test_doctor_accepts_plugin_package_files(tmp_path):
+def test_doctor_accepts_plugin_package_files(tmp_path, monkeypatch):
     root = _root_with_repo(tmp_path)
     _write_package_files(root)
+    monkeypatch.setattr("go_ship_it.doctor.package_root", lambda: root)
 
     report = run_doctor(root)
 

@@ -24,6 +24,25 @@ def test_main_help_exits_cleanly(capsys):
     assert "GoShipit" in captured.out
 
 
+def test_parser_has_package_root_command():
+    parser = build_parser()
+    args = parser.parse_args(["package-root"])
+
+    assert args.command == "package-root"
+
+
+def test_main_package_root_prints_existing_agent_package(capsys):
+    exit_code = main(["package-root"])
+    captured = capsys.readouterr()
+
+    package_root = Path(captured.out.strip())
+    assert exit_code == 0
+    assert (package_root / "skills" / "using-go-ship-it" / "SKILL.md").exists()
+    assert (package_root / ".claude-plugin" / "plugin.json").exists()
+    assert (package_root / ".cursor-plugin" / "plugin.json").exists()
+    assert (package_root / ".codex-plugin" / "plugin.json").exists()
+
+
 def test_main_init_creates_state_layout(tmp_path):
     exit_code = main(["--root", str(tmp_path), "init"])
 

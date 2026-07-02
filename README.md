@@ -27,7 +27,10 @@ uv run go-ship-it --help
 ```sh
 uv tool install .
 go-ship-it --help
+go-ship-it package-root
 ```
+
+`go-ship-it package-root` prints the bundled agent package directory. Use that path when an agent CLI asks for a local plugin/package directory.
 
 ## First Health Check
 
@@ -36,7 +39,7 @@ go-ship-it doctor
 go-ship-it status
 ```
 
-Agent sessions should run these from the GoShipit control repo root, or pass `--root <control-root>` explicitly. Target repo edits belong only inside the active issue worktree.
+Agent sessions should run lifecycle commands from the GoShipit control root, or pass `--root <control-root>` explicitly. The control root contains `state/` and `worktrees/`. The package root contains skills and hooks. Target repo edits belong only inside the active issue worktree.
 
 ## Run Comments
 
@@ -51,7 +54,12 @@ Run logs are comments, not a fixed lesson taxonomy.
 
 ## Agent Tool Setup
 
-GoShipit skills are bundled as one package per agent harness. Install the package separately for Claude Code, Codex, Cursor, or any other agent tool you use.
+GoShipit skills are bundled as one package per agent harness. Install the CLI/package once, then point each agent harness at the package root:
+
+```sh
+claude --plugin-dir "$(go-ship-it package-root)" --help
+cursor-agent --plugin-dir "$(go-ship-it package-root)" --help
+```
 
 Package metadata lives in:
 

@@ -8,6 +8,7 @@ from pathlib import Path
 import yaml
 
 from go_ship_it.doctor import run_doctor
+from go_ship_it.package_assets import package_root
 from go_ship_it.portable import portable_path_value, portable_text, relative_to_root
 from go_ship_it.state import (
     CheckFailedError,
@@ -42,6 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("init", help="Create the local GoShipit state folders.")
+    subparsers.add_parser("package-root", help="Print the bundled GoShipit agent package root.")
 
     register = subparsers.add_parser("register-repo", help="Register a target repository.")
     register.add_argument("repo_id")
@@ -335,6 +337,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     root = Path(args.root).resolve()
 
     try:
+        if args.command == "package-root":
+            print(package_root())
+            return 0
+
         if args.command == "init":
             ensure_layout(root)
             print(f"Initialized GoShipit state at {root}")

@@ -18,7 +18,7 @@ escape_for_json() {
 }
 
 bootstrap_escaped="$(escape_for_json "$bootstrap_content")"
-session_context="\nYou have GoShipit.\n\nGoShipit package root: ${PLUGIN_ROOT}\n\nRead skills/using-go-ship-it/SKILL.md before doing GoShipit lifecycle work. Before changing lifecycle state, confirm the session is operating from the GoShipit control repo root or pass --root ${PLUGIN_ROOT} to go-ship-it commands. The full bootstrap skill content is below:\n\n${bootstrap_escaped}\n"
+session_context="\nYou have GoShipit.\n\nGoShipit package root: ${PLUGIN_ROOT}\n\nRead skills/using-go-ship-it/SKILL.md before doing GoShipit lifecycle work. The package root contains agent skills and hooks. The control root contains lifecycle state and worktrees. Before changing lifecycle state, confirm the session is operating from the GoShipit control root or pass --root <control-root> to go-ship-it commands. The full bootstrap skill content is below:\n\n${bootstrap_escaped}\n"
 
 if [ -n "${CURSOR_PLUGIN_ROOT:-}" ]; then
   printf '{\n  "additional_context": "%s"\n}\n' "$session_context"

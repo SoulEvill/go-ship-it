@@ -11,9 +11,15 @@ Use when starting a session in the GoShipit control repo, when the user asks to 
 
 ## Core Model
 
-GoShipit is a local-first control repo for agent-assisted software work.
+GoShipit is a local-first control workspace for agent-assisted software work.
 
-The GoShipit repo owns lifecycle state, skills, references, diagnostics, and evidence. Target repository edits happen in issue worktrees created by GoShipit.
+The GoShipit package owns skills, hooks, references, diagnostics, and the CLI. A GoShipit control root owns lifecycle state, run evidence, and managed worktrees. In clone-based development these may be the same directory. In package-install mode they are usually different directories.
+
+Use this to find the installed package root when an agent needs the bundled skills and hooks:
+
+```sh
+go-ship-it package-root
+```
 
 ## First Commands
 
@@ -35,14 +41,14 @@ pwd
 git rev-parse --show-toplevel
 ```
 
-The control root is the GoShipit repo. It should contain:
+The control root is the workspace where GoShipit state lives. It should contain:
 
 ```text
-pyproject.toml
-skills/using-go-ship-it/SKILL.md
 state/
 worktrees/
 ```
+
+In clone-based development the control root may also contain `pyproject.toml`, `skills/`, and plugin manifests. In package-install mode those live under `go-ship-it package-root` instead.
 
 If the session starts somewhere else, either change to the control root or pass it explicitly:
 

@@ -2,6 +2,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import zipfile
 import tomllib
 
 
@@ -44,6 +45,8 @@ def test_session_start_hook_outputs_cursor_context():
     assert "You have GoShipit." in payload["additional_context"]
     assert "using-go-ship-it" in payload["additional_context"]
     assert f"GoShipit package root: {ROOT}" in payload["additional_context"]
+    assert "--root <control-root>" in payload["additional_context"]
+    assert f"--root {ROOT}" not in payload["additional_context"]
 
 
 def test_session_start_hook_outputs_claude_context():
@@ -55,6 +58,8 @@ def test_session_start_hook_outputs_claude_context():
     assert "You have GoShipit." in context
     assert "go-ship-it doctor" in context
     assert f"GoShipit package root: {ROOT}" in context
+    assert "--root <control-root>" in context
+    assert f"--root {ROOT}" not in context
 
 
 def test_session_start_hook_outputs_generic_context():
@@ -73,6 +78,36 @@ def test_bootstrap_skill_includes_control_root_guard():
     assert "git rev-parse --show-toplevel" in text
     assert "go-ship-it --root <control-root> status" in text
     assert "Do not continue lifecycle work" in text
+
+
+def test_built_wheel_contains_agent_package_assets(tmp_path):
+    result = subprocess.run(
+        ["uv", "build", "--wheel", "--out-dir", str(tmp_path)],
+        cwd=ROOT,
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+    wheels = list(tmp_path.glob("go_ship_it-*.whl"))
+    assert len(wheels) == 1
+
+    with zipfile.ZipFile(wheels[0]) as wheel:
+        names = set(wheel.namelist())
+
+    expected = {
+        "go_ship_it/package/.claude-plugin/plugin.json",
+        "go_ship_it/package/.codex-plugin/plugin.json",
+        "go_ship_it/package/.cursor-plugin/plugin.json",
+        "go_ship_it/package/hooks/session-start",
+        "go_ship_it/package/hooks/run-hook.cmd",
+        "go_ship_it/package/hooks/hooks-cursor.json",
+        "go_ship_it/package/references/lifecycle.md",
+        "go_ship_it/package/skills/using-go-ship-it/SKILL.md",
+        "go_ship_it/package/skills/test-and-review/SKILL.md",
+    }
+    assert expected <= names
 
 
 def _run_hook(extra_env: dict[str, str]) -> str:
