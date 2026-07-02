@@ -66,4 +66,3 @@ def _run_validator(tool: str) -> list[dict[str, str]]:
     loaded = json.loads(result.stdout)
     assert isinstance(loaded, list)
     return loaded
-

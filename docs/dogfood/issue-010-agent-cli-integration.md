@@ -55,4 +55,3 @@ If GoShipit later gets marketplace publication, persistent install/uninstall tes
 - Integration tests should validate package loading without mutating user plugin state.
 - Session-local plugin loading is the right development path for Claude and Cursor.
 - Persistent install/uninstall tests should be marketplace-specific and preserve any existing user-installed GoShipit plugin.
-

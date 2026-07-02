@@ -44,4 +44,3 @@ This guard makes the failure visible and gives the agent an explicit recovery pa
 - Harness acceptance should focus first on root safety and worktree boundaries.
 - Skill auto-discovery is useful, but explicit invocation is acceptable if the guardrails are clear.
 - Wrong-root commands should fail loudly when they can otherwise produce misleading empty output.
-
