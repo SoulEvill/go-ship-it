@@ -36,12 +36,14 @@ go-ship-it init --repo-id <repo> --repo-path <path> --test-command <cmd>
 go-ship-it add-issue --repo <repo> --title <title> --problem <problem> --context <context> --acceptance <criterion>
 go-ship-it start-issue <issue-id> --claimed-by <thread-label>
 go-ship-it cleanup-issue <issue-id> --destination todo --note <note> --remove-worktree
-go-ship-it cleanup-issue <issue-id> --destination archive --note <note>
+go-ship-it cleanup-issue <issue-id> --destination archive --note <note> --remove-worktree
 ```
 
 `--claimed-by` is optional. When omitted, GoShipit creates a stable local actor label from the agent/tool environment, user, host, control root, and current working directory.
 
 `start-issue` prints the worktree, run file, claim label, deterministic claim id, and context file. If the issue is already active, it returns the existing active run details instead of creating another worktree.
+
+For normal completed work, include `--remove-worktree` when archiving so the control root stays clean. Omit it only when the user explicitly wants to preserve the worktree for inspection.
 
 Repo registration writes a folder, not a single flat registry file:
 

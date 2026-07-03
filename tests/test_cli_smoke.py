@@ -504,6 +504,7 @@ def test_main_status_prints_workspace_summary(tmp_path, capsys):
     assert "go-ship-it show-run issue-001 --handoff" in out
     assert "go-ship-it run-check issue-001 --check test" in out
     assert "go-ship-it verify-run issue-001" in out
+    assert "go-ship-it cleanup-issue issue-001 --destination archive --note \"<note>\" --remove-worktree" in out
     assert "- sample/issue-001" in out
 
 
@@ -577,6 +578,7 @@ def test_main_status_omits_unconfigured_check_hint(tmp_path, capsys):
     assert "go-ship-it show-run issue-001 --handoff" in out
     assert "go-ship-it run-check issue-001 --check test" not in out
     assert "go-ship-it verify-run issue-001" in out
+    assert "go-ship-it cleanup-issue issue-001 --destination archive --note \"<note>\" --remove-worktree" in out
 
 
 def test_main_status_rejects_uninitialized_root(tmp_path, capsys):
@@ -585,6 +587,7 @@ def test_main_status_rejects_uninitialized_root(tmp_path, capsys):
     captured = capsys.readouterr()
     assert exit_code == 1
     assert "not an initialized GoShipit control repo" in captured.err
+    assert "go-ship-it init" in captured.err
     assert "--root" in captured.err
 
 

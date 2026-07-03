@@ -116,3 +116,12 @@ def test_bootstrap_skill_routes_to_two_operational_skills():
     assert "`work-issue`" in text
     for deprecated in DEPRECATED_SKILLS:
         assert f"`{deprecated}`" not in text
+
+
+def test_bootstrap_skill_names_natural_invocation_phrases():
+    root = Path(__file__).resolve().parents[1]
+    text = (root / "skills" / "using-go-ship-it" / "SKILL.md").read_text()
+
+    assert "use GoShipit" in text
+    assert "Go Ship It" in text
+    assert "go ship it this project" in text

@@ -49,7 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  start-issue <issue-id>\n"
             "  status\n"
             "  run-check <issue-id> --check test    # or run-check --current --check test from the worktree\n"
-            "  cleanup-issue <issue-id> --destination archive --note <note>\n\n"
+            "  cleanup-issue <issue-id> --destination archive --note <note> --remove-worktree\n\n"
             "Advanced/support:\n"
             "  show-issue, show-run, handoff, append-note, append-log, set-phase,\n"
             "  export-run, verify-run, doctor, package-root, update-repo\n"
@@ -430,6 +430,7 @@ def _format_status(status: object, root: Path, *, current: object | None = None)
             for check in _configured_checks(root, item.repo):
                 lines.append(f"    go-ship-it run-check {item.issue_id} --check {check}")
             lines.append(f"    go-ship-it verify-run {item.issue_id}")
+            lines.append(f"    go-ship-it cleanup-issue {item.issue_id} --destination archive --note \"<note>\" --remove-worktree")
     else:
         lines.append("No active issues.")
 

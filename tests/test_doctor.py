@@ -31,17 +31,23 @@ def test_doctor_errors_when_registered_repo_path_is_missing(tmp_path):
     assert report.errors[0].code == "repo.path_missing"
 
 
-def test_doctor_warns_for_missing_optional_commands(tmp_path):
+def test_doctor_warns_when_no_check_commands_are_configured(tmp_path):
     root = _root_with_repo(tmp_path, setup_command=None, test_command=None, lint_command=None)
 
     report = run_doctor(root)
 
     assert report.error_count == 0
-    assert {item.code for item in report.warnings} >= {
-        "repo.setup_command_missing",
-        "repo.test_command_missing",
-        "repo.lint_command_missing",
-    }
+    assert [item.code for item in report.warnings] == ["repo.no_checks_configured"]
+
+
+def test_doctor_accepts_repo_with_only_test_command(tmp_path):
+    root = _root_with_repo(tmp_path, setup_command=None, test_command="python -c 'print(\"test\")'", lint_command=None)
+
+    report = run_doctor(root)
+
+    assert report.error_count == 0
+    assert not any(item.code == "repo.no_checks_configured" for item in report.warnings)
+    assert any(item.code == "repo.test_command_configured" for item in report.ok)
 
 
 def test_doctor_errors_for_duplicate_issue_ids(tmp_path):

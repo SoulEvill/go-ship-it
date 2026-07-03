@@ -53,7 +53,7 @@ go-ship-it status
 go-ship-it show-run issue-001 --handoff
 go-ship-it run-check issue-001 --check test
 go-ship-it handoff issue-001 --write
-go-ship-it cleanup-issue issue-001 --destination archive --note "Done."
+go-ship-it cleanup-issue issue-001 --destination archive --note "Done." --remove-worktree
 ```
 
 Use `status` as the command center. It shows the control root, package root, current branch, active issues, worktrees, and useful next commands.

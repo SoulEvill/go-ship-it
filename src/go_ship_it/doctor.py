@@ -136,13 +136,20 @@ def _check_repos(root: Path, *, repo_id: str | None) -> list[DoctorFinding]:
                     )
                 )
 
+        configured_commands = []
         for command in ("setup_command", "test_command", "lint_command"):
             if isinstance(config.get(command), str) and str(config[command]).strip():
+                configured_commands.append(command)
                 findings.append(DoctorFinding("ok", f"repo.{command}_configured", subject, f"{command} is configured"))
-            else:
-                findings.append(
-                    DoctorFinding("warning", f"repo.{command}_missing", subject, f"{command} is not configured")
+        if not configured_commands:
+            findings.append(
+                DoctorFinding(
+                    "warning",
+                    "repo.no_checks_configured",
+                    subject,
+                    "No setup, test, or lint command is configured",
                 )
+            )
     return findings
 
 

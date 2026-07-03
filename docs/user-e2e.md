@@ -63,5 +63,5 @@ Use `skills/manage-issues/SKILL.md` for steps 1-3 and 11-12. Use `skills/work-is
 11. Run configured checks with `go-ship-it run-check --current --check test` from the worktree, or `go-ship-it run-check <issue-id> --check test` from the control root.
 12. Create an explicit resume snapshot with `go-ship-it handoff --write` from the worktree, or `go-ship-it handoff <issue-id> --write` from the control root, when another session should continue.
 13. Export evidence with `go-ship-it export-run`.
-14. Cleanup to `archive` or return to `todo`.
+14. Cleanup to `archive` with `--remove-worktree` for completed work, or return to `todo` with `--remove-worktree` when work should be retried later.
 15. Run `go-ship-it doctor` again.

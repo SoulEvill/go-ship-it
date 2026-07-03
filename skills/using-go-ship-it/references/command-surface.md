@@ -24,7 +24,7 @@ go-ship-it status
 go-ship-it show-run <issue-id> --handoff
 go-ship-it run-check <issue-id> --check test
 go-ship-it handoff <issue-id> --write
-go-ship-it cleanup-issue <issue-id> --destination archive --note <note>
+go-ship-it cleanup-issue <issue-id> --destination archive --note <note> --remove-worktree
 ```
 
 Advanced commands such as `show-run`, `handoff`, `append-note`, `append-log`, `set-phase`, `verify-run`, `export-run`, `doctor`, and `package-root` support the lifecycle but do not need separate skills.

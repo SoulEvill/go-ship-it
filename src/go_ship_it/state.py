@@ -360,7 +360,8 @@ def _require_layout(root: Path) -> None:
         raise GoShipitError(
             "not an initialized GoShipit control repo: "
             f"{root}; missing {', '.join(missing)}. "
-            "Run from the GoShipit control repo root or pass --root <control-root>."
+            "Run `go-ship-it init` in a new control root, or run from an existing "
+            "GoShipit control root and pass --root <control-root> when needed."
         )
 
 

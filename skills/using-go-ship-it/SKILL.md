@@ -9,6 +9,8 @@ description: Use when starting a GoShipit session, finding the control root, cho
 
 Use when starting a session in the GoShipit control repo, when the user asks to work on a GoShipit issue, or when the session needs orientation before using lifecycle skills.
 
+Treat natural phrases like "use GoShipit", "Go Ship It this project", "go ship it this project", "start with GoShipit", or "let's use GoShipit here" as requests to start with this skill.
+
 ## Core Model
 
 GoShipit is a local-first control workspace for agent-assisted software work.
