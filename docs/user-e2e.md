@@ -18,6 +18,16 @@ go-ship-it init \
   --test-command "uv run pytest"
 ```
 
+This creates the repo folder:
+
+```text
+state/repos/my-repo/
+  repo.yaml
+  context.md
+```
+
+Put durable repo-wide notes in `context.md`: setup gotchas, common commands, confusing conventions, and lessons that should apply across future issues.
+
 ## Disposable Target Harness
 
 For a repeatable local smoke test against any Git repo, use the generic target harness with explicit target values:
@@ -38,15 +48,20 @@ GoShipit contributors can use `scripts/dev/run-parawave-e2e.sh` inside this deve
 
 ## Issue Flow
 
+Use `skills/manage-issues/SKILL.md` for steps 1-3 and 11-12. Use `skills/work-issue/SKILL.md` for steps 4-10.
+
 1. Initialize and register the target repo with `go-ship-it init --repo-id <repo> --repo-path <path>`, or inspect an existing target with `go-ship-it show-repo <repo>`.
 2. Add an issue with `go-ship-it add-issue`.
 3. Start it with `go-ship-it start-issue <issue-id>`.
 4. Inspect it with `go-ship-it show-issue <issue-id>`.
 5. Inspect the run with `go-ship-it show-run <issue-id>`.
-6. Record investigation evidence with `set-phase` and `append-note`.
-7. Record proposal evidence before implementation.
-8. Implement only inside the worktree shown by `show-issue`.
-9. Run configured checks with `go-ship-it run-check`.
-10. Export evidence with `go-ship-it export-run`.
-11. Cleanup to `archive` or return to `todo`.
-12. Run `go-ship-it doctor` again.
+6. Confirm the worktree `.go-ship-it/context.yaml` matches the issue id and claim id.
+7. From inside the managed worktree, use current-run detection for run-bound commands, for example `go-ship-it show-run` or the explicit `go-ship-it show-run --current`.
+8. Record investigation evidence with `set-phase` and `append-note`.
+9. Record proposal evidence before implementation.
+10. Implement only inside the worktree shown by `show-issue`.
+11. Run configured checks with `go-ship-it run-check --current --check test` from the worktree, or `go-ship-it run-check <issue-id> --check test` from the control root.
+12. Create an explicit resume snapshot with `go-ship-it handoff --write` from the worktree, or `go-ship-it handoff <issue-id> --write` from the control root, when another session should continue.
+13. Export evidence with `go-ship-it export-run`.
+14. Cleanup to `archive` or return to `todo`.
+15. Run `go-ship-it doctor` again.

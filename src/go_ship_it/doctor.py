@@ -10,7 +10,7 @@ import yaml
 
 from go_ship_it.frontmatter import parse_frontmatter
 from go_ship_it.package_assets import package_root
-from go_ship_it.state import STATE_DIRS
+from go_ship_it.state import STATE_DIRS, repo_config_exists, repo_config_files, repo_config_id
 
 
 @dataclass(frozen=True)
@@ -66,13 +66,11 @@ def _check_layout(root: Path) -> list[DoctorFinding]:
 
 
 def _check_repos(root: Path, *, repo_id: str | None) -> list[DoctorFinding]:
-    repo_dir = root / "state" / "repos"
-    repo_files = sorted(repo_dir.glob("*.yaml")) if repo_dir.exists() else []
-    if repo_id is not None:
-        repo_files = [path for path in repo_files if path.stem == _safe_id(repo_id)]
+    repo_files = repo_config_files(root, repo_id=repo_id)
     findings: list[DoctorFinding] = []
     for repo_file in repo_files:
-        subject = f"repo/{repo_file.stem}"
+        registry_id = repo_config_id(repo_file)
+        subject = f"repo/{registry_id}"
         try:
             config = _parse_mapping(repo_file.read_text())
         except Exception as exc:
@@ -83,10 +81,19 @@ def _check_repos(root: Path, *, repo_id: str | None) -> list[DoctorFinding]:
             if not isinstance(config.get(field), str) or not str(config.get(field)).strip():
                 findings.append(DoctorFinding("error", f"repo.{field}_missing", subject, f"{field} must be set"))
 
-        if config.get("id") != repo_file.stem:
+        if config.get("id") != registry_id:
             findings.append(
                 DoctorFinding("error", "repo.id_mismatch", subject, "repo id must match registry filename")
             )
+
+        if repo_file.name == "repo.yaml":
+            context_file = repo_file.parent / "context.md"
+            if context_file.exists():
+                findings.append(DoctorFinding("ok", "repo.context_exists", subject, "Repo context file exists"))
+            else:
+                findings.append(
+                    DoctorFinding("warning", "repo.context_missing", subject, "Repo context file is missing")
+                )
 
         path_value = config.get("path")
         if isinstance(path_value, str):
@@ -179,7 +186,7 @@ def _check_issues(root: Path) -> list[DoctorFinding]:
         repo = metadata.get("repo")
         if not isinstance(repo, str) or not repo.strip():
             findings.append(DoctorFinding("error", "issue.repo_missing", subject, "repo must be set"))
-        elif not (root / "state" / "repos" / f"{_safe_id(repo)}.yaml").exists():
+        elif not repo_config_exists(root, repo):
             findings.append(
                 DoctorFinding("error", "issue.repo_unregistered", subject, f"repo is not registered: {repo}")
             )

@@ -107,7 +107,10 @@ def test_built_wheel_contains_agent_package_assets(tmp_path):
         "go_ship_it/package/scripts/release-check.py",
         "go_ship_it/package/scripts/validate-packaged-install.py",
         "go_ship_it/package/skills/using-go-ship-it/SKILL.md",
-        "go_ship_it/package/skills/test-and-review/SKILL.md",
+        "go_ship_it/package/skills/manage-issues/SKILL.md",
+        "go_ship_it/package/skills/manage-issues/references/state-lifecycle.md",
+        "go_ship_it/package/skills/work-issue/SKILL.md",
+        "go_ship_it/package/skills/work-issue/references/workflow-notes-template.md",
     }
     assert expected <= names
 

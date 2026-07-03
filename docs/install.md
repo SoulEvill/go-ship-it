@@ -39,6 +39,12 @@ go-ship-it package-root
 
 GoShipit skills are distributed as one package, not as independent skill installs.
 
+The package exposes three agent-facing skills:
+
+- `using-go-ship-it`: session orientation and root/worktree boundaries.
+- `manage-issues`: repo setup, issue creation, start/status, and cleanup.
+- `work-issue`: investigation, proposal, implementation, test/review, and evidence capture.
+
 The package contains:
 
 - `.claude-plugin/plugin.json`
@@ -94,7 +100,7 @@ go-ship-it --root <control-root> status
 go-ship-it --root <control-root> doctor
 ```
 
-The control root should contain `state/` and `worktrees/`. The package root should contain `skills/using-go-ship-it/SKILL.md`, plugin manifests, and hooks.
+The control root should contain `state/` and `worktrees/`. The package root should contain `skills/using-go-ship-it/SKILL.md`, `skills/manage-issues/SKILL.md`, `skills/work-issue/SKILL.md`, plugin manifests, and hooks.
 
 If a session is accidentally in a target repo or target worktree, `go-ship-it status` should fail instead of showing an empty-looking workspace.
 

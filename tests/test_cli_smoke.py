@@ -1,6 +1,8 @@
 from pathlib import Path
 import subprocess
 
+import yaml
+
 from go_ship_it import __version__
 from go_ship_it.cli import build_parser, main
 from go_ship_it.frontmatter import parse_frontmatter
@@ -70,7 +72,7 @@ def test_main_init_can_register_first_repo(tmp_path):
         ]
     )
 
-    repo_file = tmp_path / "control" / "state" / "repos" / "sample.yaml"
+    repo_file = tmp_path / "control" / "state" / "repos" / "sample" / "repo.yaml"
     assert exit_code == 0
     assert repo_file.exists()
     text = repo_file.read_text()
@@ -91,7 +93,9 @@ def test_register_repo_cli_preserves_relative_paths(tmp_path):
     exit_code = main(["--root", str(tmp_path), "register-repo", "sample", "../sample-target"])
 
     assert exit_code == 0
-    assert "path: ../sample-target\n" in (tmp_path / "state" / "repos" / "sample.yaml").read_text()
+    assert "path: ../sample-target\n" in (
+        tmp_path / "state" / "repos" / "sample" / "repo.yaml"
+    ).read_text()
 
 
 def test_parser_has_evidence_commands():
@@ -175,8 +179,14 @@ def test_parser_has_navigation_commands():
     assert parser.parse_args(["list-issues"]).command == "list-issues"
     assert parser.parse_args(["list-issues", "--state", "execution", "--repo", "parawave"]).state == "execution"
     assert parser.parse_args(["show-issue", "issue-001"]).command == "show-issue"
+    assert parser.parse_args(["show-issue", "--current"]).current is True
     assert parser.parse_args(["show-run", "issue-001", "--commands"]).commands is True
+    assert parser.parse_args(["show-run", "--current", "--commands"]).current is True
     assert parser.parse_args(["show-run", "issue-001", "--trace"]).trace is True
+    assert parser.parse_args(["show-run", "issue-001", "--handoff"]).handoff is True
+    assert parser.parse_args(["handoff", "issue-001"]).command == "handoff"
+    assert parser.parse_args(["handoff", "issue-001", "--write"]).write is True
+    assert parser.parse_args(["handoff", "--current", "--write"]).current is True
     assert parser.parse_args(["status"]).command == "status"
 
 
@@ -231,6 +241,7 @@ def test_main_show_repo_prints_yaml(tmp_path, capsys):
         "path: ../sample\n"
         "default_branch: main\n"
         "worktree_root: worktrees/sample\n"
+        "context_file: state/repos/sample/context.md\n"
         "setup_command: uv sync\n"
         "test_command: uv run pytest\n"
         "lint_command: null\n"
@@ -260,7 +271,7 @@ def test_main_update_repo_changes_command(tmp_path):
     )
 
     assert exit_code == 0
-    text = (tmp_path / "state" / "repos" / "sample.yaml").read_text()
+    text = (tmp_path / "state" / "repos" / "sample" / "repo.yaml").read_text()
     assert "test_command: env -u VIRTUAL_ENV uv run --extra dev pytest -q" in text
 
 
@@ -365,6 +376,100 @@ def test_main_show_run_trace_prints_timeline(tmp_path, capsys):
     assert "run.started" in output
 
 
+def test_main_show_run_handoff_prints_resume_context(tmp_path, capsys):
+    _started_issue_root(tmp_path)
+
+    exit_code = main(["--root", str(tmp_path), "show-run", "issue-001", "--handoff"])
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert "# GoShipit Handoff: issue-001" in output
+    assert "Claimed By: `test-thread`" in output
+    assert "Claim ID: `claim-issue-001-" in output
+    assert "go-ship-it verify-run issue-001" in output
+
+
+def test_main_handoff_write_creates_resume_file(tmp_path, capsys):
+    _started_issue_root(tmp_path)
+
+    exit_code = main(["--root", str(tmp_path), "handoff", "issue-001", "--write"])
+
+    assert exit_code == 0
+    output_path = tmp_path / "state" / "runs" / "issue-001" / "handoff.md"
+    assert capsys.readouterr().out == f"{output_path}\n"
+    assert "# GoShipit Handoff: issue-001" in output_path.read_text()
+
+
+def test_main_handoff_output_writes_custom_resume_file(tmp_path, capsys):
+    _started_issue_root(tmp_path)
+
+    exit_code = main(
+        [
+            "--root",
+            str(tmp_path),
+            "handoff",
+            "issue-001",
+            "--output",
+            "handoffs/issue-001.md",
+        ]
+    )
+
+    output_path = tmp_path / "handoffs" / "issue-001.md"
+    assert exit_code == 0
+    assert capsys.readouterr().out == f"{output_path}\n"
+    assert output_path.exists()
+
+
+def test_main_current_handoff_uses_worktree_context(tmp_path, monkeypatch, capsys):
+    root = _started_issue_root(tmp_path)
+    worktree = root / "worktrees" / "sample" / "issue-001"
+    monkeypatch.chdir(worktree)
+
+    exit_code = main(["handoff", "--current", "--write"])
+
+    output_path = root / "state" / "runs" / "issue-001" / "handoff.md"
+    assert exit_code == 0
+    assert capsys.readouterr().out == f"{output_path}\n"
+    assert "# GoShipit Handoff: issue-001" in output_path.read_text()
+
+
+def test_main_handoff_without_issue_auto_uses_worktree_context(tmp_path, monkeypatch, capsys):
+    root = _started_issue_root(tmp_path)
+    monkeypatch.chdir(root / "worktrees" / "sample" / "issue-001")
+
+    exit_code = main(["handoff", "--write"])
+
+    output_path = root / "state" / "runs" / "issue-001" / "handoff.md"
+    assert exit_code == 0
+    assert capsys.readouterr().out == f"{output_path}\n"
+
+
+def test_main_show_run_without_issue_auto_uses_worktree_context(tmp_path, monkeypatch, capsys):
+    root = _started_issue_root(tmp_path)
+    monkeypatch.chdir(root / "worktrees" / "sample" / "issue-001")
+
+    exit_code = main(["show-run"])
+
+    assert exit_code == 0
+    assert "# Run: issue-001" in capsys.readouterr().out
+
+
+def test_main_current_show_run_rejects_context_claim_mismatch(tmp_path, monkeypatch, capsys):
+    root = _started_issue_root(tmp_path)
+    worktree = root / "worktrees" / "sample" / "issue-001"
+    context_file = worktree / ".go-ship-it" / "context.yaml"
+    context = yaml.safe_load(context_file.read_text())
+    context["claim_id"] = "claim-issue-001-wrong"
+    context_file.write_text(yaml.safe_dump(context, sort_keys=False))
+    monkeypatch.chdir(worktree)
+
+    exit_code = main(["show-run", "--current"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "claim mismatch" in captured.err
+
+
 def test_main_verify_run_prints_report(tmp_path, capsys):
     _started_issue_root(tmp_path)
 
@@ -392,11 +497,29 @@ def test_main_status_prints_workspace_summary(tmp_path, capsys):
     assert "Managed Worktrees: 1" in out
     assert "- issue-001 sample Change README" in out
     assert "Phase: investigate" in out
+    assert "Claimed By: test-thread" in out
+    assert "Claim ID: claim-issue-001-" in out
     assert "Worktree: worktrees/sample/issue-001" in out
     assert "go-ship-it show-run issue-001 --logs" in out
+    assert "go-ship-it show-run issue-001 --handoff" in out
     assert "go-ship-it run-check issue-001 --check test" in out
     assert "go-ship-it verify-run issue-001" in out
     assert "- sample/issue-001" in out
+
+
+def test_main_status_from_worktree_uses_current_control_root(tmp_path, monkeypatch, capsys):
+    root = _started_issue_root(tmp_path)
+    monkeypatch.chdir(root / "worktrees" / "sample" / "issue-001")
+
+    exit_code = main(["status"])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert f"Control Root: {root.resolve()}" in out
+    assert "Current Issue: issue-001" in out
+    assert "Current Worktree: worktrees/sample/issue-001" in out
+    assert "Current Run Branch: go-ship-it/issue-001" in out
+    assert "- issue-001 sample Change README" in out
 
 
 def test_main_status_omits_unconfigured_check_hint(tmp_path, capsys):
@@ -407,6 +530,7 @@ def test_main_status_omits_unconfigured_check_hint(tmp_path, capsys):
     assert exit_code == 0
     out = capsys.readouterr().out
     assert "go-ship-it show-run issue-001 --logs" in out
+    assert "go-ship-it show-run issue-001 --handoff" in out
     assert "go-ship-it run-check issue-001 --check test" not in out
     assert "go-ship-it verify-run issue-001" in out
 
@@ -481,6 +605,28 @@ def test_main_append_log_records_run_comment(tmp_path, capsys):
     assert "Agent recovered with --root." in run_log.read_text()
 
 
+def test_main_append_note_current_records_journal_entry(tmp_path, monkeypatch):
+    root = _started_issue_root(tmp_path)
+    monkeypatch.chdir(root / "worktrees" / "sample" / "issue-001")
+
+    exit_code = main(
+        [
+            "append-note",
+            "--current",
+            "--section",
+            "Investigation",
+            "--note",
+            "Read README from locked session.",
+            "--phase",
+            "investigate",
+        ]
+    )
+
+    journal = root / "state" / "runs" / "issue-001" / "journal.md"
+    assert exit_code == 0
+    assert "Read README from locked session." in journal.read_text()
+
+
 def test_main_show_run_logs_prints_run_log(tmp_path, capsys):
     root = _started_issue_root(tmp_path)
     append_run_log(root, "issue-001", note="Agent recovered with --root.", author="codex", sources=[])
@@ -515,6 +661,19 @@ def test_main_set_phase_updates_active_issue(tmp_path):
     assert metadata["phase"] == "propose"
     journal = (tmp_path / "state" / "runs" / "issue-001" / "journal.md").read_text()
     assert "Ready to propose" in journal
+
+
+def test_main_set_phase_current_updates_active_issue(tmp_path, monkeypatch):
+    root = _started_issue_root(tmp_path)
+    monkeypatch.chdir(root / "worktrees" / "sample" / "issue-001")
+
+    exit_code = main(["set-phase", "--current", "propose", "--note", "Ready to propose"])
+
+    assert exit_code == 0
+    metadata, _body = parse_frontmatter(
+        (root / "state" / "issues" / "execution" / "issue-001.md").read_text()
+    )
+    assert metadata["phase"] == "propose"
 
 
 def _started_issue_root(tmp_path: Path, *, test_command: str | None = None) -> Path:

@@ -17,8 +17,9 @@ def test_claude_installer_copies_skill_folders(tmp_path):
     )
 
     assert result.returncode == 0, result.stderr
-    assert (target / "add-issue" / "SKILL.md").exists()
-    assert (target / "test-and-review" / "references" / "test-review-template.md").exists()
+    assert (target / "using-go-ship-it" / "SKILL.md").exists()
+    assert (target / "manage-issues" / "references" / "state-lifecycle.md").exists()
+    assert (target / "work-issue" / "references" / "workflow-notes-template.md").exists()
 
 
 def test_cursor_installer_writes_rule_and_agents_file(tmp_path):
@@ -36,4 +37,6 @@ def test_cursor_installer_writes_rule_and_agents_file(tmp_path):
     assert rule.exists()
     assert agents.exists()
     assert "go-ship-it doctor" in rule.read_text()
-    assert "skills/<skill-name>/SKILL.md" in agents.read_text()
+    assert "skills/using-go-ship-it/SKILL.md" in agents.read_text()
+    assert "skills/manage-issues/SKILL.md" in agents.read_text()
+    assert "skills/work-issue/SKILL.md" in agents.read_text()

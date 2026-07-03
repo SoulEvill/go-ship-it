@@ -23,6 +23,8 @@ from go_ship_it.state import (
     list_issues,
     read_repo_config,
     register_repo,
+    render_handoff,
+    resolve_current_run,
     run_check,
     run_timeline,
     set_phase,
@@ -30,6 +32,7 @@ from go_ship_it.state import (
     show_run,
     start_issue,
     update_repo_config,
+    write_handoff,
     workspace_status,
 )
 from go_ship_it.verify import verify_run
@@ -45,10 +48,10 @@ def build_parser() -> argparse.ArgumentParser:
             "  add-issue --repo <id> --title <title> --problem <problem>\n"
             "  start-issue <issue-id>\n"
             "  status\n"
-            "  run-check <issue-id> --check test\n"
+            "  run-check <issue-id> --check test    # or run-check --current --check test from the worktree\n"
             "  cleanup-issue <issue-id> --destination archive --note <note>\n\n"
             "Advanced/support:\n"
-            "  show-issue, show-run, append-note, append-log, set-phase,\n"
+            "  show-issue, show-run, handoff, append-note, append-log, set-phase,\n"
             "  export-run, verify-run, doctor, package-root, update-repo\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -104,7 +107,8 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--claimed-by", default=None)
 
     cleanup = subparsers.add_parser("cleanup-issue", help="Return an execution issue to todo or archive it.")
-    cleanup.add_argument("issue_id")
+    cleanup.add_argument("issue_id", nargs="?")
+    cleanup.add_argument("--current", action="store_true", help="Use the managed worktree's current run context.")
     cleanup.add_argument("--destination", choices=["todo", "archive"], required=True)
     cleanup.add_argument("--note", required=True)
     cleanup.add_argument(
@@ -114,24 +118,28 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     note = subparsers.add_parser("append-note", help="Append a journal note for an active issue.")
-    note.add_argument("issue_id")
+    note.add_argument("issue_id", nargs="?")
+    note.add_argument("--current", action="store_true", help="Use the managed worktree's current run context.")
     note.add_argument("--section", required=True)
     note.add_argument("--note", required=True)
     note.add_argument("--phase", default=None)
 
     log = subparsers.add_parser("append-log", help="Append a freeform run log comment.")
-    log.add_argument("issue_id")
+    log.add_argument("issue_id", nargs="?")
+    log.add_argument("--current", action="store_true", help="Use the managed worktree's current run context.")
     log.add_argument("--note", required=True)
     log.add_argument("--author", default=None)
     log.add_argument("--source", action="append", default=[])
 
     phase = subparsers.add_parser("set-phase", help="Set the current workflow phase for an active issue.")
-    phase.add_argument("issue_id")
-    phase.add_argument("phase")
+    phase.add_argument("issue_id", nargs="?")
+    phase.add_argument("phase", nargs="?")
+    phase.add_argument("--current", action="store_true", help="Use the managed worktree's current run context.")
     phase.add_argument("--note", required=True)
 
     check = subparsers.add_parser("run-check", help="Run a registered repo check and record evidence.")
-    check.add_argument("issue_id")
+    check.add_argument("issue_id", nargs="?")
+    check.add_argument("--current", action="store_true", help="Use the managed worktree's current run context.")
     check.add_argument("--check", choices=["setup", "test", "lint"], required=True)
 
     list_cmd = subparsers.add_parser("list-issues", help="List issues.")
@@ -139,13 +147,22 @@ def build_parser() -> argparse.ArgumentParser:
     list_cmd.add_argument("--repo", default=None)
 
     show_issue_cmd = subparsers.add_parser("show-issue", help="Show one issue.")
-    show_issue_cmd.add_argument("issue_id")
+    show_issue_cmd.add_argument("issue_id", nargs="?")
+    show_issue_cmd.add_argument("--current", action="store_true", help="Use the managed worktree's current run context.")
 
     show_run_cmd = subparsers.add_parser("show-run", help="Show one run.")
-    show_run_cmd.add_argument("issue_id")
+    show_run_cmd.add_argument("issue_id", nargs="?")
+    show_run_cmd.add_argument("--current", action="store_true", help="Use the managed worktree's current run context.")
     show_run_cmd.add_argument("--commands", action="store_true")
     show_run_cmd.add_argument("--logs", action="store_true", help="Include freeform run log comments.")
     show_run_cmd.add_argument("--trace", action="store_true", help="Show chronological run trace.")
+    show_run_cmd.add_argument("--handoff", action="store_true", help="Show copy-pasteable resume context.")
+
+    handoff = subparsers.add_parser("handoff", help="Print or write resume context for one run.")
+    handoff.add_argument("issue_id", nargs="?")
+    handoff.add_argument("--current", action="store_true", help="Use the managed worktree's current run context.")
+    handoff.add_argument("--write", action="store_true", help="Write state/runs/<issue-id>/handoff.md.")
+    handoff.add_argument("--output", default=None, help="Write handoff markdown to a custom path.")
 
     subparsers.add_parser("status", help="Show workspace status.")
 
@@ -154,11 +171,13 @@ def build_parser() -> argparse.ArgumentParser:
     doctor.add_argument("--strict", action="store_true", help="Exit non-zero when warnings exist.")
 
     verify = subparsers.add_parser("verify-run", help="Verify one run's evidence structure.")
-    verify.add_argument("issue_id")
+    verify.add_argument("issue_id", nargs="?")
+    verify.add_argument("--current", action="store_true", help="Use the managed worktree's current run context.")
     verify.add_argument("--strict", action="store_true", help="Exit non-zero when warnings exist.")
 
     export = subparsers.add_parser("export-run", help="Export run evidence to Markdown.")
-    export.add_argument("issue_id")
+    export.add_argument("issue_id", nargs="?")
+    export.add_argument("--current", action="store_true", help="Use the managed worktree's current run context.")
     export.add_argument("--output", required=True)
     return parser
 
@@ -187,6 +206,66 @@ def _repo_updates(args: argparse.Namespace) -> tuple[dict[str, object], set[str]
         flags = ", ".join(f"--clear-{field.replace('_', '-')}" for field in conflicts)
         raise ValueError(f"Cannot set and clear the same command field: {flags}")
     return updates, clears
+
+
+def _resolve_issue_target(root: Path, args: argparse.Namespace) -> tuple[Path, str]:
+    issue_id = getattr(args, "issue_id", None)
+    if getattr(args, "current", False):
+        current = resolve_current_run(Path.cwd())
+        if issue_id is not None and issue_id != current.issue_id:
+            raise ValueError(
+                f"--current resolved {current.issue_id}, but command specified {issue_id}. "
+                "Use one issue id or switch to the matching worktree."
+            )
+        return current.control_root, current.issue_id
+    if issue_id is None:
+        try:
+            current = resolve_current_run(Path.cwd())
+        except GoShipitError as exc:
+            raise ValueError(
+                "issue id is required unless --current is used or the command is run from a managed worktree"
+            ) from exc
+        return current.control_root, current.issue_id
+    return root, issue_id
+
+
+def _resolve_phase_target(root: Path, args: argparse.Namespace) -> tuple[Path, str, str]:
+    issue_id = args.issue_id
+    phase = args.phase
+    if phase is None and issue_id is not None and (args.current or _can_resolve_current_run()):
+        phase = issue_id
+        issue_id = None
+    if phase is None:
+        raise ValueError("phase is required")
+
+    target_args = argparse.Namespace(issue_id=issue_id, current=args.current)
+    resolved_root, resolved_issue = _resolve_issue_target(root, target_args)
+    return resolved_root, resolved_issue, phase
+
+
+def _can_resolve_current_run() -> bool:
+    try:
+        resolve_current_run(Path.cwd())
+    except GoShipitError:
+        return False
+    return True
+
+
+def _status_context(root: Path, args: argparse.Namespace) -> tuple[Path, object | None]:
+    current = _maybe_current_run()
+    if current is not None:
+        if args.root == "." or current.control_root == root:
+            return current.control_root, current
+    if args.root != ".":
+        return root, None
+    return root, None
+
+
+def _maybe_current_run() -> object | None:
+    try:
+        return resolve_current_run(Path.cwd())
+    except GoShipitError:
+        return None
 
 
 def _format_issue_list(items: list[object]) -> str:
@@ -223,6 +302,8 @@ def _format_run_detail(detail: object, root: Path, *, include_commands: bool, in
         f"Phase: {_display_value(detail.run.get('phase'))}",
         f"Branch: {_display_value(detail.run.get('branch'))}",
         f"Worktree: {_display_value(detail.run.get('worktree'))}",
+        f"Claimed By: {_display_value(detail.run.get('claimed_by'))}",
+        f"Claim ID: {_display_value(detail.run.get('claim_id'))}",
         "",
         "## Command Summary",
     ]
@@ -288,16 +369,29 @@ def _format_command_record(command: dict[str, object], root: Path) -> list[str]:
     ]
 
 
-def _format_status(status: object, root: Path) -> str:
-    branch = _current_branch(root)
+def _format_status(status: object, root: Path, *, current: object | None = None) -> str:
+    branch_path = current.worktree if current is not None else root
+    branch = _current_branch(branch_path)
     lines = [
         "# GoShipit Status",
         "",
         f"Control Root: {root}",
         f"Package Root: {package_root()}",
         f"Current Git Branch: {branch or 'not a git worktree'}",
-        "",
-        f"Repos: {status.repo_count}",
+    ]
+    if current is not None:
+        lines.extend(
+            [
+                f"Current Issue: {current.issue_id}",
+                f"Current Worktree: {relative_to_root(root, current.worktree)}",
+                f"Current Run Branch: {current.branch}",
+                f"Current Claim ID: {current.claim_id}",
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            f"Repos: {status.repo_count}",
         f"Todo: {status.todo_count}",
         f"Execution: {status.execution_count}",
         f"Archive: {status.archive_count}",
@@ -305,7 +399,8 @@ def _format_status(status: object, root: Path) -> str:
         f"Managed Worktrees: {len(status.worktrees)}",
         "",
         "## Active Issues",
-    ]
+        ]
+    )
     if status.active:
         for item in status.active:
             lines.append(f"- {item.issue_id} {item.repo} {item.title}")
@@ -317,8 +412,20 @@ def _format_status(status: object, root: Path) -> str:
                 worktree = None
             if isinstance(worktree, str) and worktree:
                 lines.append(f"  Worktree: {worktree}")
+            try:
+                run_detail = show_run(root, item.issue_id)
+                claimed_by = run_detail.run.get("claimed_by")
+                claim_id = run_detail.run.get("claim_id")
+            except (OSError, ValueError):
+                claimed_by = None
+                claim_id = None
+            if isinstance(claimed_by, str) and claimed_by:
+                lines.append(f"  Claimed By: {claimed_by}")
+            if isinstance(claim_id, str) and claim_id:
+                lines.append(f"  Claim ID: {claim_id}")
             lines.append("  Next useful commands:")
             lines.append(f"    go-ship-it show-run {item.issue_id} --logs")
+            lines.append(f"    go-ship-it show-run {item.issue_id} --handoff")
             for check in _configured_checks(root, item.repo):
                 lines.append(f"    go-ship-it run-check {item.issue_id} --check {check}")
             lines.append(f"    go-ship-it verify-run {item.issue_id}")
@@ -468,13 +575,22 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         if args.command == "start-issue":
             run = start_issue(root, args.issue_id, claimed_by=args.claimed_by)
-            print(run.worktree)
+            if run.already_active:
+                print("Active run already exists.")
+            print(f"Issue: {run.issue_id}")
+            print(f"Worktree: {run.worktree}")
+            print(f"Run File: {run.run_file}")
+            print(f"Claimed By: {_display_value(run.claimed_by)}")
+            print(f"Claim ID: {run.claim_id}")
+            if run.context_file is not None:
+                print(f"Context File: {run.context_file}")
             return 0
 
         if args.command == "cleanup-issue":
+            target_root, issue_id = _resolve_issue_target(root, args)
             issue_file = cleanup_issue(
-                root,
-                args.issue_id,
+                target_root,
+                issue_id,
                 destination=args.destination,
                 note=args.note,
                 remove_worktree=args.remove_worktree,
@@ -483,14 +599,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
 
         if args.command == "append-note":
-            journal = append_note(root, args.issue_id, section=args.section, note=args.note, phase=args.phase)
+            target_root, issue_id = _resolve_issue_target(root, args)
+            journal = append_note(target_root, issue_id, section=args.section, note=args.note, phase=args.phase)
             print(journal)
             return 0
 
         if args.command == "append-log":
+            target_root, issue_id = _resolve_issue_target(root, args)
             run_log = append_run_log(
-                root,
-                args.issue_id,
+                target_root,
+                issue_id,
                 note=args.note,
                 author=args.author,
                 sources=args.source,
@@ -499,12 +617,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
 
         if args.command == "set-phase":
-            issue_file = set_phase(root, args.issue_id, args.phase, note=args.note)
+            target_root, issue_id, phase = _resolve_phase_target(root, args)
+            issue_file = set_phase(target_root, issue_id, phase, note=args.note)
             print(issue_file)
             return 0
 
         if args.command == "run-check":
-            record = run_check(root, args.issue_id, check=args.check)
+            target_root, issue_id = _resolve_issue_target(root, args)
+            record = run_check(target_root, issue_id, check=args.check)
             print(record)
             return 0
 
@@ -513,25 +633,42 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
 
         if args.command == "show-issue":
-            print(_format_issue_detail(show_issue(root, args.issue_id), root))
+            target_root, issue_id = _resolve_issue_target(root, args)
+            print(_format_issue_detail(show_issue(target_root, issue_id), target_root))
             return 0
 
         if args.command == "show-run":
-            if args.trace:
-                print(_format_timeline(args.issue_id, run_timeline(root, args.issue_id)))
+            target_root, issue_id = _resolve_issue_target(root, args)
+            if args.handoff:
+                print(render_handoff(target_root, issue_id), end="")
+            elif args.trace:
+                print(_format_timeline(issue_id, run_timeline(target_root, issue_id)))
             else:
                 print(
                     _format_run_detail(
-                        show_run(root, args.issue_id),
-                        root,
+                        show_run(target_root, issue_id),
+                        target_root,
                         include_commands=args.commands,
                         include_logs=args.logs,
                     )
                 )
             return 0
 
+        if args.command == "handoff":
+            target_root, issue_id = _resolve_issue_target(root, args)
+            if args.output is not None:
+                output = write_handoff(target_root, issue_id, output=Path(args.output))
+                print(output)
+            elif args.write:
+                output = write_handoff(target_root, issue_id)
+                print(output)
+            else:
+                print(render_handoff(target_root, issue_id), end="")
+            return 0
+
         if args.command == "status":
-            print(_format_status(workspace_status(root), root))
+            target_root, current = _status_context(root, args)
+            print(_format_status(workspace_status(target_root), target_root, current=current))
             return 0
 
         if args.command == "doctor":
@@ -544,8 +681,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
 
         if args.command == "verify-run":
-            report = verify_run(root, args.issue_id)
-            print(_format_verify_report(args.issue_id, report))
+            target_root, issue_id = _resolve_issue_target(root, args)
+            report = verify_run(target_root, issue_id)
+            print(_format_verify_report(issue_id, report))
             if report.error_count:
                 return 1
             if args.strict and report.warning_count:
@@ -553,8 +691,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
 
         if args.command == "export-run":
+            target_root, issue_id = _resolve_issue_target(root, args)
             output_path = Path(args.output)
-            output = export_run(root, args.issue_id, output=output_path)
+            output = export_run(target_root, issue_id, output=output_path)
             print(output)
             return 0
     except CheckFailedError as exc:

@@ -1,6 +1,6 @@
 ---
 name: using-go-ship-it
-description: Use at the start of a GoShipit session to orient to the control repo, lifecycle skills, CLI state, and target worktree boundaries.
+description: Use when starting a GoShipit session, finding the control root, choosing the right GoShipit skill, or checking package and worktree boundaries.
 ---
 
 # Using GoShipit
@@ -21,7 +21,9 @@ Use this to find the installed package root when an agent needs the bundled skil
 go-ship-it package-root
 ```
 
-## First Commands
+For the package, CLI, and maintainer surfaces, read `references/command-surface.md`.
+
+## Orientation
 
 Before changing state, run these from the GoShipit control repo root:
 
@@ -48,6 +50,16 @@ state/
 worktrees/
 ```
 
+Registered target repos live under visible repo folders:
+
+```text
+state/repos/<repo>/
+  repo.yaml
+  context.md
+```
+
+Read `state/repos/<repo>/context.md` for repo-level background before working an issue in that repo. Add concise repo-wide gotchas there only when the learning should apply across future issues.
+
 In clone-based development the control root may also contain `pyproject.toml`, `skills/`, and plugin manifests. In package-install mode those live under `go-ship-it package-root` instead.
 
 If the session starts somewhere else, either change to the control root or pass it explicitly:
@@ -57,7 +69,19 @@ go-ship-it --root <control-root> status
 go-ship-it --root <control-root> doctor
 ```
 
-Do not continue lifecycle work from a target repo checkout or target issue worktree. Target repo code changes happen inside the active issue worktree only after `go-ship-it show-run <issue-id>` confirms the worktree path.
+Do not continue lifecycle work from an arbitrary target repo checkout. Target repo code changes happen inside the active issue worktree only after `go-ship-it show-run <issue-id>` confirms the worktree path.
+
+Inside a managed issue worktree, `.go-ship-it/context.yaml` locks the session to the issue/run. Run-bound commands can omit the issue id there; use `--current` when you want the command to be explicit:
+
+```sh
+go-ship-it status
+go-ship-it show-run
+go-ship-it show-run --current
+go-ship-it run-check --current --check test
+go-ship-it handoff --write
+```
+
+If current-run detection fails or resolves a different issue than expected, stop and ask the user to confirm the intended issue before writing evidence.
 
 ## State Rules
 
@@ -69,15 +93,10 @@ Do not edit target repositories from the control repo checkout. Target edits bel
 
 ## Skill Routing
 
-Read the lifecycle skill that matches the current user intent:
+Keep the agent-facing skill surface small:
 
-- `add-issue` when creating a new todo issue.
-- `start-issue` when claiming a todo and creating a worktree.
-- `investigate-issue` when collecting context and writing findings.
-- `propose-fix` when preparing a plan for approval.
-- `implement-fix` when changing target repo code.
-- `test-and-review` when validating and comparing evidence to acceptance criteria.
-- `cleanup-issue` when returning an issue to todo or archiving it.
+- `manage-issues` when initializing a control root, registering a repo, creating a todo, starting work, checking status, or cleaning up an active issue.
+- `work-issue` when investigating, proposing, implementing, testing, reviewing, or recording run evidence inside an active issue.
 
 ## Product Boundary
 
@@ -92,7 +111,16 @@ When preparing a handoff, include:
 - issue id
 - target repo id
 - active branch and worktree
+- claim id and claimed-by label
 - current phase
 - important evidence paths
 - commands run and results
 - remaining warnings from `doctor` or `verify-run`
+
+For an explicit handoff file, run:
+
+```sh
+go-ship-it handoff <issue-id> --write
+# or, inside the managed worktree:
+go-ship-it handoff --current --write
+```

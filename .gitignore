@@ -9,7 +9,7 @@ __pycache__/
 AGENTS.md
 worktrees/*
 !worktrees/.gitkeep
-state/repos/*.yaml
+state/repos/*/
 !state/repos/.gitkeep
 state/runs/*
 !state/runs/.gitkeep

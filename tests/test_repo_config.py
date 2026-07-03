@@ -46,6 +46,7 @@ def test_update_repo_config_updates_one_command_and_preserves_relative_path(tmp_
     )
 
     data = yaml.safe_load(repo_file.read_text())
+    assert repo_file == tmp_path / "state" / "repos" / "sample" / "repo.yaml"
     assert data["path"] == "../sample"
     assert data["setup_command"] == "uv sync"
     assert data["test_command"] == "env -u VIRTUAL_ENV uv run --extra dev pytest -q"

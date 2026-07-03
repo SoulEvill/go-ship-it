@@ -1,7 +1,15 @@
 from pathlib import Path
 
+import yaml
+
 
 SKILLS = {
+    "using-go-ship-it",
+    "manage-issues",
+    "work-issue",
+}
+
+DEPRECATED_SKILLS = {
     "add-issue",
     "start-issue",
     "investigate-issue",
@@ -11,30 +19,32 @@ SKILLS = {
     "cleanup-issue",
 }
 
-PHASE_SKILL_TEMPLATES = {
-    "investigate-issue": "references/investigation-template.md",
-    "propose-fix": "references/proposal-template.md",
-    "implement-fix": "references/implementation-notes-template.md",
-    "test-and-review": "references/test-review-template.md",
-    "cleanup-issue": "references/cleanup-template.md",
-}
-
-PHASE_SKILL_COMMANDS = {
-    "investigate-issue": ("go-ship-it set-phase", "go-ship-it append-note"),
-    "propose-fix": ("go-ship-it set-phase", "go-ship-it append-note"),
-    "implement-fix": ("go-ship-it set-phase", "go-ship-it append-note"),
-    "test-and-review": ("go-ship-it set-phase", "go-ship-it run-check", "go-ship-it append-note"),
-    "cleanup-issue": ("go-ship-it set-phase", "go-ship-it cleanup-issue"),
+SKILL_REFERENCES = {
+    "using-go-ship-it": ("references/command-surface.md",),
+    "manage-issues": ("references/state-lifecycle.md",),
+    "work-issue": ("references/workflow-notes-template.md",),
 }
 
 ORIENTATION_COMMANDS = {
-    "add-issue": ("go-ship-it status",),
-    "start-issue": ("go-ship-it list-issues --state todo", "go-ship-it show-issue"),
-    "investigate-issue": ("go-ship-it show-issue", "go-ship-it show-run"),
-    "propose-fix": ("go-ship-it show-issue", "go-ship-it show-run"),
-    "implement-fix": ("go-ship-it show-run",),
-    "test-and-review": ("go-ship-it show-run",),
-    "cleanup-issue": ("go-ship-it doctor", "go-ship-it show-run"),
+    "using-go-ship-it": ("go-ship-it status", "go-ship-it doctor"),
+    "manage-issues": ("go-ship-it status", "go-ship-it list-issues", "go-ship-it show-issue"),
+    "work-issue": ("go-ship-it show-issue", "go-ship-it show-run"),
+}
+
+SKILL_COMMANDS = {
+    "manage-issues": (
+        "go-ship-it init",
+        "go-ship-it add-issue",
+        "go-ship-it start-issue",
+        "go-ship-it cleanup-issue",
+    ),
+    "work-issue": (
+        "go-ship-it set-phase",
+        "go-ship-it append-note",
+        "go-ship-it run-check",
+        "go-ship-it append-log",
+        "go-ship-it handoff",
+    ),
 }
 
 
@@ -45,8 +55,24 @@ def test_expected_skill_folders_exist():
         assert skill_file.exists(), f"missing {skill_file}"
         text = skill_file.read_text()
         assert "## When To Use" in text
-        assert "## Allowed State Writes" in text
-        assert "## Failure Behavior" in text
+
+
+def test_deprecated_lifecycle_skill_folders_are_removed():
+    root = Path(__file__).resolve().parents[1]
+    for skill in DEPRECATED_SKILLS:
+        assert not (root / "skills" / skill).exists(), f"{skill} should be consolidated"
+
+
+def test_skill_frontmatter_is_trigger_focused():
+    root = Path(__file__).resolve().parents[1]
+    for skill in SKILLS:
+        text = (root / "skills" / skill / "SKILL.md").read_text()
+        assert text.startswith("---\n")
+        _start, raw_frontmatter, _body = text.split("---", 2)
+        metadata = yaml.safe_load(raw_frontmatter)
+        assert metadata["name"] == skill
+        assert metadata["description"].startswith("Use when ")
+        assert len(metadata["description"]) < 500
 
 
 def test_shared_lifecycle_reference_exists():
@@ -56,17 +82,18 @@ def test_shared_lifecycle_reference_exists():
     assert "todo -> execution -> archive" in reference.read_text()
 
 
-def test_phase_skill_templates_exist():
+def test_skill_references_are_local_to_skill_folders():
     root = Path(__file__).resolve().parents[1]
-    for skill, template in PHASE_SKILL_TEMPLATES.items():
-        path = root / "skills" / skill / template
-        assert path.exists(), f"missing {path}"
-        assert path.read_text().startswith("# ")
+    for skill, references in SKILL_REFERENCES.items():
+        for reference in references:
+            path = root / "skills" / skill / reference
+            assert path.exists(), f"missing {path}"
+            assert path.read_text().startswith("# ")
 
 
-def test_phase_skills_reference_evidence_commands():
+def test_consolidated_skills_reference_their_cli_plumbing():
     root = Path(__file__).resolve().parents[1]
-    for skill, commands in PHASE_SKILL_COMMANDS.items():
+    for skill, commands in SKILL_COMMANDS.items():
         text = (root / "skills" / skill / "SKILL.md").read_text()
         for command in commands:
             assert command in text, f"{skill} should mention {command}"
@@ -79,3 +106,13 @@ def test_skills_include_orientation_commands():
         assert "## Orientation" in text
         for command in commands:
             assert command in text, f"{skill} should mention {command}"
+
+
+def test_bootstrap_skill_routes_to_two_operational_skills():
+    root = Path(__file__).resolve().parents[1]
+    text = (root / "skills" / "using-go-ship-it" / "SKILL.md").read_text()
+
+    assert "`manage-issues`" in text
+    assert "`work-issue`" in text
+    for deprecated in DEPRECATED_SKILLS:
+        assert f"`{deprecated}`" not in text

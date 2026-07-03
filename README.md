@@ -50,11 +50,36 @@ go-ship-it init --repo-id my-repo --repo-path /path/to/repo --test-command "uv r
 go-ship-it add-issue --repo my-repo --title "Fix parser" --problem "Parser drops quoted values."
 go-ship-it start-issue issue-001
 go-ship-it status
+go-ship-it show-run issue-001 --handoff
 go-ship-it run-check issue-001 --check test
+go-ship-it handoff issue-001 --write
 go-ship-it cleanup-issue issue-001 --destination archive --note "Done."
 ```
 
 Use `status` as the command center. It shows the control root, package root, current branch, active issues, worktrees, and useful next commands.
+
+Each registered repo gets its own visible folder:
+
+```text
+state/repos/<repo>/
+  repo.yaml
+  context.md
+```
+
+`repo.yaml` is the machine-readable config. `context.md` is the repo-level background file for conventions, commands, and gotchas that should apply across issues.
+
+`start-issue` creates a deterministic claim id and writes `.go-ship-it/context.yaml` inside the managed worktree so parallel sessions can anchor themselves to the right issue/run. From inside that worktree, run-bound commands can omit the issue id; `--current` is the explicit form when you want to make that intent visible:
+
+```sh
+go-ship-it status
+go-ship-it show-run
+go-ship-it show-run --current
+go-ship-it append-note --current --section "Investigation" --phase investigate --note "Read parser tests."
+go-ship-it run-check --current --check test
+go-ship-it handoff --write
+```
+
+The context file is only a pointer. GoShipit verifies it against `state/runs/<issue-id>/run.yaml` before writing evidence, which prevents a stale or copied worktree context from silently targeting the wrong run. `handoff --write` creates `state/runs/<issue-id>/handoff.md` when the user wants a future session to resume with enough context.
 
 ## Run Comments
 
@@ -75,6 +100,14 @@ GoShipit skills are bundled as one package per agent harness. Install the CLI/pa
 claude --plugin-dir "$(go-ship-it package-root)" --help
 cursor-agent --plugin-dir "$(go-ship-it package-root)" --help
 ```
+
+The agent-facing skill surface is intentionally small:
+
+- `using-go-ship-it`: orient to package root, control root, state, and worktree boundaries.
+- `manage-issues`: initialize/register, add todos, start issues, inspect status, and clean up.
+- `work-issue`: investigate, propose, implement, test, review, and record run evidence.
+
+The CLI has more commands because it is plumbing for these skills.
 
 Package metadata lives in:
 

@@ -6,7 +6,9 @@ def test_generated_state_files_are_gitignored():
     root = Path(__file__).resolve().parents[1]
 
     assert (root / "state" / "repos" / ".gitkeep").exists()
-    assert _is_ignored(root, "state/repos/example.yaml")
+    assert _is_ignored(root, "state/repos/example/repo.yaml")
+    assert _is_ignored(root, "state/repos/example/context.md")
+    assert not _is_ignored(root, "state/repos/example.yaml")
     assert _is_ignored(root, "state/issues/todo/issue-999.md")
     assert _is_ignored(root, "state/issues/execution/issue-999.md")
     assert _is_ignored(root, "state/issues/archive/issue-999.md")

@@ -80,9 +80,9 @@ def test_doctor_warns_for_preserved_worktree_without_issue_file(tmp_path):
 
 def test_doctor_checks_skill_files(tmp_path):
     root = _root_with_repo(tmp_path)
-    skills = root / "skills" / "add-issue"
+    skills = root / "skills" / "manage-issues"
     skills.mkdir(parents=True)
-    (skills / "SKILL.md").write_text("---\nname: add-issue\n---\n\n## When To Use\n")
+    (skills / "SKILL.md").write_text("---\nname: manage-issues\n---\n\n## When To Use\n")
 
     report = run_doctor(root)
 

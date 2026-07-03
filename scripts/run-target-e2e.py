@@ -97,6 +97,17 @@ def go_ship_it_argv(paths: RunPaths, *args: str) -> list[str]:
     return ["uv", "run", "go-ship-it", "--root", str(paths.state_root), *args]
 
 
+def phase_argv(paths: RunPaths, issue_id: str, phase: str, note: str) -> list[str]:
+    return go_ship_it_argv(paths, "set-phase", issue_id, phase, "--note", note)
+
+
+def parse_start_worktree(stdout: str) -> str:
+    for line in stdout.splitlines():
+        if line.startswith("Worktree: "):
+            return line.split(": ", 1)[1].strip()
+    return stdout.strip()
+
+
 def write_report(
     *,
     paths: RunPaths,
@@ -237,7 +248,7 @@ def main(argv: list[str] | None = None) -> int:
         if issue_path.name:
             issue_id = issue_path.stem
         start = checked(records, "start issue", go_ship_it_argv(paths, "start-issue", issue_id, "--claimed-by", "target-e2e"), cwd=ROOT)
-        worktree = start.stdout.strip()
+        worktree = parse_start_worktree(start.stdout)
         worktree_path = Path(worktree)
         if not worktree_path.is_absolute():
             worktree_path = paths.state_root / worktree_path
@@ -278,6 +289,12 @@ def main(argv: list[str] | None = None) -> int:
         )
         checked(
             records,
+            "set phase proposal",
+            phase_argv(paths, issue_id, "propose", "Disposable target investigation complete."),
+            cwd=ROOT,
+        )
+        checked(
+            records,
             "note proposal",
             go_ship_it_argv(
                 paths,
@@ -290,6 +307,12 @@ def main(argv: list[str] | None = None) -> int:
                 "--note",
                 "Use a harmless marker file to prove implementation and check execution.",
             ),
+            cwd=ROOT,
+        )
+        checked(
+            records,
+            "set phase test",
+            phase_argv(paths, issue_id, "test", "Marker implementation committed; ready for configured checks."),
             cwd=ROOT,
         )
         checked(records, "run setup check", go_ship_it_argv(paths, "run-check", issue_id, "--check", "setup"), cwd=ROOT)

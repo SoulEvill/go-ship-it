@@ -105,6 +105,37 @@ def test_report_writer_includes_command_records(tmp_path):
     assert "Preserved run root for inspection." in text
 
 
+def test_parse_start_worktree_reads_labeled_start_output():
+    harness = load_harness()
+
+    worktree = harness.parse_start_worktree(
+        "Issue: issue-001\n"
+        "Worktree: /tmp/run/worktrees/sample/issue-001\n"
+        "Run File: /tmp/run/state/runs/issue-001/run.yaml\n"
+        "Claim ID: claim-issue-001-abc123\n"
+    )
+
+    assert worktree == "/tmp/run/worktrees/sample/issue-001"
+
+
+def test_phase_argv_builds_set_phase_command(tmp_path):
+    harness = load_harness()
+    paths = harness.RunPaths.from_root(tmp_path, "sample")
+
+    assert harness.phase_argv(paths, "issue-001", "test", "Ready for checks.") == [
+        "uv",
+        "run",
+        "go-ship-it",
+        "--root",
+        str(tmp_path / "go-ship-it-state"),
+        "set-phase",
+        "issue-001",
+        "test",
+        "--note",
+        "Ready for checks.",
+    ]
+
+
 def test_report_writer_quotes_commands_and_includes_output(tmp_path):
     harness = load_harness()
     paths = harness.RunPaths.from_root(tmp_path, "sample")

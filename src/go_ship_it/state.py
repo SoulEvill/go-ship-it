@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+import os
 import re
 import shutil
+import socket
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime
@@ -71,6 +74,23 @@ class StartedRun:
     worktree: Path
     issue_file: Path
     run_file: Path
+    claim_id: str = ""
+    claimed_by: str | None = None
+    already_active: bool = False
+    context_file: Path | None = None
+
+
+@dataclass(frozen=True)
+class CurrentRun:
+    issue_id: str
+    repo_id: str
+    control_root: Path
+    worktree: Path
+    branch: str
+    run_file: Path
+    context_file: Path
+    claim_id: str
+    claimed_by: str | None = None
 
 
 @dataclass(frozen=True)
@@ -148,22 +168,47 @@ def register_repo(
 ) -> Path:
     ensure_layout(root)
     safe_repo_id = _safe_id(repo_id)
-    repo_file = root / "state" / "repos" / f"{safe_repo_id}.yaml"
+    repo_dir = _repo_dir(root, safe_repo_id)
+    repo_dir.mkdir(parents=True, exist_ok=True)
+    repo_file = repo_dir / "repo.yaml"
+    context_file = repo_dir / "context.md"
     values = {
         "id": safe_repo_id,
         "path": str(path),
         "default_branch": default_branch,
         "worktree_root": f"worktrees/{safe_repo_id}",
+        "context_file": relative_to_root(root, context_file),
         "setup_command": setup_command,
         "test_command": test_command,
         "lint_command": lint_command,
     }
     repo_file.write_text(_render_mapping(values))
+    if not context_file.exists():
+        context_file.write_text(_repo_context_template(safe_repo_id))
     return repo_file
 
 
 def read_repo_config(root: Path, repo_id: str) -> dict[str, object]:
     return _read_repo(root, repo_id)
+
+
+def repo_config_files(root: Path, *, repo_id: str | None = None) -> list[Path]:
+    repo_dir = root / "state" / "repos"
+    if not repo_dir.exists():
+        return []
+    files = sorted(path for path in repo_dir.glob("*/repo.yaml") if path.is_file())
+    if repo_id is not None:
+        safe_repo_id = _safe_id(repo_id)
+        files = [path for path in files if repo_config_id(path) == safe_repo_id]
+    return files
+
+
+def repo_config_id(repo_file: Path) -> str:
+    return repo_file.parent.name
+
+
+def repo_config_exists(root: Path, repo_id: str) -> bool:
+    return _repo_file(root, repo_id).exists()
 
 
 def list_issues(root: Path, *, state: str = "all", repo_id: str | None = None) -> list[IssueSummary]:
@@ -291,8 +336,7 @@ def run_timeline(root: Path, issue_id: str) -> list[RunEvent]:
 
 def workspace_status(root: Path) -> WorkspaceStatus:
     _require_layout(root)
-    repo_dir = root / "state" / "repos"
-    repos = sorted(repo_dir.glob("*.yaml")) if repo_dir.exists() else []
+    repos = repo_config_files(root)
     todo = list_issues(root, state="todo")
     execution = list_issues(root, state="execution")
     archive = list_issues(root, state="archive")
@@ -328,9 +372,9 @@ def update_repo_config(
     clears: set[str],
 ) -> Path:
     safe_repo_id = _safe_id(repo_id)
-    repo_file = root / "state" / "repos" / f"{safe_repo_id}.yaml"
+    repo_file = _repo_config_path(root, safe_repo_id)
     if not repo_file.exists():
-        raise FileNotFoundError(f"Repo registry file not found: {repo_file}")
+        raise FileNotFoundError(_repo_not_found_message(root, safe_repo_id))
 
     unknown = (set(updates) | clears) - UPDATABLE_REPO_FIELDS
     if unknown:
@@ -400,7 +444,7 @@ def start_issue(root: Path, issue_id: str, *, claimed_by: str | None = None) -> 
     claim_dir = run_dir / "claim.lock"
 
     if execution_file.exists() or claim_dir.exists():
-        raise _active_run_error(safe_issue_id, execution_file, run_dir)
+        return _existing_started_run(root, safe_issue_id, execution_file, run_dir)
     if not todo_file.exists():
         raise FileNotFoundError(f"No todo issue found at {todo_file}")
 
@@ -424,6 +468,8 @@ def start_issue(root: Path, issue_id: str, *, claimed_by: str | None = None) -> 
         branch = f"go-ship-it/{safe_issue_id}"
         worktree_relative = Path(_required_string(repo, "worktree_root")) / safe_issue_id
         worktree = root / worktree_relative
+        resolved_claimed_by = claimed_by or default_claimed_by(root)
+        claim_id = _claim_id(root, safe_issue_id, worktree_relative)
         if worktree.exists():
             raise FileExistsError(f"Worktree path already exists: {worktree}")
         worktree.parent.mkdir(parents=True, exist_ok=True)
@@ -435,7 +481,8 @@ def start_issue(root: Path, issue_id: str, *, claimed_by: str | None = None) -> 
         metadata["phase"] = "investigate"
         metadata["branch"] = branch
         metadata["worktree"] = worktree_relative.as_posix()
-        metadata["claimed_by"] = claimed_by
+        metadata["claimed_by"] = resolved_claimed_by
+        metadata["claim_id"] = claim_id
         metadata["started_at"] = timestamp
         metadata["last_activity_at"] = timestamp
         execution_file.write_text(render_frontmatter(metadata, body))
@@ -449,14 +496,33 @@ def start_issue(root: Path, issue_id: str, *, claimed_by: str | None = None) -> 
                     "repo": repo_id,
                     "branch": branch,
                     "worktree": worktree_relative.as_posix(),
-                    "claimed_by": claimed_by,
+                    "claimed_by": resolved_claimed_by,
+                    "claim_id": claim_id,
                     "phase": "investigate",
                     "started_at": timestamp,
                     "last_activity_at": timestamp,
                 }
             )
         )
-        return StartedRun(safe_issue_id, branch, worktree, execution_file, run_file)
+        context_file = _write_worktree_context(
+            root,
+            issue_id=safe_issue_id,
+            repo_id=repo_id,
+            branch=branch,
+            worktree_relative=worktree_relative,
+            claimed_by=resolved_claimed_by,
+            claim_id=claim_id,
+        )
+        return StartedRun(
+            safe_issue_id,
+            branch,
+            worktree,
+            execution_file,
+            run_file,
+            claim_id=claim_id,
+            claimed_by=resolved_claimed_by,
+            context_file=context_file,
+        )
     except Exception:
         if worktree_created and target_repo is not None and worktree is not None:
             _remove_worktree(target_repo, worktree)
@@ -465,6 +531,67 @@ def start_issue(root: Path, issue_id: str, *, claimed_by: str | None = None) -> 
         shutil.rmtree(claim_dir, ignore_errors=True)
         _remove_empty_directory(run_dir)
         raise
+
+
+def default_claimed_by(root: Path) -> str:
+    agent = _detect_agent()
+    user = os.environ.get("USER") or os.environ.get("USERNAME") or "unknown-user"
+    host = socket.gethostname().split(".", 1)[0] or "unknown-host"
+    basis = f"{agent}|{user}|{host}|{root.resolve()}|{Path.cwd().resolve()}"
+    digest = hashlib.sha256(basis.encode()).hexdigest()[:8]
+    return f"{agent}:{user}@{host}:{digest}"
+
+
+def resolve_current_run(cwd: Path | None = None) -> CurrentRun:
+    start = (cwd or Path.cwd()).resolve()
+    context_file = _find_worktree_context(start)
+    if context_file is None:
+        raise GoShipitError(
+            "No GoShipit current run context found. "
+            "Run this from a managed worktree or pass an explicit issue id."
+        )
+
+    context = _parse_mapping(context_file.read_text())
+    issue_id = _safe_id(_required_string(context, "issue_id"))
+    repo_id = _safe_id(_required_string(context, "repo_id"))
+    control_root = Path(_required_string(context, "control_root")).expanduser().resolve()
+    run_file = control_root / "state" / "runs" / issue_id / "run.yaml"
+    run = _load_run(run_file)
+
+    claim_id = _required_string(context, "claim_id")
+    run_claim_id = _required_string(run, "claim_id")
+    if claim_id != run_claim_id:
+        raise GoShipitError(
+            f"current run claim mismatch for {issue_id}: context has {claim_id}, run has {run_claim_id}"
+        )
+
+    worktree_value = _required_string(run, "worktree")
+    context_worktree = _required_string(context, "worktree")
+    if context_worktree != worktree_value:
+        raise GoShipitError(
+            f"current run worktree mismatch for {issue_id}: context has {context_worktree}, run has {worktree_value}"
+        )
+
+    worktree = (control_root / worktree_value).resolve()
+    try:
+        context_file.resolve().relative_to(worktree)
+    except ValueError as exc:
+        raise GoShipitError(f"current run context is outside recorded worktree: {context_file}") from exc
+
+    branch = _required_string(run, "branch")
+    claimed_by_value = run.get("claimed_by")
+    claimed_by = claimed_by_value if isinstance(claimed_by_value, str) else None
+    return CurrentRun(
+        issue_id=issue_id,
+        repo_id=repo_id,
+        control_root=control_root,
+        worktree=worktree,
+        branch=branch,
+        run_file=run_file.resolve(),
+        context_file=context_file.resolve(),
+        claim_id=run_claim_id,
+        claimed_by=claimed_by,
+    )
 
 
 def append_note(root: Path, issue_id: str, *, section: str, note: str, phase: str | None = None) -> Path:
@@ -685,6 +812,218 @@ def export_run(root: Path, issue_id: str, *, output: Path) -> Path:
     sections.extend(_notes_export_section())
     output.write_text("\n".join(sections).rstrip() + "\n")
     return output
+
+
+def render_handoff(root: Path, issue_id: str) -> str:
+    safe_issue_id = _safe_id(issue_id)
+    issue = show_issue(root, safe_issue_id)
+    run = show_run(root, safe_issue_id)
+    worktree = run.run.get("worktree") or issue.metadata.get("worktree")
+    branch = run.run.get("branch") or issue.metadata.get("branch")
+    claimed_by = run.run.get("claimed_by") or issue.metadata.get("claimed_by")
+    claim_id = run.run.get("claim_id") or issue.metadata.get("claim_id")
+    commands = sorted(run.commands, key=lambda item: str(item.get("started_at") or ""))
+
+    lines = [
+        f"# GoShipit Handoff: {safe_issue_id}",
+        "",
+        f"Control Root: `{root}`",
+        f"Issue File: `{relative_to_root(root, issue.summary.issue_file)}`",
+        f"Run File: `{relative_to_root(root, run.run_file)}`",
+        f"Repo: `{issue.summary.repo}`",
+        f"Status: `{issue.summary.status}`",
+        f"Phase: `{issue.summary.phase or run.run.get('phase') or ''}`",
+        f"Branch: `{branch or ''}`",
+        f"Worktree: `{worktree or ''}`",
+        f"Claimed By: `{claimed_by or ''}`",
+        f"Claim ID: `{claim_id or ''}`",
+        "",
+        "## Issue Summary",
+        "",
+        f"Title: {issue.summary.title}",
+        "",
+        issue.body or "No issue body found.",
+        "",
+        "## Latest Journal",
+        "",
+        _last_section(run.journal) or "No journal found.",
+        "",
+        "## Latest Run Log",
+        "",
+        _last_section(run.run_log) or "No run log found.",
+        "",
+        "## Command Summary",
+    ]
+    if commands:
+        for command in commands:
+            lines.append(
+                f"- {_display_handoff_value(command.get('check'))} "
+                f"exit {_display_handoff_value(command.get('exit_code'))}: "
+                f"{portable_text(root, command.get('command'))}"
+            )
+    else:
+        lines.append("No command records found.")
+
+    lines.extend(
+        [
+            "",
+            "## Resume Commands",
+            "",
+            "```sh",
+            f"cd {root}",
+            f"go-ship-it show-run {safe_issue_id} --logs",
+            f"go-ship-it show-run {safe_issue_id} --handoff",
+            f"go-ship-it verify-run {safe_issue_id}",
+            "```",
+            "",
+            "Target repo edits belong only inside the active worktree above.",
+        ]
+    )
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def write_handoff(root: Path, issue_id: str, *, output: Path | None = None) -> Path:
+    safe_issue_id = _safe_id(issue_id)
+    output_path = output or root / "state" / "runs" / safe_issue_id / "handoff.md"
+    if not output_path.is_absolute():
+        output_path = root / output_path
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(render_handoff(root, safe_issue_id))
+    return output_path
+
+
+def _detect_agent() -> str:
+    explicit = os.environ.get("GO_SHIP_IT_AGENT")
+    if explicit and explicit.strip():
+        return _safe_id(explicit)
+    if os.environ.get("CLAUDE_PLUGIN_ROOT") or os.environ.get("CLAUDECODE"):
+        return "claude"
+    if os.environ.get("CURSOR_PLUGIN_ROOT") or os.environ.get("CURSOR_TRACE_ID"):
+        return "cursor"
+    if os.environ.get("CODEX_HOME") or os.environ.get("OPENAI_CODEX"):
+        return "codex"
+    return "agent"
+
+
+def _claim_id(root: Path, issue_id: str, worktree_relative: Path) -> str:
+    basis = f"{root.resolve()}|{issue_id}|{worktree_relative.as_posix()}"
+    digest = hashlib.sha256(basis.encode()).hexdigest()[:12]
+    return f"claim-{issue_id}-{digest}"
+
+
+def _existing_started_run(root: Path, issue_id: str, execution_file: Path, run_dir: Path) -> StartedRun:
+    run_file = run_dir / "run.yaml"
+    if not execution_file.exists() or not run_file.exists():
+        raise _active_run_error(issue_id, execution_file, run_dir)
+    run = _load_run(run_file)
+    branch = _required_string(run, "branch")
+    worktree_value = _required_string(run, "worktree")
+    worktree = root / worktree_value
+    claim_id = str(run.get("claim_id") or _claim_id(root, issue_id, Path(worktree_value)))
+    claimed_by_value = run.get("claimed_by")
+    claimed_by = claimed_by_value if isinstance(claimed_by_value, str) else None
+    if run.get("claim_id") != claim_id:
+        run["claim_id"] = claim_id
+        run_file.write_text(_render_mapping(run))
+    metadata, body = parse_frontmatter(execution_file.read_text())
+    if metadata.get("claim_id") != claim_id:
+        metadata["claim_id"] = claim_id
+        execution_file.write_text(render_frontmatter(metadata, body))
+    context_file = worktree / ".go-ship-it" / "context.yaml"
+    if not context_file.exists() and worktree.exists():
+        repo = _required_string(run, "repo")
+        context_file = _write_worktree_context(
+            root,
+            issue_id=issue_id,
+            repo_id=repo,
+            branch=branch,
+            worktree_relative=Path(worktree_value),
+            claimed_by=claimed_by,
+            claim_id=claim_id,
+        )
+    return StartedRun(
+        issue_id,
+        branch,
+        worktree,
+        execution_file,
+        run_file,
+        claim_id=claim_id,
+        claimed_by=claimed_by,
+        already_active=True,
+        context_file=context_file,
+    )
+
+
+def _write_worktree_context(
+    root: Path,
+    *,
+    issue_id: str,
+    repo_id: str,
+    branch: str,
+    worktree_relative: Path,
+    claimed_by: str | None,
+    claim_id: str,
+) -> Path:
+    worktree = root / worktree_relative
+    context_dir = worktree / ".go-ship-it"
+    context_dir.mkdir(parents=True, exist_ok=True)
+    context_file = context_dir / "context.yaml"
+    context = {
+        "issue_id": issue_id,
+        "repo_id": repo_id,
+        "control_root": str(root.resolve()),
+        "run_dir": f"state/runs/{issue_id}",
+        "issue_file": f"state/issues/execution/{issue_id}.md",
+        "worktree": worktree_relative.as_posix(),
+        "branch": branch,
+        "claimed_by": claimed_by,
+        "claim_id": claim_id,
+    }
+    context_file.write_text(_render_mapping(context))
+    _ignore_worktree_context(worktree)
+    return context_file
+
+
+def _find_worktree_context(start: Path) -> Path | None:
+    candidates = (start, *start.parents)
+    for directory in candidates:
+        context_file = directory / ".go-ship-it" / "context.yaml"
+        if context_file.exists():
+            return context_file
+    return None
+
+
+def _ignore_worktree_context(worktree: Path) -> None:
+    try:
+        exclude_value = _git(worktree, "rev-parse", "--git-path", "info/exclude").strip()
+    except GoShipitError:
+        return
+    if not exclude_value:
+        return
+    exclude_path = Path(exclude_value)
+    if not exclude_path.is_absolute():
+        exclude_path = worktree / exclude_path
+    exclude_path.parent.mkdir(parents=True, exist_ok=True)
+    existing = exclude_path.read_text() if exclude_path.exists() else ""
+    if ".go-ship-it/" not in existing.splitlines():
+        prefix = "" if not existing or existing.endswith("\n") else "\n"
+        with exclude_path.open("a") as handle:
+            handle.write(f"{prefix}.go-ship-it/\n")
+
+
+def _last_section(text: str) -> str:
+    stripped = text.strip()
+    if not stripped:
+        return ""
+    marker = "\n## "
+    index = stripped.rfind(marker)
+    if index == -1:
+        return portable_text(Path("."), stripped)
+    return portable_text(Path("."), stripped[index + 1 :])
+
+
+def _display_handoff_value(value: object) -> str:
+    return "" if value is None else str(value)
 
 
 def _find_issue_file(root: Path, issue_id: str) -> Path | None:
@@ -928,10 +1267,39 @@ def _load_run(run_file: Path) -> dict[str, object]:
     return _parse_mapping(run_file.read_text())
 
 
+def _repo_dir(root: Path, repo_id: str) -> Path:
+    return root / "state" / "repos" / _safe_id(repo_id)
+
+
+def _repo_file(root: Path, repo_id: str) -> Path:
+    return _repo_dir(root, repo_id) / "repo.yaml"
+
+
+def _repo_config_path(root: Path, repo_id: str) -> Path:
+    return _repo_file(root, repo_id)
+
+
+def _repo_not_found_message(root: Path, repo_id: str) -> str:
+    return f"Repo registry file not found: {_repo_file(root, repo_id)}"
+
+
+def _repo_context_template(repo_id: str) -> str:
+    return (
+        f"# {repo_id} Context\n\n"
+        "## Overview\n\n"
+        "Add repo-specific background that should travel with every issue in this target repo.\n\n"
+        "## Commands\n\n"
+        "Record common setup, test, lint, and release commands here.\n\n"
+        "## Gotchas\n\n"
+        "Capture repo-specific traps, constraints, or conventions as they are learned.\n\n"
+        "## Notes\n\n"
+    )
+
+
 def _read_repo(root: Path, repo_id: str) -> dict[str, object]:
-    repo_file = root / "state" / "repos" / f"{_safe_id(repo_id)}.yaml"
+    repo_file = _repo_config_path(root, repo_id)
     if not repo_file.exists():
-        raise FileNotFoundError(f"Repo registry file not found: {repo_file}")
+        raise FileNotFoundError(_repo_not_found_message(root, _safe_id(repo_id)))
     return _parse_mapping(repo_file.read_text())
 
 

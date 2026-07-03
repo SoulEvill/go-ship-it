@@ -34,7 +34,7 @@ go-ship-it status
 go-ship-it doctor
 ```
 
-Read the relevant `skills/<skill-name>/SKILL.md` before acting. Treat those skill files as workflow references. Do not edit target repositories outside the active issue worktree.
+Read `skills/using-go-ship-it/SKILL.md` first, then use `skills/manage-issues/SKILL.md` for issue state changes or `skills/work-issue/SKILL.md` for active-run work. Do not edit target repositories outside the active issue worktree.
 EOF
 
 cat > "$TARGET/AGENTS.md" <<'EOF'
@@ -42,7 +42,11 @@ cat > "$TARGET/AGENTS.md" <<'EOF'
 
 This repository is a local-first control repo for issue lifecycle work.
 
-Before acting, inspect `references/lifecycle.md` and the relevant `skills/<skill-name>/SKILL.md`.
+Before acting, inspect `references/lifecycle.md` and `skills/using-go-ship-it/SKILL.md`.
+
+Use `skills/manage-issues/SKILL.md` for initializing/registering repos, adding todos, starting issues, status checks, and cleanup.
+
+Use `skills/work-issue/SKILL.md` for investigation, proposal, implementation, testing, review, and run evidence.
 
 Use `go-ship-it status` for orientation and `go-ship-it doctor` before cleanup or user e2e handoff.
 

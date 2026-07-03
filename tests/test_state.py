@@ -1,17 +1,22 @@
 from pathlib import Path
 import subprocess
 
+import yaml
 import pytest
 
 from go_ship_it.frontmatter import parse_frontmatter
 from go_ship_it.state import (
-    IssueAlreadyActiveError,
+    GoShipitError,
     add_issue,
     cleanup_issue,
     ensure_layout,
     next_issue_id,
+    read_repo_config,
     register_repo,
+    render_handoff,
+    resolve_current_run,
     start_issue,
+    write_handoff,
 )
 
 
@@ -40,16 +45,37 @@ def test_register_repo_writes_simple_registry_file(tmp_path):
         lint_command=None,
     )
 
-    assert repo_file == tmp_path / "state" / "repos" / "sample.yaml"
+    assert repo_file == tmp_path / "state" / "repos" / "sample" / "repo.yaml"
     assert repo_file.read_text() == (
         "id: sample\n"
         f"path: {target}\n"
         "default_branch: main\n"
         "worktree_root: worktrees/sample\n"
+        "context_file: state/repos/sample/context.md\n"
         "setup_command: uv sync\n"
         "test_command: uv run pytest\n"
         "lint_command: null\n"
     )
+    context_file = tmp_path / "state" / "repos" / "sample" / "context.md"
+    assert context_file.exists()
+    assert context_file.read_text().startswith("# sample Context\n")
+
+
+def test_read_repo_config_rejects_flat_registry_file(tmp_path):
+    ensure_layout(tmp_path)
+    flat_file = tmp_path / "state" / "repos" / "flat.yaml"
+    flat_file.write_text(
+        "id: flat\n"
+        "path: ../flat\n"
+        "default_branch: main\n"
+        "worktree_root: worktrees/flat\n"
+        "setup_command: null\n"
+        "test_command: null\n"
+        "lint_command: null\n"
+    )
+
+    with pytest.raises(FileNotFoundError, match="state/repos/flat/repo.yaml"):
+        read_repo_config(tmp_path, "flat")
 
 
 def test_add_issue_creates_todo_markdown(tmp_path):
@@ -157,6 +183,10 @@ def test_start_issue_claims_issue_and_creates_worktree(tmp_path):
     assert run.issue_id == "issue-001"
     assert run.branch == "go-ship-it/issue-001"
     assert run.worktree == tmp_path / "worktrees" / "sample" / "issue-001"
+    assert run.claimed_by == "test-thread"
+    assert run.claim_id.startswith("claim-issue-001-")
+    assert run.already_active is False
+    assert run.context_file == run.worktree / ".go-ship-it" / "context.yaml"
     assert (run.worktree / "README.md").exists()
     assert not (tmp_path / "state" / "issues" / "todo" / "issue-001.md").exists()
     execution_file = tmp_path / "state" / "issues" / "execution" / "issue-001.md"
@@ -169,9 +199,21 @@ def test_start_issue_claims_issue_and_creates_worktree(tmp_path):
     run_file = tmp_path / "state" / "runs" / "issue-001" / "run.yaml"
     assert run_file.exists()
     assert "claimed_by: test-thread\n" in run_file.read_text()
+    assert f"claim_id: {run.claim_id}\n" in run_file.read_text()
+    context = yaml.safe_load((run.worktree / ".go-ship-it" / "context.yaml").read_text())
+    assert context["issue_id"] == "issue-001"
+    assert context["repo_id"] == "sample"
+    assert context["control_root"] == str(tmp_path)
+    assert context["run_dir"] == "state/runs/issue-001"
+    assert context["issue_file"] == "state/issues/execution/issue-001.md"
+    assert context["worktree"] == "worktrees/sample/issue-001"
+    assert context["branch"] == "go-ship-it/issue-001"
+    assert context["claimed_by"] == "test-thread"
+    assert context["claim_id"] == run.claim_id
+    assert ".go-ship-it/" in _git_output(run.worktree, "status", "--ignored", "--short")
 
 
-def test_start_issue_rejects_duplicate_active_run(tmp_path):
+def test_resolve_current_run_uses_worktree_context_and_run_claim(tmp_path):
     target = _create_git_repo(tmp_path / "target")
     register_repo(
         tmp_path,
@@ -183,14 +225,89 @@ def test_start_issue_rejects_duplicate_active_run(tmp_path):
         lint_command=None,
     )
     _add_sample_issue(tmp_path)
-    start_issue(tmp_path, "issue-001", claimed_by="first-thread")
+    run = start_issue(tmp_path, "issue-001", claimed_by="test-thread")
+    nested = run.worktree / "src" / "package"
+    nested.mkdir(parents=True)
 
-    with pytest.raises(IssueAlreadyActiveError) as exc_info:
-        start_issue(tmp_path, "issue-001", claimed_by="second-thread")
-    message = str(exc_info.value)
-    assert "issue-001 already has an active run" in message
-    assert "state/issues/execution/issue-001.md" in message
-    assert "worktrees/sample/issue-001" in message
+    current = resolve_current_run(nested)
+
+    assert current.issue_id == "issue-001"
+    assert current.repo_id == "sample"
+    assert current.control_root == tmp_path.resolve()
+    assert current.worktree == run.worktree.resolve()
+    assert current.run_file == (tmp_path / "state" / "runs" / "issue-001" / "run.yaml").resolve()
+    assert current.context_file == (run.worktree / ".go-ship-it" / "context.yaml").resolve()
+    assert current.claim_id == run.claim_id
+    assert current.claimed_by == "test-thread"
+
+
+def test_resolve_current_run_rejects_claim_mismatch(tmp_path):
+    target = _create_git_repo(tmp_path / "target")
+    register_repo(
+        tmp_path,
+        repo_id="sample",
+        path=target,
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+    )
+    _add_sample_issue(tmp_path)
+    run = start_issue(tmp_path, "issue-001", claimed_by="test-thread")
+    context_file = run.worktree / ".go-ship-it" / "context.yaml"
+    context = yaml.safe_load(context_file.read_text())
+    context["claim_id"] = "claim-issue-001-wrong"
+    context_file.write_text(yaml.safe_dump(context, sort_keys=False))
+
+    with pytest.raises(GoShipitError, match="claim mismatch"):
+        resolve_current_run(run.worktree)
+
+
+def test_start_issue_auto_claim_is_stable_for_same_control_root_and_cwd(tmp_path, monkeypatch):
+    target = _create_git_repo(tmp_path / "target")
+    register_repo(
+        tmp_path,
+        repo_id="sample",
+        path=target,
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+    )
+    _add_sample_issue(tmp_path)
+    monkeypatch.setenv("GO_SHIP_IT_AGENT", "codex")
+    monkeypatch.setenv("USER", "tester")
+    monkeypatch.chdir(tmp_path)
+
+    run = start_issue(tmp_path, "issue-001")
+
+    assert run.claimed_by is not None
+    assert run.claimed_by.startswith("codex:tester@")
+    assert "claimed_by: " in run.run_file.read_text()
+
+
+def test_start_issue_reuses_duplicate_active_run(tmp_path):
+    target = _create_git_repo(tmp_path / "target")
+    register_repo(
+        tmp_path,
+        repo_id="sample",
+        path=target,
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+    )
+    _add_sample_issue(tmp_path)
+    first = start_issue(tmp_path, "issue-001", claimed_by="first-thread")
+
+    second = start_issue(tmp_path, "issue-001", claimed_by="second-thread")
+
+    assert second.already_active is True
+    assert second.issue_id == first.issue_id
+    assert second.worktree == first.worktree
+    assert second.claim_id == first.claim_id
+    assert second.claimed_by == "first-thread"
+    assert "second-thread" not in second.run_file.read_text()
 
 
 def test_start_issue_supports_two_active_issues_for_same_repo(tmp_path):
@@ -312,3 +429,29 @@ def test_cleanup_archive_can_remove_managed_worktree(tmp_path):
     cleanup_issue(root, "issue-001", destination="archive", note="Closed after review.", remove_worktree=True)
 
     assert not active_worktree.exists()
+
+
+def test_render_handoff_includes_resume_context(tmp_path):
+    root = _started_issue_root(tmp_path)
+
+    text = render_handoff(root, "issue-001")
+
+    assert "# GoShipit Handoff: issue-001" in text
+    assert f"Control Root: `{root}`" in text
+    assert "Repo: `sample`" in text
+    assert "Status: `execution`" in text
+    assert "Phase: `investigate`" in text
+    assert "Claimed By: `test-thread`" in text
+    assert "Claim ID: `claim-issue-001-" in text
+    assert "Worktree: `worktrees/sample/issue-001`" in text
+    assert "go-ship-it show-run issue-001 --logs" in text
+    assert "go-ship-it verify-run issue-001" in text
+
+
+def test_write_handoff_defaults_to_run_directory(tmp_path):
+    root = _started_issue_root(tmp_path)
+
+    path = write_handoff(root, "issue-001")
+
+    assert path == root / "state" / "runs" / "issue-001" / "handoff.md"
+    assert "# GoShipit Handoff: issue-001" in path.read_text()
