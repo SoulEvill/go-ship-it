@@ -104,6 +104,7 @@ def test_built_wheel_contains_agent_package_assets(tmp_path):
         "go_ship_it/package/hooks/run-hook.cmd",
         "go_ship_it/package/hooks/hooks-cursor.json",
         "go_ship_it/package/references/lifecycle.md",
+        "go_ship_it/package/scripts/release-check.py",
         "go_ship_it/package/scripts/validate-packaged-install.py",
         "go_ship_it/package/skills/using-go-ship-it/SKILL.md",
         "go_ship_it/package/skills/test-and-review/SKILL.md",

@@ -22,6 +22,8 @@ def test_main_help_exits_cleanly(capsys):
     captured = capsys.readouterr()
     assert exit_code == 0
     assert "GoShipit" in captured.out
+    assert "Normal path:" in captured.out
+    assert "Advanced/support:" in captured.out
 
 
 def test_parser_has_package_root_command():
@@ -49,6 +51,40 @@ def test_main_init_creates_state_layout(tmp_path):
     assert exit_code == 0
     assert (tmp_path / "state" / "repos").is_dir()
     assert (tmp_path / "state" / "issues" / "todo").is_dir()
+
+
+def test_main_init_can_register_first_repo(tmp_path):
+    target = _create_git_repo(tmp_path / "target")
+
+    exit_code = main(
+        [
+            "--root",
+            str(tmp_path / "control"),
+            "init",
+            "--repo-id",
+            "sample",
+            "--repo-path",
+            str(target),
+            "--test-command",
+            "python -c 'print(\"ok\")'",
+        ]
+    )
+
+    repo_file = tmp_path / "control" / "state" / "repos" / "sample.yaml"
+    assert exit_code == 0
+    assert repo_file.exists()
+    text = repo_file.read_text()
+    assert "id: sample\n" in text
+    assert f"path: {target}\n" in text
+    assert "test_command: python -c 'print(\"ok\")'\n" in text
+
+
+def test_main_init_rejects_partial_repo_registration(tmp_path, capsys):
+    exit_code = main(["--root", str(tmp_path), "init", "--repo-id", "sample"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "--repo-id and --repo-path must be provided together" in captured.err
 
 
 def test_register_repo_cli_preserves_relative_paths(tmp_path):
@@ -341,18 +377,38 @@ def test_main_verify_run_prints_report(tmp_path, capsys):
 
 
 def test_main_status_prints_workspace_summary(tmp_path, capsys):
-    _started_issue_root(tmp_path)
+    _started_issue_root(tmp_path, test_command="python -c 'print(\"ok\")'")
 
     exit_code = main(["--root", str(tmp_path), "status"])
 
     assert exit_code == 0
     out = capsys.readouterr().out
     assert "# GoShipit Status" in out
+    assert f"Control Root: {tmp_path.resolve()}" in out
+    assert "Package Root:" in out
+    assert "Current Git Branch:" in out
     assert "Repos: 1" in out
     assert "Execution: 1" in out
     assert "Managed Worktrees: 1" in out
     assert "- issue-001 sample Change README" in out
+    assert "Phase: investigate" in out
+    assert "Worktree: worktrees/sample/issue-001" in out
+    assert "go-ship-it show-run issue-001 --logs" in out
+    assert "go-ship-it run-check issue-001 --check test" in out
+    assert "go-ship-it verify-run issue-001" in out
     assert "- sample/issue-001" in out
+
+
+def test_main_status_omits_unconfigured_check_hint(tmp_path, capsys):
+    _started_issue_root(tmp_path)
+
+    exit_code = main(["--root", str(tmp_path), "status"])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "go-ship-it show-run issue-001 --logs" in out
+    assert "go-ship-it run-check issue-001 --check test" not in out
+    assert "go-ship-it verify-run issue-001" in out
 
 
 def test_main_status_rejects_uninitialized_root(tmp_path, capsys):

@@ -9,6 +9,15 @@ go-ship-it doctor
 go-ship-it status
 ```
 
+For a first-time control root, initialize state and register the first target repo together:
+
+```sh
+go-ship-it init \
+  --repo-id my-repo \
+  --repo-path /path/to/my-repo \
+  --test-command "uv run pytest"
+```
+
 ## Disposable Target Harness
 
 For a repeatable local smoke test against any Git repo, use the generic target harness with explicit target values:
@@ -29,7 +38,7 @@ GoShipit contributors can use `scripts/dev/run-parawave-e2e.sh` inside this deve
 
 ## Issue Flow
 
-1. Register or inspect the target repo with `go-ship-it show-repo <repo>`.
+1. Initialize and register the target repo with `go-ship-it init --repo-id <repo> --repo-path <path>`, or inspect an existing target with `go-ship-it show-repo <repo>`.
 2. Add an issue with `go-ship-it add-issue`.
 3. Start it with `go-ship-it start-issue <issue-id>`.
 4. Inspect it with `go-ship-it show-issue <issue-id>`.

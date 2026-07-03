@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import subprocess
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -38,11 +39,34 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="go-ship-it",
         description="GoShipit local issue lifecycle manager.",
+        epilog=(
+            "Normal path:\n"
+            "  init --repo-id <id> --repo-path <path> [--test-command <cmd>]\n"
+            "  add-issue --repo <id> --title <title> --problem <problem>\n"
+            "  start-issue <issue-id>\n"
+            "  status\n"
+            "  run-check <issue-id> --check test\n"
+            "  cleanup-issue <issue-id> --destination archive --note <note>\n\n"
+            "Advanced/support:\n"
+            "  show-issue, show-run, append-note, append-log, set-phase,\n"
+            "  export-run, verify-run, doctor, package-root, update-repo\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--root", default=".", help="GoShipit repo root. Defaults to current directory.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    subparsers.add_parser("init", help="Create the local GoShipit state folders.")
+    init = subparsers.add_parser(
+        "init",
+        help="Create state folders, optionally registering the first target repo.",
+        description="Create the local GoShipit state folders. Optionally register the first target repo.",
+    )
+    init.add_argument("--repo-id", default=None, help="Optional target repo id to register during init.")
+    init.add_argument("--repo-path", default=None, help="Optional target repo path to register during init.")
+    init.add_argument("--default-branch", default="main")
+    init.add_argument("--setup-command", default=None)
+    init.add_argument("--test-command", default=None)
+    init.add_argument("--lint-command", default=None)
     subparsers.add_parser("package-root", help="Print the bundled GoShipit agent package root.")
 
     register = subparsers.add_parser("register-repo", help="Register a target repository.")
@@ -264,9 +288,14 @@ def _format_command_record(command: dict[str, object], root: Path) -> list[str]:
     ]
 
 
-def _format_status(status: object) -> str:
+def _format_status(status: object, root: Path) -> str:
+    branch = _current_branch(root)
     lines = [
         "# GoShipit Status",
+        "",
+        f"Control Root: {root}",
+        f"Package Root: {package_root()}",
+        f"Current Git Branch: {branch or 'not a git worktree'}",
         "",
         f"Repos: {status.repo_count}",
         f"Todo: {status.todo_count}",
@@ -278,7 +307,21 @@ def _format_status(status: object) -> str:
         "## Active Issues",
     ]
     if status.active:
-        lines.extend(f"- {item.issue_id} {item.repo} {item.title}" for item in status.active)
+        for item in status.active:
+            lines.append(f"- {item.issue_id} {item.repo} {item.title}")
+            lines.append(f"  Phase: {item.phase or 'unknown'}")
+            try:
+                detail = show_issue(root, item.issue_id)
+                worktree = detail.metadata.get("worktree")
+            except (OSError, ValueError):
+                worktree = None
+            if isinstance(worktree, str) and worktree:
+                lines.append(f"  Worktree: {worktree}")
+            lines.append("  Next useful commands:")
+            lines.append(f"    go-ship-it show-run {item.issue_id} --logs")
+            for check in _configured_checks(root, item.repo):
+                lines.append(f"    go-ship-it run-check {item.issue_id} --check {check}")
+            lines.append(f"    go-ship-it verify-run {item.issue_id}")
     else:
         lines.append("No active issues.")
 
@@ -328,6 +371,32 @@ def _display_value(value: object) -> str:
     return "" if value is None else str(value)
 
 
+def _current_branch(root: Path) -> str | None:
+    result = subprocess.run(
+        ["git", "-C", str(root), "branch", "--show-current"],
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    branch = result.stdout.strip()
+    return branch or None
+
+
+def _configured_checks(root: Path, repo_id: str) -> list[str]:
+    try:
+        config = read_repo_config(root, repo_id)
+    except (OSError, ValueError):
+        return []
+    checks = []
+    for check, field in (("setup", "setup_command"), ("test", "test_command"), ("lint", "lint_command")):
+        value = config.get(field)
+        if isinstance(value, str) and value.strip():
+            checks.append(check)
+    return checks
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     try:
@@ -344,6 +413,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "init":
             ensure_layout(root)
             print(f"Initialized GoShipit state at {root}")
+            has_repo_id = args.repo_id is not None
+            has_repo_path = args.repo_path is not None
+            if has_repo_id != has_repo_path:
+                raise ValueError("--repo-id and --repo-path must be provided together")
+            if has_repo_id and has_repo_path:
+                repo_file = register_repo(
+                    root,
+                    repo_id=args.repo_id,
+                    path=Path(args.repo_path),
+                    default_branch=args.default_branch,
+                    setup_command=args.setup_command,
+                    test_command=args.test_command,
+                    lint_command=args.lint_command,
+                )
+                print(f"Registered repo: {repo_file}")
             return 0
 
         if args.command == "register-repo":
@@ -447,7 +531,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
 
         if args.command == "status":
-            print(_format_status(workspace_status(root)))
+            print(_format_status(workspace_status(root), root))
             return 0
 
         if args.command == "doctor":

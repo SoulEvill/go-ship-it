@@ -42,6 +42,7 @@ include = [
   "/state/**/*.gitkeep",
   "/worktrees/.gitkeep",
   "/README.md",
+  "/Justfile",
   "/pyproject.toml",
   "/uv.lock",
 ]

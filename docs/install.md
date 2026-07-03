@@ -15,6 +15,14 @@ uv run go-ship-it --help
 uv run pytest -v
 ```
 
+Optional convenience commands are available through `Justfile` when `just` is installed:
+
+```sh
+just test
+just doctor
+just release-check
+```
+
 ## Local CLI Install
 
 From the GoShipit clone:
@@ -115,6 +123,18 @@ go-ship-it doctor
 ```
 
 `doctor` reports lifecycle state issues and package health warnings, including missing manifests, missing bootstrap skill, and missing hook files.
+
+For a complete local release gate, run:
+
+```sh
+scripts/release-check.py
+```
+
+or, if `just` is installed:
+
+```sh
+just release-check
+```
 
 ## Packaged Install Acceptance
 

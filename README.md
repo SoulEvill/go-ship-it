@@ -41,6 +41,21 @@ go-ship-it status
 
 Agent sessions should run lifecycle commands from the GoShipit control root, or pass `--root <control-root>` explicitly. The control root contains `state/` and `worktrees/`. The package root contains skills and hooks. Target repo edits belong only inside the active issue worktree.
 
+## Normal Path
+
+The first-run command surface is intentionally small:
+
+```sh
+go-ship-it init --repo-id my-repo --repo-path /path/to/repo --test-command "uv run pytest"
+go-ship-it add-issue --repo my-repo --title "Fix parser" --problem "Parser drops quoted values."
+go-ship-it start-issue issue-001
+go-ship-it status
+go-ship-it run-check issue-001 --check test
+go-ship-it cleanup-issue issue-001 --destination archive --note "Done."
+```
+
+Use `status` as the command center. It shows the control root, package root, current branch, active issues, worktrees, and useful next commands.
+
 ## Run Comments
 
 Use run logs for lightweight process observations and raw-data pointers:
@@ -85,6 +100,18 @@ Validate a built wheel in a fresh temporary install room with:
 ```sh
 uv build
 scripts/validate-packaged-install.py --wheel dist/go_ship_it-0.1.0-py3-none-any.whl
+```
+
+Run the lightweight release gate with:
+
+```sh
+scripts/release-check.py
+```
+
+If `just` is installed, the same gate is available as:
+
+```sh
+just release-check
 ```
 
 ## User E2E Test
