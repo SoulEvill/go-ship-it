@@ -15,6 +15,7 @@ Use the relevant sections. Omit sections that do not apply.
 - Recommended approach:
 - Alternatives considered:
 - Risks:
+- Decision record:
 - Acceptance checks:
 - Approval status:
 
@@ -22,6 +23,7 @@ Use the relevant sections. Omit sections that do not apply.
 
 - Files changed:
 - Key decisions:
+- Decision record:
 - Scope changes:
 - Follow-up risks:
 

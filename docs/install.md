@@ -104,6 +104,28 @@ The control root should contain `state/` and `worktrees/`. The package root shou
 
 If a session is accidentally in a target repo or target worktree, `go-ship-it status` should fail instead of showing an empty-looking workspace.
 
+For a live agent session, a good first prompt is:
+
+```text
+Use GoShipit for this project. Start by orienting to the control root, show me status and doctor results, and do not edit the target repo until an active issue worktree is confirmed.
+```
+
+The agent should be able to use structured output if needed:
+
+```sh
+go-ship-it status --json
+go-ship-it doctor --json
+go-ship-it verify-run <issue-id> --json
+```
+
+Before cleanup, the agent should run or recommend:
+
+```sh
+go-ship-it handoff <issue-id> --write
+go-ship-it export-run <issue-id> --output docs/dogfood/<issue-id>-evidence.md
+go-ship-it verify-run <issue-id> --strict
+```
+
 ## Cursor
 
 Use the Cursor plugin package metadata in `.cursor-plugin/plugin.json`. Cursor should load the shared `skills/` folder and session-start hook configuration:
@@ -152,6 +174,8 @@ scripts/validate-packaged-install.py --wheel dist/go_ship_it-0.1.0-py3-none-any.
 ```
 
 This creates a temporary fresh room, installs the wheel into a new virtual environment, initializes a temporary control root, runs `go-ship-it package-root`, `go-ship-it init`, and `go-ship-it doctor`, then checks whether Claude Code and Cursor Agent can load the installed package root when those CLIs are available.
+
+It also drives a disposable first-issue flow: create a target git repo, register it, add and start an issue, inspect `status --json`, record evidence, run the configured test check, write handoff, export evidence, run `verify-run --strict`, archive with `--remove-worktree`, and run final `doctor`.
 
 ## Agent CLI Validation
 

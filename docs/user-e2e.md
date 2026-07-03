@@ -28,6 +28,23 @@ state/repos/my-repo/
 
 Put durable repo-wide notes in `context.md`: setup gotchas, common commands, confusing conventions, and lessons that should apply across future issues.
 
+## What Gets Created
+
+During the first issue, GoShipit should create only local, inspectable artifacts:
+
+```text
+state/issues/todo/<issue-id>.md
+state/issues/execution/<issue-id>.md
+state/runs/<issue-id>/run.yaml
+state/runs/<issue-id>/journal.md
+state/runs/<issue-id>/run-log.md
+state/runs/<issue-id>/commands/*.yaml
+state/runs/<issue-id>/handoff.md
+worktrees/<repo>/<issue-id>/.go-ship-it/context.yaml
+```
+
+`state/runs/<issue-id>/run.yaml` is the run metadata source of truth. `.go-ship-it/context.yaml` is only a worktree pointer back to that run and must match before current-run commands write evidence.
+
 ## Disposable Target Harness
 
 For a repeatable local smoke test against any Git repo, use the generic target harness with explicit target values:
@@ -63,5 +80,14 @@ Use `skills/manage-issues/SKILL.md` for steps 1-3 and 11-12. Use `skills/work-is
 11. Run configured checks with `go-ship-it run-check --current --check test` from the worktree, or `go-ship-it run-check <issue-id> --check test` from the control root.
 12. Create an explicit resume snapshot with `go-ship-it handoff --write` from the worktree, or `go-ship-it handoff <issue-id> --write` from the control root, when another session should continue.
 13. Export evidence with `go-ship-it export-run`.
-14. Cleanup to `archive` with `--remove-worktree` for completed work, or return to `todo` with `--remove-worktree` when work should be retried later.
-15. Run `go-ship-it doctor` again.
+14. Run `go-ship-it verify-run <issue-id> --strict` and resolve or explicitly report every warning before cleanup.
+15. Cleanup to `archive` with `--remove-worktree` for completed work, or return to `todo` with `--remove-worktree` when work should be retried later.
+16. Run `go-ship-it doctor` again.
+
+For agent-driven checks, prefer structured output:
+
+```sh
+go-ship-it status --json
+go-ship-it doctor --json
+go-ship-it verify-run <issue-id> --json
+```

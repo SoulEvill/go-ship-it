@@ -53,6 +53,8 @@ go-ship-it status
 go-ship-it show-run issue-001 --handoff
 go-ship-it run-check issue-001 --check test
 go-ship-it handoff issue-001 --write
+go-ship-it export-run issue-001 --output docs/dogfood/issue-001-evidence.md
+go-ship-it verify-run issue-001 --strict
 go-ship-it cleanup-issue issue-001 --destination archive --note "Done." --remove-worktree
 ```
 
@@ -80,6 +82,38 @@ go-ship-it handoff --write
 ```
 
 The context file is only a pointer. GoShipit verifies it against `state/runs/<issue-id>/run.yaml` before writing evidence, which prevents a stale or copied worktree context from silently targeting the wrong run. `handoff --write` creates `state/runs/<issue-id>/handoff.md` when the user wants a future session to resume with enough context.
+
+## What Gets Created
+
+When a first issue moves from todo to execution, GoShipit creates visible local artifacts:
+
+```text
+state/issues/todo/<issue-id>.md              # todo issue before start
+state/issues/execution/<issue-id>.md         # active issue after start
+state/runs/<issue-id>/run.yaml               # claim, branch, worktree, phase, export metadata
+state/runs/<issue-id>/journal.md             # investigation, proposal, implementation, review notes
+state/runs/<issue-id>/run-log.md             # lightweight trace comments
+state/runs/<issue-id>/commands/*.yaml        # recorded setup/test/lint command evidence
+state/runs/<issue-id>/handoff.md             # explicit resume context after handoff --write
+worktrees/<repo>/<issue-id>/.go-ship-it/context.yaml  # worktree pointer back to the run
+```
+
+Before cleanup, run the readiness gate:
+
+```sh
+go-ship-it status
+go-ship-it handoff <issue-id> --write
+go-ship-it export-run <issue-id> --output docs/dogfood/<issue-id>-evidence.md
+go-ship-it verify-run <issue-id> --strict
+```
+
+`verify-run --strict` fails on warnings, including missing acceptance criteria evidence or missing handoff context. Agents can use structured output when they should not scrape Markdown:
+
+```sh
+go-ship-it status --json
+go-ship-it doctor --json
+go-ship-it verify-run <issue-id> --json
+```
 
 ## Run Comments
 

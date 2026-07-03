@@ -87,6 +87,20 @@ go-ship-it run-check --current --check test
 go-ship-it append-note --current --section "Review" --phase test --note "<review findings and readiness>"
 ```
 
+Readiness before cleanup:
+
+```sh
+go-ship-it handoff <issue-id> --write
+go-ship-it export-run <issue-id> --output docs/dogfood/<issue-id>-evidence.md
+go-ship-it verify-run <issue-id> --strict
+# inside the managed worktree:
+go-ship-it handoff --write
+go-ship-it export-run --current --output docs/dogfood/<issue-id>-evidence.md
+go-ship-it verify-run --current --strict
+```
+
+Treat `go-ship-it verify-run --strict` as the readiness gate before normal archive cleanup. It fails on warnings such as missing handoff context, failed or missing command evidence, and acceptance criteria that are not explicitly matched to evidence. If strict verification does not pass, leave the issue in execution unless the user explicitly accepts the remaining warnings.
+
 Process trace:
 
 ```sh
@@ -130,6 +144,8 @@ Ask before skipping a failing check or treating a review finding as intentional.
 ## Readiness
 
 Before saying the issue is ready for cleanup, compare acceptance criteria against concrete evidence. Passing tests are useful but not always sufficient; call out any criterion that lacks a matching test, command record, or review note.
+
+Record that mapping in the Review section. Use phrasing close to the acceptance criteria so `verify-run --strict` can find the evidence without guessing.
 
 When the user wants another session to continue, create a handoff with `go-ship-it handoff <issue-id> --write`, or `go-ship-it handoff --write` from the managed worktree, and tell them the file path.
 

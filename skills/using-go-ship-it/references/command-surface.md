@@ -24,10 +24,22 @@ go-ship-it status
 go-ship-it show-run <issue-id> --handoff
 go-ship-it run-check <issue-id> --check test
 go-ship-it handoff <issue-id> --write
+go-ship-it export-run <issue-id> --output docs/dogfood/<issue-id>-evidence.md
+go-ship-it verify-run <issue-id> --strict
 go-ship-it cleanup-issue <issue-id> --destination archive --note <note> --remove-worktree
 ```
 
 Advanced commands such as `show-run`, `handoff`, `append-note`, `append-log`, `set-phase`, `verify-run`, `export-run`, `doctor`, and `package-root` support the lifecycle but do not need separate skills.
+
+When an agent needs structured output instead of Markdown, use:
+
+```sh
+go-ship-it status --json
+go-ship-it doctor --json
+go-ship-it verify-run <issue-id> --json
+```
+
+Use `go-ship-it verify-run <issue-id> --strict` as the pre-cleanup readiness gate. It should pass before normal archive cleanup unless the user explicitly accepts the remaining warnings.
 
 Registered repos use a folder shape:
 

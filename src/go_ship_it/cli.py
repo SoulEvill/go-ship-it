@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 from collections.abc import Sequence
@@ -164,16 +165,19 @@ def build_parser() -> argparse.ArgumentParser:
     handoff.add_argument("--write", action="store_true", help="Write state/runs/<issue-id>/handoff.md.")
     handoff.add_argument("--output", default=None, help="Write handoff markdown to a custom path.")
 
-    subparsers.add_parser("status", help="Show workspace status.")
+    status = subparsers.add_parser("status", help="Show workspace status.")
+    status.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
 
     doctor = subparsers.add_parser("doctor", help="Check local GoShipit workspace health.")
     doctor.add_argument("--repo", default=None)
     doctor.add_argument("--strict", action="store_true", help="Exit non-zero when warnings exist.")
+    doctor.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
 
     verify = subparsers.add_parser("verify-run", help="Verify one run's evidence structure.")
     verify.add_argument("issue_id", nargs="?")
     verify.add_argument("--current", action="store_true", help="Use the managed worktree's current run context.")
     verify.add_argument("--strict", action="store_true", help="Exit non-zero when warnings exist.")
+    verify.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
 
     export = subparsers.add_parser("export-run", help="Export run evidence to Markdown.")
     export.add_argument("issue_id", nargs="?")
@@ -425,12 +429,7 @@ def _format_status(status: object, root: Path, *, current: object | None = None)
             if isinstance(claim_id, str) and claim_id:
                 lines.append(f"  Claim ID: {claim_id}")
             lines.append("  Next useful commands:")
-            lines.append(f"    go-ship-it show-run {item.issue_id} --logs")
-            lines.append(f"    go-ship-it show-run {item.issue_id} --handoff")
-            for check in _configured_checks(root, item.repo):
-                lines.append(f"    go-ship-it run-check {item.issue_id} --check {check}")
-            lines.append(f"    go-ship-it verify-run {item.issue_id}")
-            lines.append(f"    go-ship-it cleanup-issue {item.issue_id} --destination archive --note \"<note>\" --remove-worktree")
+            lines.extend(f"    {command}" for command in _active_issue_next_commands(root, item))
     else:
         lines.append("No active issues.")
 
@@ -514,6 +513,99 @@ def _format_verify_report(issue_id: str, report: object) -> str:
     return "\n".join(lines).rstrip()
 
 
+def _status_payload(status: object, root: Path, *, current: object | None = None) -> dict[str, object]:
+    current_payload = None
+    if current is not None:
+        current_payload = {
+            "issue_id": current.issue_id,
+            "worktree": relative_to_root(root, current.worktree),
+            "branch": current.branch,
+            "claim_id": current.claim_id,
+            "claimed_by": current.claimed_by,
+        }
+    return {
+        "control_root": str(root),
+        "package_root": str(package_root()),
+        "current_branch": _current_branch(current.worktree if current is not None else root),
+        "current": current_payload,
+        "summary": {
+            "repos": status.repo_count,
+            "todo": status.todo_count,
+            "execution": status.execution_count,
+            "archive": status.archive_count,
+            "runs": status.run_count,
+            "managed_worktrees": len(status.worktrees),
+        },
+        "todo": [_issue_summary_payload(item) for item in list_issues(root, state="todo")],
+        "active": [_active_issue_payload(root, item) for item in status.active],
+        "worktrees": list(status.worktrees),
+    }
+
+
+def _active_issue_payload(root: Path, item: object) -> dict[str, object]:
+    payload = _issue_summary_payload(item)
+    try:
+        detail = show_issue(root, item.issue_id)
+        worktree = detail.metadata.get("worktree")
+    except (OSError, ValueError):
+        worktree = None
+    try:
+        run_detail = show_run(root, item.issue_id)
+        claimed_by = run_detail.run.get("claimed_by")
+        claim_id = run_detail.run.get("claim_id")
+    except (OSError, ValueError):
+        claimed_by = None
+        claim_id = None
+    payload.update(
+        {
+            "worktree": worktree,
+            "claimed_by": claimed_by,
+            "claim_id": claim_id,
+            "next_commands": _active_issue_next_commands(root, item),
+        }
+    )
+    return payload
+
+
+def _issue_summary_payload(item: object) -> dict[str, object]:
+    return {
+        "issue_id": item.issue_id,
+        "status": item.status,
+        "repo": item.repo,
+        "title": item.title,
+        "phase": item.phase,
+        "issue_file": str(item.issue_file),
+    }
+
+
+def _report_payload(report: object) -> dict[str, object]:
+    return {
+        "summary": {
+            "errors": report.error_count,
+            "warnings": report.warning_count,
+            "ok": report.ok_count,
+        },
+        "findings": {
+            "errors": [_finding_payload(item) for item in report.errors],
+            "warnings": [_finding_payload(item) for item in report.warnings],
+            "ok": [_finding_payload(item) for item in report.ok],
+        },
+    }
+
+
+def _finding_payload(item: object) -> dict[str, str]:
+    return {
+        "level": item.level,
+        "code": item.code,
+        "subject": item.subject,
+        "message": item.message,
+    }
+
+
+def _print_json(payload: dict[str, object]) -> None:
+    print(json.dumps(payload, indent=2, sort_keys=True))
+
+
 def _display_value(value: object) -> str:
     return "" if value is None else str(value)
 
@@ -542,6 +634,55 @@ def _configured_checks(root: Path, repo_id: str) -> list[str]:
         if isinstance(value, str) and value.strip():
             checks.append(check)
     return checks
+
+
+def _active_issue_next_commands(root: Path, item: object) -> list[str]:
+    commands = [
+        f"go-ship-it show-run {item.issue_id} --logs",
+        f"go-ship-it show-run {item.issue_id} --handoff",
+    ]
+    phase = (item.phase or "").strip().casefold()
+    if phase in {"", "setup", "investigate"}:
+        commands.extend(
+            [
+                f"go-ship-it append-note {item.issue_id} --section \"Investigation\" --phase investigate --note \"<findings>\"",
+                f"go-ship-it set-phase {item.issue_id} propose --note \"<investigation summary>\"",
+            ]
+        )
+    elif phase == "propose":
+        commands.extend(
+            [
+                f"go-ship-it append-note {item.issue_id} --section \"Proposal\" --phase propose --note \"<proposal>\"",
+                f"go-ship-it set-phase {item.issue_id} implement --note \"<proposal accepted>\"",
+            ]
+        )
+    elif phase == "implement":
+        commands.extend(
+            [
+                f"go-ship-it append-note {item.issue_id} --section \"Implementation\" --phase implement --note \"<changed files and decisions>\"",
+                f"go-ship-it set-phase {item.issue_id} test --note \"<ready for checks>\"",
+            ]
+        )
+    elif phase == "test":
+        commands.append(f"go-ship-it append-note {item.issue_id} --section \"Review\" --phase test --note \"<readiness review>\"")
+
+    checks = _configured_checks(root, item.repo)
+    for check in checks:
+        commands.append(f"go-ship-it run-check {item.issue_id} --check {check}")
+    if phase == "test":
+        commands.extend(
+            [
+                f"go-ship-it handoff {item.issue_id} --write",
+                f"go-ship-it export-run {item.issue_id} --output docs/dogfood/{item.issue_id}-evidence.md",
+            ]
+        )
+    commands.extend(
+        [
+            f"go-ship-it verify-run {item.issue_id} --strict",
+            f"go-ship-it cleanup-issue {item.issue_id} --destination archive --note \"<note>\" --remove-worktree",
+        ]
+    )
+    return commands
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -708,12 +849,19 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         if args.command == "status":
             target_root, current = _status_context(root, args)
-            print(_format_status(workspace_status(target_root), target_root, current=current))
+            status = workspace_status(target_root)
+            if args.json:
+                _print_json(_status_payload(status, target_root, current=current))
+            else:
+                print(_format_status(status, target_root, current=current))
             return 0
 
         if args.command == "doctor":
             report = run_doctor(root, repo_id=args.repo)
-            print(_format_doctor_report(report))
+            if args.json:
+                _print_json(_report_payload(report))
+            else:
+                print(_format_doctor_report(report))
             if report.error_count:
                 return 1
             if args.strict and report.warning_count:
@@ -723,7 +871,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "verify-run":
             target_root, issue_id = _resolve_issue_target(root, args)
             report = verify_run(target_root, issue_id)
-            print(_format_verify_report(issue_id, report))
+            if args.json:
+                payload = _report_payload(report)
+                payload["issue_id"] = issue_id
+                _print_json(payload)
+            else:
+                print(_format_verify_report(issue_id, report))
             if report.error_count:
                 return 1
             if args.strict and report.warning_count:

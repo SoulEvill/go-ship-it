@@ -13,6 +13,7 @@ from go_ship_it.state import (
     run_check,
     set_phase,
     start_issue,
+    write_handoff,
 )
 from go_ship_it.verify import verify_run
 
@@ -73,6 +74,56 @@ def test_verify_run_errors_on_failed_command(tmp_path):
     report = verify_run(root, "issue-001")
 
     assert any(item.code == "command.failed" for item in report.errors)
+
+
+def test_verify_run_warns_when_acceptance_criteria_lack_evidence(tmp_path):
+    root = _started_issue_root(tmp_path)
+    _write_required_notes(root, "issue-001")
+    run_check(root, "issue-001", check="test")
+
+    report = verify_run(root, "issue-001")
+
+    assert any(item.code == "acceptance.criteria_missing_evidence" for item in report.warnings)
+
+
+def test_verify_run_accepts_acceptance_criteria_with_evidence(tmp_path):
+    root = _started_issue_root(tmp_path)
+    _write_required_notes(root, "issue-001")
+    append_note(
+        root,
+        "issue-001",
+        section="Review",
+        phase="test",
+        note="Acceptance evidence: README changes. Verified by the test check.",
+    )
+    run_check(root, "issue-001", check="test")
+
+    report = verify_run(root, "issue-001")
+
+    assert not any(item.code == "acceptance.criteria_missing_evidence" for item in report.warnings)
+    assert any(item.code == "acceptance.criteria_covered" for item in report.ok)
+
+
+def test_verify_run_warns_when_active_run_handoff_is_missing(tmp_path):
+    root = _started_issue_root(tmp_path)
+    _write_required_notes(root, "issue-001")
+    run_check(root, "issue-001", check="test")
+
+    report = verify_run(root, "issue-001")
+
+    assert any(item.code == "handoff.missing" for item in report.warnings)
+
+
+def test_verify_run_accepts_active_run_handoff(tmp_path):
+    root = _started_issue_root(tmp_path)
+    _write_required_notes(root, "issue-001")
+    run_check(root, "issue-001", check="test")
+    write_handoff(root, "issue-001")
+
+    report = verify_run(root, "issue-001")
+
+    assert not any(item.code == "handoff.missing" for item in report.warnings)
+    assert any(item.code == "handoff.present" for item in report.ok)
 
 
 def _write_required_notes(root: Path, issue_id: str) -> None:

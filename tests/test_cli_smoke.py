@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import subprocess
 
 import yaml
@@ -6,7 +7,7 @@ import yaml
 from go_ship_it import __version__
 from go_ship_it.cli import build_parser, main
 from go_ship_it.frontmatter import parse_frontmatter
-from go_ship_it.state import add_issue, append_note, append_run_log, register_repo, run_check, start_issue
+from go_ship_it.state import add_issue, append_note, append_run_log, register_repo, run_check, set_phase, start_issue
 
 
 def test_version_is_defined():
@@ -187,27 +188,31 @@ def test_parser_has_navigation_commands():
     assert parser.parse_args(["handoff", "issue-001"]).command == "handoff"
     assert parser.parse_args(["handoff", "issue-001", "--write"]).write is True
     assert parser.parse_args(["handoff", "--current", "--write"]).current is True
-    assert parser.parse_args(["status"]).command == "status"
+    status = parser.parse_args(["status", "--json"])
+    assert status.command == "status"
+    assert status.json is True
 
 
 def test_parser_has_verify_run_command():
     parser = build_parser()
 
-    args = parser.parse_args(["verify-run", "issue-001", "--strict"])
+    args = parser.parse_args(["verify-run", "issue-001", "--strict", "--json"])
 
     assert args.command == "verify-run"
     assert args.issue_id == "issue-001"
     assert args.strict is True
+    assert args.json is True
 
 
 def test_parser_has_doctor_command():
     parser = build_parser()
 
-    args = parser.parse_args(["doctor"])
+    args = parser.parse_args(["doctor", "--json"])
 
     assert args.command == "doctor"
     assert args.repo is None
     assert args.strict is False
+    assert args.json is True
 
 
 def test_main_doctor_prints_summary(tmp_path, capsys):
@@ -219,6 +224,19 @@ def test_main_doctor_prints_summary(tmp_path, capsys):
     assert exit_code == 0
     assert "# GoShipit Doctor" in output
     assert "Summary:" in output
+
+
+def test_main_doctor_json_prints_structured_summary(tmp_path, capsys):
+    main(["--root", str(tmp_path), "init"])
+    capsys.readouterr()
+
+    exit_code = main(["--root", str(tmp_path), "doctor", "--json"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["summary"]["errors"] == 0
+    assert "findings" in payload
+    assert {"errors", "warnings", "ok"} <= set(payload["findings"])
 
 
 def test_main_show_repo_prints_yaml(tmp_path, capsys):
@@ -481,6 +499,20 @@ def test_main_verify_run_prints_report(tmp_path, capsys):
     assert "Summary:" in output
 
 
+def test_main_verify_run_json_prints_structured_findings(tmp_path, capsys):
+    _started_issue_root(tmp_path)
+    capsys.readouterr()
+
+    exit_code = main(["--root", str(tmp_path), "verify-run", "issue-001", "--json"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["issue_id"] == "issue-001"
+    assert payload["summary"]["errors"] == 0
+    assert "findings" in payload
+    assert any(item["code"] == "run.exists" for item in payload["findings"]["ok"])
+
+
 def test_main_status_prints_workspace_summary(tmp_path, capsys):
     _started_issue_root(tmp_path, test_command="python -c 'print(\"ok\")'")
 
@@ -502,10 +534,70 @@ def test_main_status_prints_workspace_summary(tmp_path, capsys):
     assert "Worktree: worktrees/sample/issue-001" in out
     assert "go-ship-it show-run issue-001 --logs" in out
     assert "go-ship-it show-run issue-001 --handoff" in out
+    assert "go-ship-it append-note issue-001 --section \"Investigation\"" in out
+    assert "go-ship-it set-phase issue-001 propose" in out
     assert "go-ship-it run-check issue-001 --check test" in out
-    assert "go-ship-it verify-run issue-001" in out
+    assert "go-ship-it verify-run issue-001 --strict" in out
     assert "go-ship-it cleanup-issue issue-001 --destination archive --note \"<note>\" --remove-worktree" in out
     assert "- sample/issue-001" in out
+
+
+def test_main_status_json_prints_structured_workspace(tmp_path, capsys):
+    _started_issue_root(tmp_path, test_command="python -c 'print(\"ok\")'")
+    capsys.readouterr()
+
+    exit_code = main(["--root", str(tmp_path), "status", "--json"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["summary"]["repos"] == 1
+    assert payload["summary"]["execution"] == 1
+    assert payload["active"][0]["issue_id"] == "issue-001"
+    assert payload["active"][0]["phase"] == "investigate"
+    assert "go-ship-it set-phase issue-001 propose --note \"<investigation summary>\"" in payload["active"][0]["next_commands"]
+
+
+def test_main_status_guides_proposal_phase_to_implementation(tmp_path, capsys):
+    root = _started_issue_root(tmp_path)
+    set_phase(root, "issue-001", "propose", note="Ready to propose.")
+
+    exit_code = main(["--root", str(root), "status"])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "Phase: propose" in out
+    assert "go-ship-it append-note issue-001 --section \"Proposal\"" in out
+    assert "go-ship-it set-phase issue-001 implement --note \"<proposal accepted>\"" in out
+
+
+def test_main_status_guides_implementation_phase_to_test(tmp_path, capsys):
+    root = _started_issue_root(tmp_path, test_command="python -c 'print(\"ok\")'")
+    set_phase(root, "issue-001", "implement", note="Implementation started.")
+
+    exit_code = main(["--root", str(root), "status"])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "Phase: implement" in out
+    assert "go-ship-it append-note issue-001 --section \"Implementation\"" in out
+    assert "go-ship-it set-phase issue-001 test --note \"<ready for checks>\"" in out
+    assert "go-ship-it run-check issue-001 --check test" in out
+
+
+def test_main_status_guides_test_phase_to_readiness_sequence(tmp_path, capsys):
+    root = _started_issue_root(tmp_path, test_command="python -c 'print(\"ok\")'")
+    set_phase(root, "issue-001", "test", note="Ready for checks.")
+
+    exit_code = main(["--root", str(root), "status"])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "Phase: test" in out
+    assert "go-ship-it run-check issue-001 --check test" in out
+    assert "go-ship-it handoff issue-001 --write" in out
+    assert "go-ship-it export-run issue-001 --output docs/dogfood/issue-001-evidence.md" in out
+    assert "go-ship-it verify-run issue-001 --strict" in out
+    assert "go-ship-it cleanup-issue issue-001 --destination archive --note \"<note>\" --remove-worktree" in out
 
 
 def test_main_status_guides_empty_control_root(tmp_path, capsys):
@@ -577,7 +669,7 @@ def test_main_status_omits_unconfigured_check_hint(tmp_path, capsys):
     assert "go-ship-it show-run issue-001 --logs" in out
     assert "go-ship-it show-run issue-001 --handoff" in out
     assert "go-ship-it run-check issue-001 --check test" not in out
-    assert "go-ship-it verify-run issue-001" in out
+    assert "go-ship-it verify-run issue-001 --strict" in out
     assert "go-ship-it cleanup-issue issue-001 --destination archive --note \"<note>\" --remove-worktree" in out
 
 

@@ -125,3 +125,44 @@ def test_bootstrap_skill_names_natural_invocation_phrases():
     assert "use GoShipit" in text
     assert "Go Ship It" in text
     assert "go ship it this project" in text
+
+
+def test_work_issue_skill_names_readiness_gate_and_acceptance_evidence():
+    root = Path(__file__).resolve().parents[1]
+    text = (root / "skills" / "work-issue" / "SKILL.md").read_text()
+    template = (root / "skills" / "work-issue" / "references" / "workflow-notes-template.md").read_text()
+
+    assert "go-ship-it verify-run" in text
+    assert "--strict" in text
+    assert "acceptance criteria" in text
+    assert "Acceptance criteria matched to evidence" in template
+    assert "Decision record" in template
+
+
+def test_command_surface_mentions_json_and_strict_readiness():
+    root = Path(__file__).resolve().parents[1]
+    text = (root / "skills" / "using-go-ship-it" / "references" / "command-surface.md").read_text()
+
+    assert "go-ship-it status --json" in text
+    assert "go-ship-it doctor --json" in text
+    assert "go-ship-it verify-run <issue-id> --strict" in text
+
+
+def test_first_issue_docs_explain_what_gets_created():
+    root = Path(__file__).resolve().parents[1]
+    readme = (root / "README.md").read_text()
+    user_e2e = (root / "docs" / "user-e2e.md").read_text()
+
+    for text in (readme, user_e2e):
+        assert "What Gets Created" in text
+        assert "state/runs/<issue-id>/run.yaml" in text
+        assert ".go-ship-it/context.yaml" in text
+
+
+def test_maintainer_notes_require_pressure_scenarios_for_skill_changes():
+    root = Path(__file__).resolve().parents[1]
+    text = (root / "docs" / "maintainers.md").read_text()
+
+    assert "pressure scenario" in text
+    assert "dogfood" in text
+    assert "new skills" in text

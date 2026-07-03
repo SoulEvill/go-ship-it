@@ -19,17 +19,45 @@ def test_packaged_install_acceptance_checks_fresh_room_and_agent_clis(tmp_path, 
 
     def fake_run(command: list[str], *, cwd: Path | None = None) -> object:
         calls.append(command)
+        if command[:2] == ["git", "init"]:
+            return module.CommandResult(command=command, returncode=0, stdout="", stderr="")
+        if command[:2] == ["git", "config"]:
+            return module.CommandResult(command=command, returncode=0, stdout="", stderr="")
+        if command[:2] == ["git", "add"]:
+            return module.CommandResult(command=command, returncode=0, stdout="", stderr="")
+        if command[:2] == ["git", "commit"]:
+            return module.CommandResult(command=command, returncode=0, stdout="", stderr="")
         if command[:3] == [sys.executable, "-m", "venv"]:
             return module.CommandResult(command=command, returncode=0, stdout="", stderr="")
         if command[1:4] == ["-m", "pip", "install"]:
             return module.CommandResult(command=command, returncode=0, stdout="", stderr="")
         if command[-1] == "package-root":
             return module.CommandResult(command=command, returncode=0, stdout=f"{package_root}\n", stderr="")
-        if command[-1] == "init":
+        if "init" in command:
             control_root = Path(command[2])
             for relative in ("state/repos", "state/issues/todo", "state/issues/execution", "state/issues/archive", "state/runs", "worktrees"):
                 (control_root / relative).mkdir(parents=True, exist_ok=True)
             return module.CommandResult(command=command, returncode=0, stdout="", stderr="")
+        if "add-issue" in command:
+            return module.CommandResult(command=command, returncode=0, stdout=str(temp_root / "control" / "state" / "issues" / "todo" / "issue-001.md"), stderr="")
+        if "start-issue" in command:
+            return module.CommandResult(command=command, returncode=0, stdout="Issue: issue-001\n", stderr="")
+        if "status" in command and "--json" in command:
+            return module.CommandResult(command=command, returncode=0, stdout='{"summary": {"execution": 1}, "active": [{"issue_id": "issue-001"}]}\n', stderr="")
+        if "append-note" in command:
+            return module.CommandResult(command=command, returncode=0, stdout=str(temp_root / "control" / "state" / "runs" / "issue-001" / "journal.md"), stderr="")
+        if "run-check" in command:
+            return module.CommandResult(command=command, returncode=0, stdout=str(temp_root / "control" / "state" / "runs" / "issue-001" / "commands" / "test.yaml"), stderr="")
+        if "handoff" in command:
+            return module.CommandResult(command=command, returncode=0, stdout=str(temp_root / "control" / "state" / "runs" / "issue-001" / "handoff.md"), stderr="")
+        if "export-run" in command:
+            return module.CommandResult(command=command, returncode=0, stdout=str(temp_root / "control" / "docs" / "dogfood" / "issue-001-evidence.md"), stderr="")
+        if "verify-run" in command and "--strict" in command:
+            return module.CommandResult(command=command, returncode=0, stdout="# GoShipit Run Verification\n", stderr="")
+        if "cleanup-issue" in command:
+            return module.CommandResult(command=command, returncode=0, stdout=str(temp_root / "control" / "state" / "issues" / "archive" / "issue-001.md"), stderr="")
+        if command[-1] == "doctor":
+            return module.CommandResult(command=command, returncode=0, stdout="# GoShipit Doctor\n", stderr="")
         return module.CommandResult(command=command, returncode=0, stdout="--plugin-dir\n", stderr="")
 
     monkeypatch.setattr(module, "_run_command", fake_run)
@@ -49,11 +77,31 @@ def test_packaged_install_acceptance_checks_fresh_room_and_agent_clis(tmp_path, 
         "cli.package_root",
         "cli.init",
         "cli.doctor",
+        "flow.target_repo",
+        "flow.init_repo",
+        "flow.add_issue",
+        "flow.start_issue",
+        "flow.status_json",
+        "flow.append_acceptance_note",
+        "flow.run_check",
+        "flow.handoff",
+        "flow.export",
+        "flow.verify_strict",
+        "flow.cleanup_archive",
+        "flow.final_doctor",
         "claude.plugin_dir",
         "cursor_agent.plugin_dir",
     }
     assert [sys.executable, "-m", "venv", str(temp_root / "venv")] in calls
     assert [str(temp_root / "venv" / "bin" / "go-ship-it"), "--root", str(temp_root / "control"), "doctor"] in calls
+    assert [
+        str(temp_root / "venv" / "bin" / "go-ship-it"),
+        "--root",
+        str(temp_root / "control"),
+        "verify-run",
+        "issue-001",
+        "--strict",
+    ] in calls
     assert ["/fake/claude", "--plugin-dir", str(package_root), "--help"] in calls
     assert ["/fake/cursor-agent", "--plugin-dir", str(package_root), "--help"] in calls
 

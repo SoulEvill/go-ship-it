@@ -49,3 +49,13 @@ Prefer one of these before adding new lifecycle states or new skills:
 - a dogfood note that captures the rough edge first
 
 New abstractions should come from repeated dogfood friction, not from guessing too early.
+
+## Skill Change Gate
+
+Treat skills as product behavior, not loose prose.
+
+Before changing an existing skill, cite at least one pressure scenario, dogfood note, or failing test that explains the friction. Good pressure scenarios include: starting in the wrong directory, stale `.go-ship-it/context.yaml`, duplicate active issue, implementation before proposal, failing `run-check`, unclear cleanup destination, missing repo context, or missing acceptance criteria evidence.
+
+Before adding new skills, prove that the new skill gives users a distinct mental model. Do not add new skills for a CLI verb, a reference note, or a one-off workflow detail that can live under `using-go-ship-it`, `manage-issues`, or `work-issue`.
+
+When changing command examples in docs or skills, add or update a test so example drift is caught by `uv run pytest`.

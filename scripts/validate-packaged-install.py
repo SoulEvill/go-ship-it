@@ -146,6 +146,7 @@ def _run_in_room(*, wheel: Path, python: str, temp_root: Path) -> AcceptanceRepo
     results.append(_command_check("cli.init", [str(go_ship_it), "--root", str(control_root), "init"], "initialized control root"))
     results.extend(_check_control_root(control_root))
     results.append(_command_check("cli.doctor", [str(go_ship_it), "--root", str(control_root), "doctor"], "doctor passed in fresh control root"))
+    results.extend(_run_first_issue_flow(go_ship_it=go_ship_it, temp_root=temp_root, control_root=control_root))
     results.extend(_check_agent_clis(package_root))
     return AcceptanceReport(temp_root=str(temp_root), results=results)
 
@@ -185,6 +186,196 @@ def _check_control_root(control_root: Path) -> list[CheckResult]:
     ]
 
 
+def _run_first_issue_flow(*, go_ship_it: Path, temp_root: Path, control_root: Path) -> list[CheckResult]:
+    results: list[CheckResult] = []
+    target_repo = temp_root / "target-repo"
+    results.append(_create_target_repo(target_repo))
+    if results[-1].status == "failed":
+        return results
+
+    success_messages = {
+        "flow.init_repo": "register target repo during init",
+        "flow.add_issue": "add first issue",
+        "flow.start_issue": "start first issue",
+        "flow.status_json": "status JSON reports active issue",
+        "flow.investigation_note": "record investigation evidence",
+        "flow.phase_propose": "move to proposal",
+        "flow.proposal_note": "record proposal evidence",
+        "flow.phase_implement": "move to implementation",
+        "flow.implementation_note": "record implementation evidence",
+        "flow.phase_test": "move to test",
+        "flow.append_acceptance_note": "record acceptance evidence",
+        "flow.run_check": "record test command evidence",
+        "flow.handoff": "write handoff",
+        "flow.export": "export run evidence",
+        "flow.verify_strict": "strict verification passed",
+        "flow.cleanup_archive": "archive and remove worktree",
+        "flow.final_doctor": "doctor passed after cleanup",
+    }
+    command_map = {
+        "flow.init_repo": [
+            str(go_ship_it),
+            "--root",
+            str(control_root),
+            "init",
+            "--repo-id",
+            "target",
+            "--repo-path",
+            str(target_repo),
+            "--test-command",
+            "python -c 'print(\"ok\")'",
+        ],
+        "flow.add_issue": [
+            str(go_ship_it),
+            "--root",
+            str(control_root),
+            "add-issue",
+            "--repo",
+            "target",
+            "--title",
+            "Change README",
+            "--problem",
+            "README needs one small change.",
+            "--context",
+            "Disposable packaged install smoke.",
+            "--acceptance",
+            "README changes.",
+        ],
+        "flow.start_issue": [str(go_ship_it), "--root", str(control_root), "start-issue", "issue-001"],
+        "flow.status_json": [str(go_ship_it), "--root", str(control_root), "status", "--json"],
+        "flow.investigation_note": [
+            str(go_ship_it),
+            "--root",
+            str(control_root),
+            "append-note",
+            "issue-001",
+            "--section",
+            "Investigation",
+            "--phase",
+            "investigate",
+            "--note",
+            "Read the disposable target README.",
+        ],
+        "flow.phase_propose": [
+            str(go_ship_it),
+            "--root",
+            str(control_root),
+            "set-phase",
+            "issue-001",
+            "propose",
+            "--note",
+            "Investigation complete.",
+        ],
+        "flow.proposal_note": [
+            str(go_ship_it),
+            "--root",
+            str(control_root),
+            "append-note",
+            "issue-001",
+            "--section",
+            "Proposal",
+            "--phase",
+            "propose",
+            "--note",
+            "Use the smallest README-only change.",
+        ],
+        "flow.phase_implement": [
+            str(go_ship_it),
+            "--root",
+            str(control_root),
+            "set-phase",
+            "issue-001",
+            "implement",
+            "--note",
+            "Proposal accepted for smoke flow.",
+        ],
+        "flow.implementation_note": [
+            str(go_ship_it),
+            "--root",
+            str(control_root),
+            "append-note",
+            "issue-001",
+            "--section",
+            "Implementation",
+            "--phase",
+            "implement",
+            "--note",
+            "No target mutation needed for packaged install smoke.",
+        ],
+        "flow.phase_test": [
+            str(go_ship_it),
+            "--root",
+            str(control_root),
+            "set-phase",
+            "issue-001",
+            "test",
+            "--note",
+            "Ready for smoke checks.",
+        ],
+        "flow.append_acceptance_note": [
+            str(go_ship_it),
+            "--root",
+            str(control_root),
+            "append-note",
+            "issue-001",
+            "--section",
+            "Review",
+            "--phase",
+            "test",
+            "--note",
+            "Acceptance evidence: README changes. Covered by the smoke test command.",
+        ],
+        "flow.run_check": [str(go_ship_it), "--root", str(control_root), "run-check", "issue-001", "--check", "test"],
+        "flow.handoff": [str(go_ship_it), "--root", str(control_root), "handoff", "issue-001", "--write"],
+        "flow.export": [
+            str(go_ship_it),
+            "--root",
+            str(control_root),
+            "export-run",
+            "issue-001",
+            "--output",
+            "docs/dogfood/issue-001-evidence.md",
+        ],
+        "flow.verify_strict": [str(go_ship_it), "--root", str(control_root), "verify-run", "issue-001", "--strict"],
+        "flow.cleanup_archive": [
+            str(go_ship_it),
+            "--root",
+            str(control_root),
+            "cleanup-issue",
+            "issue-001",
+            "--destination",
+            "archive",
+            "--note",
+            "Packaged install smoke complete.",
+            "--remove-worktree",
+        ],
+        "flow.final_doctor": [str(go_ship_it), "--root", str(control_root), "doctor"],
+    }
+    for name, command in command_map.items():
+        result = _command_check(name, command, success_messages[name])
+        results.append(result)
+        if result.status == "failed":
+            break
+    return results
+
+
+def _create_target_repo(target_repo: Path) -> CheckResult:
+    target_repo.mkdir(parents=True, exist_ok=True)
+    (target_repo / "README.md").write_text("# Packaged Install Smoke\n")
+    commands = [
+        ["git", "init", "-b", "main"],
+        ["git", "config", "user.email", "go-ship-it@example.invalid"],
+        ["git", "config", "user.name", "GoShipit Smoke"],
+        ["git", "add", "README.md"],
+        ["git", "commit", "-m", "initial commit"],
+    ]
+    for command in commands:
+        result = _run_command(command, cwd=target_repo)
+        if result.returncode != 0:
+            return CheckResult("flow.target_repo", "failed", _tail(result.stderr or result.stdout))
+    return CheckResult("flow.target_repo", "passed", f"created disposable git repo: {target_repo}")
+
+
 def _check_agent_clis(package_root: Path) -> list[CheckResult]:
     results: list[CheckResult] = []
     claude = shutil.which("claude")
@@ -219,8 +410,8 @@ def _check_agent_clis(package_root: Path) -> list[CheckResult]:
     return results
 
 
-def _command_check(name: str, command: list[str], success_message: str) -> CheckResult:
-    result = _run_command(command)
+def _command_check(name: str, command: list[str], success_message: str, *, cwd: Path | None = None) -> CheckResult:
+    result = _run_command(command, cwd=cwd)
     if result.returncode == 0:
         return CheckResult(name, "passed", success_message)
     return CheckResult(name, "failed", _tail(result.stderr or result.stdout))

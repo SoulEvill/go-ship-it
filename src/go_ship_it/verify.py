@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -53,6 +54,8 @@ def verify_run(root: Path, issue_id: str) -> VerificationReport:
     _check_journal(findings, run.journal)
     _check_commands(findings, run.commands)
     if issue is not None:
+        _check_acceptance_criteria(findings, issue.body, run.journal, run.commands)
+        _check_active_handoff(findings, root, issue_id, issue.summary.status)
         _check_cleanup_and_exports(findings, root, issue_id, issue.summary.status, issue.metadata, run.run)
     return _report(findings)
 
@@ -92,6 +95,73 @@ def _check_commands(findings: list[VerificationFinding], commands: list[dict[str
             findings.append(_ok(f"command.{check}_passed", f"commands/{check}", f"{check} command exited 0"))
         else:
             findings.append(_error("command.failed", f"commands/{check}", f"{check} command exited {exit_code}"))
+
+
+def _check_acceptance_criteria(
+    findings: list[VerificationFinding],
+    issue_body: str,
+    journal: str,
+    commands: list[dict[str, object]],
+) -> None:
+    criteria = _acceptance_criteria(issue_body)
+    if not criteria:
+        findings.append(_warning("acceptance.criteria_missing", "acceptance", "No acceptance criteria found"))
+        return
+
+    evidence = _normalize_evidence_text(
+        "\n".join(
+            [
+                journal,
+                *(
+                    "\n".join(
+                        str(command.get(field) or "")
+                        for field in ("check", "command", "stdout_tail", "stderr_tail")
+                    )
+                    for command in commands
+                ),
+            ]
+        )
+    )
+    for index, criterion in enumerate(criteria, start=1):
+        subject = f"acceptance/{index}"
+        if _normalize_evidence_text(criterion) in evidence:
+            findings.append(_ok("acceptance.criteria_covered", subject, f"Acceptance criterion has evidence: {criterion}"))
+        else:
+            findings.append(
+                _warning(
+                    "acceptance.criteria_missing_evidence",
+                    subject,
+                    f"Acceptance criterion lacks explicit evidence: {criterion}",
+                )
+            )
+
+
+def _acceptance_criteria(issue_body: str) -> list[str]:
+    match = re.search(r"^## Acceptance Criteria\s*$([\s\S]*?)(?=^## |\Z)", issue_body, flags=re.MULTILINE)
+    if match is None:
+        return []
+    criteria = []
+    for line in match.group(1).splitlines():
+        stripped = line.strip()
+        if stripped.startswith("- "):
+            value = stripped[2:].strip()
+            if value:
+                criteria.append(value)
+    return criteria
+
+
+def _normalize_evidence_text(value: str) -> str:
+    return re.sub(r"\W+", " ", value.casefold()).strip()
+
+
+def _check_active_handoff(findings: list[VerificationFinding], root: Path, issue_id: str, issue_status: str) -> None:
+    if issue_status != "execution":
+        return
+    handoff = root / "state" / "runs" / issue_id / "handoff.md"
+    if handoff.exists():
+        findings.append(_ok("handoff.present", "handoff", "Active run handoff exists"))
+    else:
+        findings.append(_warning("handoff.missing", "handoff", "Active run has no handoff file"))
 
 
 def _check_cleanup_and_exports(
