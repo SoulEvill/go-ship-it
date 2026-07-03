@@ -392,15 +392,16 @@ def _format_status(status: object, root: Path, *, current: object | None = None)
         [
             "",
             f"Repos: {status.repo_count}",
-        f"Todo: {status.todo_count}",
-        f"Execution: {status.execution_count}",
-        f"Archive: {status.archive_count}",
-        f"Runs: {status.run_count}",
-        f"Managed Worktrees: {len(status.worktrees)}",
-        "",
-        "## Active Issues",
+            f"Todo: {status.todo_count}",
+            f"Execution: {status.execution_count}",
+            f"Archive: {status.archive_count}",
+            f"Runs: {status.run_count}",
+            f"Managed Worktrees: {len(status.worktrees)}",
         ]
     )
+    lines.extend(_status_next_steps(status))
+    lines.extend(_format_todo_status(root))
+    lines.extend(["", "## Active Issues"])
     if status.active:
         for item in status.active:
             lines.append(f"- {item.issue_id} {item.repo} {item.title}")
@@ -438,6 +439,44 @@ def _format_status(status: object, root: Path, *, current: object | None = None)
     else:
         lines.append("No preserved worktrees.")
     return "\n".join(lines)
+
+
+def _status_next_steps(status: object) -> list[str]:
+    if status.repo_count == 0:
+        return [
+            "",
+            "## Next Steps",
+            "No target repos are registered yet.",
+            "",
+            "```sh",
+            "go-ship-it register-repo <repo-id> <path> --test-command \"<cmd>\"",
+            "go-ship-it add-issue --repo <repo-id> --title \"<title>\" --problem \"<problem>\"",
+            "```",
+        ]
+    if status.todo_count == 0 and status.execution_count == 0:
+        return [
+            "",
+            "## Next Steps",
+            "No todo or active issues yet.",
+            "",
+            "```sh",
+            "go-ship-it add-issue --repo <repo-id> --title \"<title>\" --problem \"<problem>\"",
+            "```",
+        ]
+    return []
+
+
+def _format_todo_status(root: Path) -> list[str]:
+    todo = list_issues(root, state="todo")
+    lines = ["", "## Todo Issues"]
+    if not todo:
+        lines.append("No todo issues.")
+        return lines
+    for item in todo:
+        lines.append(f"- {item.issue_id} {item.repo} {item.title}")
+        lines.append("  Next useful command:")
+        lines.append(f"    go-ship-it start-issue {item.issue_id}")
+    return lines
 
 
 def _format_doctor_report(report: object) -> str:

@@ -507,6 +507,50 @@ def test_main_status_prints_workspace_summary(tmp_path, capsys):
     assert "- sample/issue-001" in out
 
 
+def test_main_status_guides_empty_control_root(tmp_path, capsys):
+    main(["--root", str(tmp_path), "init"])
+    capsys.readouterr()
+
+    exit_code = main(["--root", str(tmp_path), "status"])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "Repos: 0" in out
+    assert "## Next Steps" in out
+    assert "go-ship-it register-repo <repo-id> <path>" in out
+    assert "go-ship-it add-issue --repo <repo-id>" in out
+
+
+def test_main_status_lists_todo_issues_with_start_hint(tmp_path, capsys):
+    target = _create_git_repo(tmp_path / "target")
+    register_repo(
+        tmp_path,
+        repo_id="sample",
+        path=target,
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+    )
+    add_issue(
+        tmp_path,
+        repo_id="sample",
+        title="Change README",
+        problem="README needs another line.",
+        context="Use the test repo.",
+        acceptance_criteria=["README changes."],
+    )
+
+    exit_code = main(["--root", str(tmp_path), "status"])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "Todo: 1" in out
+    assert "## Todo Issues" in out
+    assert "- issue-001 sample Change README" in out
+    assert "go-ship-it start-issue issue-001" in out
+
+
 def test_main_status_from_worktree_uses_current_control_root(tmp_path, monkeypatch, capsys):
     root = _started_issue_root(tmp_path)
     monkeypatch.chdir(root / "worktrees" / "sample" / "issue-001")

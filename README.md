@@ -122,6 +122,8 @@ Local fallback installers remain available for dogfood:
 
 See `docs/install.md`.
 
+For maintainers, `docs/maintainers.md` captures the command surface, state shape, and when to add CLI plumbing versus new skills.
+
 Validate local agent CLI package loading with:
 
 ```sh
