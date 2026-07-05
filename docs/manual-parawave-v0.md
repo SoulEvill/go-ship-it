@@ -14,6 +14,8 @@ Expected:
 - `state/repos/parawave/context.md` exists for ParaWave repo-level notes.
 - `state/repos/go-ship-it/context.md` exists for GoShipit product feedback found during dogfood runs.
 
+These files are generated local state and are ignored by Git. The committed repo only keeps the setup helper and documentation.
+
 ## 1. Verify package tests
 
 ```sh

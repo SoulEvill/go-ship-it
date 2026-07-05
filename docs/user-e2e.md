@@ -39,6 +39,8 @@ go-ship-it init \
 
 This creates `state/repos/parawave/` as the target repo and `state/repos/go-ship-it/` as the place for GoShipit product feedback discovered during ParaWave work.
 
+Those folders are generated local state and are ignored by Git. Keep the committed source as the setup helper and docs; do not commit workspace-specific repo paths.
+
 This creates the repo folder:
 
 ```text

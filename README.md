@@ -79,6 +79,8 @@ scripts/dev/setup-parawave-dogfood.sh
 
 It registers `state/repos/parawave/` as the target repo and `state/repos/go-ship-it/` as the feedback repo.
 
+Those repo registrations are generated local state and are intentionally ignored by Git. The committed source of truth is the helper and docs, not this workspace's absolute paths.
+
 Use `status` as the command center. It shows the control root, package root, current branch, active issues, worktrees, and useful next commands.
 
 Each registered repo gets its own visible folder:
