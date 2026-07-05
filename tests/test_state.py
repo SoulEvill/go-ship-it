@@ -48,6 +48,8 @@ def test_register_repo_writes_simple_registry_file(tmp_path):
     assert repo_file.read_text() == (
         "id: sample\n"
         f"path: {target}\n"
+        f"source: {target}\n"
+        "source_type: local\n"
         "default_branch: main\n"
         "worktree_root: worktrees/sample\n"
         "context_file: state/repos/sample/context.md\n"
@@ -66,6 +68,53 @@ def test_register_repo_writes_simple_registry_file(tmp_path):
     assert (tmp_path / "state" / "repos" / "sample" / "issues" / "execution").is_dir()
     assert (tmp_path / "state" / "repos" / "sample" / "issues" / "archive").is_dir()
     assert not (tmp_path / "state" / "repos" / "sample" / "runs").exists()
+
+
+def test_register_repo_clones_git_url_into_repo_worktree_source(tmp_path):
+    source = _create_git_repo(tmp_path / "source")
+    remote = tmp_path / "remote.git"
+    subprocess.run(["git", "clone", "--bare", str(source), str(remote)], check=True, capture_output=True, text=True)
+    control = tmp_path / "control"
+
+    repo_file = register_repo(
+        control,
+        repo_id="sample",
+        path=remote.as_uri(),
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+    )
+
+    data = yaml.safe_load(repo_file.read_text())
+    assert data["path"] == "worktrees/sample/_source"
+    assert data["source"] == remote.as_uri()
+    assert data["source_type"] == "git_url"
+    assert (control / "worktrees" / "sample" / "_source" / "README.md").exists()
+    assert _git_output(control / "worktrees" / "sample" / "_source", "config", "--get", "remote.origin.url").strip() == remote.as_uri()
+
+
+def test_start_issue_uses_managed_source_clone_for_git_url_repo(tmp_path):
+    source = _create_git_repo(tmp_path / "source")
+    remote = tmp_path / "remote.git"
+    subprocess.run(["git", "clone", "--bare", str(source), str(remote)], check=True, capture_output=True, text=True)
+    control = tmp_path / "control"
+    register_repo(
+        control,
+        repo_id="sample",
+        path=remote.as_uri(),
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+    )
+    _add_sample_issue(control)
+
+    run = start_issue(control, "sample/issue-001", claimed_by="test-thread")
+
+    assert run.worktree == control / "worktrees" / "sample" / "issue-001"
+    assert (run.worktree / "README.md").exists()
+    assert (control / "worktrees" / "sample" / "_source").exists()
 
 
 def test_register_feedback_repo_writes_product_context(tmp_path):

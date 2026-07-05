@@ -143,9 +143,9 @@ Equivalent explicit setup:
 ```sh
 go-ship-it init \
   --repo-id parawave \
-  --repo-path <parawave-repo-path> \
+  --repo-source <parawave-repo-path-or-git-url> \
   --test-command "uv run --extra dev --extra sqlite pytest tests/ -v --tb=short" \
-  --feedback-repo-path <go-ship-it-repo-path> \
+  --feedback-repo-source <go-ship-it-repo-path-or-git-url> \
   --feedback-test-command "uv run pytest -q"
 ```
 

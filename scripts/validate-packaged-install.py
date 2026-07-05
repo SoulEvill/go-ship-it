@@ -217,7 +217,7 @@ def _run_first_issue_flow(*, go_ship_it: Path, temp_root: Path, control_root: Pa
             "init",
             "--repo-id",
             "target",
-            "--repo-path",
+            "--repo-source",
             str(target_repo),
             "--test-command",
             "python -c 'print(\"ok\")'",

@@ -51,7 +51,7 @@ def test_parawave_setup_helper_registers_parawave_target():
     text = PARAWAVE_SETUP_PATH.read_text()
     assert "--repo-id parawave" in text
     assert 'PARAWAVE_PATH="${PARAWAVE_PATH:-$ROOT/../parawave}"' in text
-    assert "--feedback-repo-path" in text
+    assert "--feedback-repo-source" in text
 
 
 @pytest.mark.parametrize("flag", ["--setup-command", "--test-command"])

@@ -26,6 +26,7 @@ ISSUE_STATES = ("todo", "execution", "archive")
 ALLOWED_PHASES = {"setup", "investigate", "propose", "implement", "test", "cleanup"}
 OPTIONAL_COMMAND_FIELDS = {"setup_command", "test_command", "lint_command"}
 REQUIRED_REPO_FIELDS = {"id", "path", "default_branch", "worktree_root"}
+REPO_SOURCE_TYPES = {"local", "git_url"}
 PULL_REQUEST_FIELDS = {"provider", "remote", "auto_publish"}
 UPDATABLE_REPO_FIELDS = REQUIRED_REPO_FIELDS | OPTIONAL_COMMAND_FIELDS | {"pull_request"}
 DEFAULT_PULL_REQUEST_CONFIG = {
@@ -163,7 +164,7 @@ def register_repo(
     root: Path,
     *,
     repo_id: str,
-    path: Path,
+    path: Path | str,
     default_branch: str,
     setup_command: str | None,
     test_command: str | None,
@@ -171,6 +172,7 @@ def register_repo(
 ) -> Path:
     ensure_layout(root)
     safe_repo_id = _safe_id(repo_id)
+    source_values = _prepare_repo_source(root, safe_repo_id, path)
     repo_dir = _repo_dir(root, safe_repo_id)
     repo_dir.mkdir(parents=True, exist_ok=True)
     for state in ISSUE_STATES:
@@ -179,7 +181,9 @@ def register_repo(
     context_file = repo_dir / "context.md"
     values = {
         "id": safe_repo_id,
-        "path": str(path),
+        "path": source_values["path"],
+        "source": source_values["source"],
+        "source_type": source_values["source_type"],
         "default_branch": default_branch,
         "worktree_root": f"worktrees/{safe_repo_id}",
         "context_file": relative_to_root(root, context_file),
@@ -197,7 +201,7 @@ def register_repo(
 def register_feedback_repo(
     root: Path,
     *,
-    path: Path,
+    path: Path | str,
     test_command: str | None,
 ) -> Path:
     repo_file = register_repo(
@@ -1417,8 +1421,57 @@ def _read_repo(root: Path, repo_id: str) -> dict[str, object]:
 def _resolve_repo_path(root: Path, value: object) -> Path:
     if not isinstance(value, str):
         raise ValueError("Repo path must be a string")
-    path = Path(value)
+    path = Path(value).expanduser()
     return path if path.is_absolute() else (root / path).resolve()
+
+
+def _prepare_repo_source(root: Path, repo_id: str, source: Path | str) -> dict[str, str]:
+    source_text = str(source).strip()
+    if not source_text:
+        raise ValueError("Repo source must not be empty")
+    if _is_git_url(source_text):
+        return _prepare_git_url_source(root, repo_id, source_text)
+    return {
+        "path": source_text,
+        "source": source_text,
+        "source_type": "local",
+    }
+
+
+def _prepare_git_url_source(root: Path, repo_id: str, source_url: str) -> dict[str, str]:
+    source_relative = Path("worktrees") / repo_id / "_source"
+    source_path = root / source_relative
+    if source_path.exists():
+        _ensure_git_repo(source_path)
+        configured_remote = _git(source_path, "config", "--get", "remote.origin.url").strip()
+        if configured_remote != source_url:
+            raise GoShipitError(
+                "Managed source clone already exists with a different origin: "
+                f"{source_path} has {configured_remote!r}, expected {source_url!r}"
+            )
+    else:
+        source_path.parent.mkdir(parents=True, exist_ok=True)
+        result = subprocess.run(
+            ["git", "clone", source_url, str(source_path)],
+            capture_output=True,
+            check=False,
+            text=True,
+        )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout).strip()
+            raise GoShipitError(f"git clone {source_url} {source_path} failed: {detail}")
+    return {
+        "path": source_relative.as_posix(),
+        "source": source_url,
+        "source_type": "git_url",
+    }
+
+
+def _is_git_url(value: str) -> bool:
+    lowered = value.lower()
+    if lowered.startswith(("https://", "http://", "ssh://", "git://", "file://")):
+        return True
+    return re.match(r"^[^@\s]+@[^:\s]+:.+", value) is not None
 
 
 def _ensure_git_repo(path: Path) -> None:

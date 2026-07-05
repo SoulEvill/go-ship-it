@@ -34,7 +34,7 @@ Read `references/state-lifecycle.md` for state movement rules.
 ## Core Commands
 
 ```sh
-go-ship-it init --repo-id <repo> --repo-path <path> --test-command <cmd>
+go-ship-it init --repo-id <repo> --repo-source <local-path-or-git-url> --test-command <cmd>
 go-ship-it add-issue --repo <repo> --title <title> --problem <problem> --context <context> --acceptance <criterion>
 go-ship-it start-issue <repo>/<issue-id> --claimed-by <thread-label>
 go-ship-it cleanup-issue <repo>/<issue-id> --destination todo --note <note> --remove-worktree
@@ -46,9 +46,9 @@ When the user is dogfooding or improving GoShipit itself, initialize the control
 ```sh
 go-ship-it init \
   --repo-id <target-repo> \
-  --repo-path <target-path> \
+  --repo-source <target-path-or-git-url> \
   --test-command <target-test-command> \
-  --feedback-repo-path <go-ship-it-repo-path> \
+  --feedback-repo-source <go-ship-it-repo-path-or-git-url> \
   --feedback-test-command "uv run pytest -q"
 ```
 
@@ -88,6 +88,8 @@ state/repos/<repo>/
 
 Use `repo.yaml` for machine config and `context.md` for repo-wide background that should be available to future issues. Issue ids are repo-local, so explicit issue references use `<repo>/<issue-id>`.
 
+Repo sources may be local paths or Git URLs. URL sources are cloned into `worktrees/<repo>/_source`; active issue worktrees are siblings such as `worktrees/<repo>/issue-001`. Do not edit `_source` during issue work.
+
 ## State Boundaries
 
 State changes must go through the CLI. Do not move issue files manually except for explicit repair work after `doctor` identifies the problem.
@@ -105,7 +107,7 @@ Target repo writes are not allowed, except Git worktree creation/removal perform
 
 ## Human Gates
 
-Ask the user when repo id, target repo path, issue title, acceptance criteria, cleanup destination, or worktree removal is unclear.
+Ask the user when repo id, target repo source, issue title, acceptance criteria, cleanup destination, or worktree removal is unclear.
 
 If `start-issue` reports an issue is already active, show the existing run details and ask whether the user wants to continue that active run.
 

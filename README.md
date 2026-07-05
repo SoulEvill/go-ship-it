@@ -48,7 +48,9 @@ In a clone-based development checkout, use `uv run go-ship-it ...` when the CLI 
 The first-run command surface is intentionally small:
 
 ```sh
-go-ship-it init --repo-id my-repo --repo-path /path/to/repo --test-command "uv run pytest"
+go-ship-it init --repo-id my-repo --repo-source /path/to/repo --test-command "uv run pytest"
+# or:
+go-ship-it init --repo-id my-repo --repo-source https://github.com/org/repo.git --test-command "uv run pytest"
 go-ship-it add-issue --repo my-repo --title "Fix parser" --problem "Parser drops quoted values."
 go-ship-it start-issue my-repo/issue-001
 go-ship-it status
@@ -68,9 +70,9 @@ When the control root is being used to improve GoShipit itself, setup can also r
 ```sh
 go-ship-it init \
   --repo-id my-repo \
-  --repo-path /path/to/my-repo \
+  --repo-source /path/to/my-repo \
   --test-command "uv run pytest" \
-  --feedback-repo-path /path/to/go-ship-it \
+  --feedback-repo-source /path/to/go-ship-it \
   --feedback-test-command "uv run pytest -q"
 ```
 
@@ -88,7 +90,7 @@ Those repo registrations are generated local state and are intentionally ignored
 
 Use `status` as the command center. It shows the control root, package root, current branch, active issues, worktrees, and useful next commands.
 
-Each registered repo gets its own visible folder:
+Each registered repo gets its own visible state folder:
 
 ```text
 state/repos/<repo>/
@@ -109,6 +111,15 @@ state/repos/<repo>/
 ```
 
 `repo.yaml` is the machine-readable config. `context.md` is the repo-level background file for conventions, commands, and gotchas that should apply across issues. Issue ids are repo-local, so explicit issue references use `<repo>/<issue-id>`.
+
+Repo sources can be local paths or Git URLs. Local sources are recorded directly. Git URL sources are cloned into the repo's managed worktree bucket:
+
+```text
+worktrees/<repo>/_source
+worktrees/<repo>/<issue-id>
+```
+
+The `_source` checkout is the canonical local clone GoShipit uses to create isolated issue worktrees. Target repo edits still belong only inside the active issue worktree, not `_source`.
 
 Repo PR behavior also lives in `repo.yaml`:
 

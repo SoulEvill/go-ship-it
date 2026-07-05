@@ -17,7 +17,7 @@ Avoid adding a new skill when the behavior is only a new CLI verb or a new refer
 The CLI is plumbing for skills and humans. The normal path is:
 
 ```sh
-go-ship-it init --repo-id <id> --repo-path <path> [--test-command <cmd>]
+go-ship-it init --repo-id <id> --repo-source <local-path-or-git-url> [--test-command <cmd>]
 go-ship-it add-issue --repo <id> --title <title> --problem <problem>
 go-ship-it start-issue <repo>/<issue-id>
 go-ship-it status
@@ -39,9 +39,9 @@ For GoShipit dogfood or self-improvement, setup can also register `go-ship-it` a
 ```sh
 go-ship-it init \
   --repo-id <target-repo> \
-  --repo-path <target-path> \
+  --repo-source <target-path-or-git-url> \
   --test-command <target-test-command> \
-  --feedback-repo-path <go-ship-it-repo-path> \
+  --feedback-repo-source <go-ship-it-repo-path-or-git-url> \
   --feedback-test-command "uv run pytest -q"
 ```
 
@@ -93,6 +93,8 @@ go-ship-it handoff --write
 ```
 
 Current-run detection reads `.go-ship-it/context.yaml` and verifies it against the run metadata before writing state.
+
+Repo sources may be local paths or Git URLs. URL sources are cloned into `worktrees/<repo>/_source`; active issue worktrees are siblings such as `worktrees/<repo>/issue-001`. Do not edit `_source` during issue work.
 
 Repo-level PR config lives in `state/repos/<repo>/repo.yaml`:
 

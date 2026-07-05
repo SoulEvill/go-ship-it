@@ -16,7 +16,7 @@ For a first-time control root, initialize state and register the first target re
 ```sh
 go-ship-it init \
   --repo-id my-repo \
-  --repo-path /path/to/my-repo \
+  --repo-source /path/to/my-repo \
   --test-command "uv run pytest"
 ```
 
@@ -26,16 +26,16 @@ For GoShipit contributors dogfooding with ParaWave in this workspace, setup shou
 scripts/setup/parawave.sh
 ```
 
-That helper runs `go-ship-it init` with `--repo-id parawave`, `--repo-path ../parawave`, ParaWave's test command, and the local `go-ship-it` feedback repo. Set `PARAWAVE_PATH=/path/to/parawave` when the ParaWave clone is not a sibling of this repo.
+That helper runs `go-ship-it init` with `--repo-id parawave`, `--repo-source ../parawave`, ParaWave's test command, and the local `go-ship-it` feedback repo. Set `PARAWAVE_PATH=/path/to/parawave` when the ParaWave clone is not a sibling of this repo.
 
 Equivalent explicit command:
 
 ```sh
 go-ship-it init \
   --repo-id parawave \
-  --repo-path /path/to/parawave \
+  --repo-source /path/to/parawave \
   --test-command "uv run --extra dev --extra sqlite pytest tests/ -v --tb=short" \
-  --feedback-repo-path /path/to/go-ship-it \
+  --feedback-repo-source /path/to/go-ship-it \
   --feedback-test-command "uv run pytest -q"
 ```
 
@@ -100,7 +100,7 @@ GoShipit contributors can use `scripts/dev/run-parawave-e2e.sh` inside this deve
 
 Use `skills/manage-issues/SKILL.md` for steps 1-3 and 11-12. Use `skills/work-issue/SKILL.md` for steps 4-10.
 
-1. Initialize and register the target repo with `go-ship-it init --repo-id <repo> --repo-path <path>`, or inspect an existing target with `go-ship-it show-repo <repo>`.
+1. Initialize and register the target repo with `go-ship-it init --repo-id <repo> --repo-source <local-path-or-git-url>`, or inspect an existing target with `go-ship-it show-repo <repo>`.
 2. Add an issue with `go-ship-it add-issue`.
 3. Start it with `go-ship-it start-issue <repo>/<issue-id>`.
 4. Inspect it with `go-ship-it show-issue <repo>/<issue-id>`.

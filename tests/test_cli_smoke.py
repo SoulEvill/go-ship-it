@@ -66,7 +66,7 @@ def test_main_init_can_register_first_repo(tmp_path):
             "init",
             "--repo-id",
             "sample",
-            "--repo-path",
+            "--repo-source",
             str(target),
             "--test-command",
             "python -c 'print(\"ok\")'",
@@ -79,6 +79,8 @@ def test_main_init_can_register_first_repo(tmp_path):
     text = repo_file.read_text()
     assert "id: sample\n" in text
     assert f"path: {target}\n" in text
+    assert f"source: {target}\n" in text
+    assert "source_type: local\n" in text
     assert "test_command: python -c 'print(\"ok\")'\n" in text
 
 
@@ -93,11 +95,11 @@ def test_main_init_can_register_go_ship_it_feedback_repo(tmp_path):
             "init",
             "--repo-id",
             "sample",
-            "--repo-path",
+            "--repo-source",
             str(target),
             "--test-command",
             "python -c 'print(\"ok\")'",
-            "--feedback-repo-path",
+            "--feedback-repo-source",
             str(feedback),
             "--feedback-test-command",
             "uv run pytest -q",
@@ -117,7 +119,7 @@ def test_main_init_rejects_partial_repo_registration(tmp_path, capsys):
 
     captured = capsys.readouterr()
     assert exit_code == 1
-    assert "--repo-id and --repo-path must be provided together" in captured.err
+    assert "--repo-id and --repo-source must be provided together" in captured.err
 
 
 def test_main_init_rejects_feedback_test_without_feedback_repo(tmp_path, capsys):
@@ -125,16 +127,32 @@ def test_main_init_rejects_feedback_test_without_feedback_repo(tmp_path, capsys)
 
     captured = capsys.readouterr()
     assert exit_code == 1
-    assert "--feedback-test-command requires --feedback-repo-path" in captured.err
+    assert "--feedback-test-command requires --feedback-repo-source" in captured.err
 
 
 def test_register_repo_cli_preserves_relative_paths(tmp_path):
     exit_code = main(["--root", str(tmp_path), "register-repo", "sample", "../sample-target"])
 
     assert exit_code == 0
-    assert "path: ../sample-target\n" in (
-        tmp_path / "state" / "repos" / "sample" / "repo.yaml"
-    ).read_text()
+    text = (tmp_path / "state" / "repos" / "sample" / "repo.yaml").read_text()
+    assert "path: ../sample-target\n" in text
+    assert "source: ../sample-target\n" in text
+    assert "source_type: local\n" in text
+
+
+def test_register_repo_cli_clones_git_url_source(tmp_path):
+    source = _create_git_repo(tmp_path / "source")
+    remote = tmp_path / "remote.git"
+    subprocess.run(["git", "clone", "--bare", str(source), str(remote)], check=True, capture_output=True, text=True)
+
+    exit_code = main(["--root", str(tmp_path / "control"), "register-repo", "sample", remote.as_uri()])
+
+    assert exit_code == 0
+    text = (tmp_path / "control" / "state" / "repos" / "sample" / "repo.yaml").read_text()
+    assert "path: worktrees/sample/_source\n" in text
+    assert f"source: {remote.as_uri()}\n" in text
+    assert "source_type: git_url\n" in text
+    assert (tmp_path / "control" / "worktrees" / "sample" / "_source" / "README.md").exists()
 
 
 def test_parser_has_evidence_commands():
@@ -279,6 +297,8 @@ def test_main_show_repo_prints_yaml(tmp_path, capsys):
     assert captured.out == (
         "id: sample\n"
         "path: ../sample\n"
+        "source: ../sample\n"
+        "source_type: local\n"
         "default_branch: main\n"
         "worktree_root: worktrees/sample\n"
         "context_file: state/repos/sample/context.md\n"
@@ -669,7 +689,7 @@ def test_main_status_guides_empty_control_root(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "Repos: 0" in out
     assert "## Next Steps" in out
-    assert "go-ship-it register-repo <repo-id> <path>" in out
+    assert "go-ship-it register-repo <repo-id> <local-path-or-git-url>" in out
     assert "go-ship-it add-issue --repo <repo-id>" in out
 
 

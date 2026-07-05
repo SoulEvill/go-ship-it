@@ -46,7 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="GoShipit local issue lifecycle manager.",
         epilog=(
             "Normal path:\n"
-            "  init --repo-id <id> --repo-path <path> [--test-command <cmd>]\n"
+            "  init --repo-id <id> --repo-source <path-or-git-url> [--test-command <cmd>]\n"
             "  add-issue --repo <id> --title <title> --problem <problem>\n"
             "  start-issue <repo>/<issue-id>\n"
             "  status\n"
@@ -67,15 +67,15 @@ def build_parser() -> argparse.ArgumentParser:
         description="Create the local GoShipit state folders. Optionally register the first target repo.",
     )
     init.add_argument("--repo-id", default=None, help="Optional target repo id to register during init.")
-    init.add_argument("--repo-path", default=None, help="Optional target repo path to register during init.")
+    init.add_argument("--repo-source", default=None, help="Optional target repo path or Git URL to register during init.")
     init.add_argument("--default-branch", default="main")
     init.add_argument("--setup-command", default=None)
     init.add_argument("--test-command", default=None)
     init.add_argument("--lint-command", default=None)
     init.add_argument(
-        "--feedback-repo-path",
+        "--feedback-repo-source",
         default=None,
-        help="Optional GoShipit repo path to register as the go-ship-it product feedback target.",
+        help="Optional GoShipit repo path or Git URL to register as the go-ship-it product feedback target.",
     )
     init.add_argument(
         "--feedback-test-command",
@@ -84,9 +84,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers.add_parser("package-root", help="Print the bundled GoShipit agent package root.")
 
-    register = subparsers.add_parser("register-repo", help="Register a target repository.")
+    register = subparsers.add_parser("register-repo", help="Register a target repository from a local path or Git URL.")
     register.add_argument("repo_id")
-    register.add_argument("path")
+    register.add_argument("source")
     register.add_argument("--default-branch", default="main")
     register.add_argument("--setup-command", default=None)
     register.add_argument("--test-command", default=None)
@@ -479,7 +479,7 @@ def _status_next_steps(status: object) -> list[str]:
             "No target repos are registered yet.",
             "",
             "```sh",
-            "go-ship-it register-repo <repo-id> <path> --test-command \"<cmd>\"",
+            "go-ship-it register-repo <repo-id> <local-path-or-git-url> --test-command \"<cmd>\"",
             "go-ship-it add-issue --repo <repo-id> --title \"<title>\" --problem \"<problem>\"",
             "```",
         ]
@@ -742,26 +742,26 @@ def main(argv: Sequence[str] | None = None) -> int:
             ensure_layout(root)
             print(f"Initialized GoShipit state at {root}")
             has_repo_id = args.repo_id is not None
-            has_repo_path = args.repo_path is not None
-            if has_repo_id != has_repo_path:
-                raise ValueError("--repo-id and --repo-path must be provided together")
-            if args.feedback_test_command is not None and args.feedback_repo_path is None:
-                raise ValueError("--feedback-test-command requires --feedback-repo-path")
-            if has_repo_id and has_repo_path:
+            has_repo_source = args.repo_source is not None
+            if has_repo_id != has_repo_source:
+                raise ValueError("--repo-id and --repo-source must be provided together")
+            if args.feedback_test_command is not None and args.feedback_repo_source is None:
+                raise ValueError("--feedback-test-command requires --feedback-repo-source")
+            if has_repo_id and has_repo_source:
                 repo_file = register_repo(
                     root,
                     repo_id=args.repo_id,
-                    path=Path(args.repo_path),
+                    path=args.repo_source,
                     default_branch=args.default_branch,
                     setup_command=args.setup_command,
                     test_command=args.test_command,
                     lint_command=args.lint_command,
                 )
                 print(f"Registered repo: {repo_file}")
-            if args.feedback_repo_path is not None:
+            if args.feedback_repo_source is not None:
                 feedback_file = register_feedback_repo(
                     root,
-                    path=Path(args.feedback_repo_path),
+                    path=args.feedback_repo_source,
                     test_command=args.feedback_test_command,
                 )
                 print(f"Registered GoShipit feedback repo: {feedback_file}")
@@ -771,7 +771,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             repo_file = register_repo(
                 root,
                 repo_id=args.repo_id,
-                path=Path(args.path),
+                path=args.source,
                 default_branch=args.default_branch,
                 setup_command=args.setup_command,
                 test_command=args.test_command,

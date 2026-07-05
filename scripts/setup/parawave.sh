@@ -19,8 +19,8 @@ fi
 
 exec uv run go-ship-it --root "$ROOT" init \
   --repo-id parawave \
-  --repo-path "$PARAWAVE_ROOT" \
+  --repo-source "$PARAWAVE_ROOT" \
   --test-command "uv run --extra dev --extra sqlite pytest tests/ -v --tb=short" \
-  --feedback-repo-path "$FEEDBACK_REPO_ROOT" \
+  --feedback-repo-source "$FEEDBACK_REPO_ROOT" \
   --feedback-test-command "uv run pytest -q" \
   "$@"

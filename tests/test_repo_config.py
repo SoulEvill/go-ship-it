@@ -21,6 +21,8 @@ def test_read_repo_config_returns_registered_yaml(tmp_path):
 
     assert config["id"] == "sample"
     assert config["path"] == "../sample"
+    assert config["source"] == "../sample"
+    assert config["source_type"] == "local"
     assert config["default_branch"] == "main"
     assert config["setup_command"] == "uv sync"
     assert config["test_command"] == "uv run pytest"
