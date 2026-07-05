@@ -95,19 +95,19 @@ Readiness before cleanup:
 go-ship-it handoff <repo>/<issue-id> --write
 go-ship-it export-run <repo>/<issue-id>
 go-ship-it verify-run <repo>/<issue-id> --strict
-go-ship-it prepare-pr <repo>/<issue-id>
+go-ship-it prepare-pr <repo>/<issue-id> --branch <team-branch-name>
 # inside the managed worktree:
 go-ship-it handoff --write
 go-ship-it export-run --current
 go-ship-it verify-run --current --strict
-go-ship-it prepare-pr --current
+go-ship-it prepare-pr --current --branch <team-branch-name>
 ```
 
 Treat `go-ship-it verify-run --strict` as the readiness gate before normal archive cleanup. It fails on warnings such as missing handoff context, failed or missing command evidence, and acceptance criteria that are not explicitly matched to evidence. If strict verification does not pass, leave the issue in execution unless the user explicitly accepts the remaining warnings.
 
-`prepare-pr` is local-only. It writes `pr.md` beside the issue run files and records the PR branch plan in `run.yaml`. The managed local branch can stay as `go-ship-it/<issue-id>`; the PR branch can be a team-friendly branch such as `feature/<slug>`. Use `prepare-pr --branch <branch>` when the user or repo convention requires a specific branch name.
+`prepare-pr` is local-only. It writes `pr.md` beside the issue run files and records the issue-level PR branch in `run.yaml`. The managed local branch can stay as `go-ship-it/<issue-id>`. The PR branch should be chosen for that issue using the target repo team's convention. The first `prepare-pr` needs `--branch <branch>`; later reruns can omit it to reuse the recorded branch.
 
-Only run `publish-pr` after the user approves publishing, unless `state/repos/<repo>/repo.yaml` has `pull_request.auto_publish: true`. Publishing uses the native GitHub path: push the local work branch to the planned PR branch, then create the PR with `gh pr create --body-file pr.md`.
+Only run `publish-pr` after the user approves publishing, unless `state/repos/<repo>/repo.yaml` has `pull_request.auto_publish: true`. Publishing uses the native GitHub path: push the local work branch to the recorded PR branch, then create the PR with `gh pr create --body-file pr.md`.
 
 Generated trace:
 

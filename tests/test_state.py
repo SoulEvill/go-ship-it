@@ -58,7 +58,6 @@ def test_register_repo_writes_simple_registry_file(tmp_path):
         "  provider: github\n"
         "  remote: origin\n"
         "  auto_publish: false\n"
-        "  branch_template: go-ship-it/{issue_id}-{slug}\n"
     )
     context_file = tmp_path / "state" / "repos" / "sample" / "context.md"
     assert context_file.exists()

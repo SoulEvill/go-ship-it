@@ -12,7 +12,6 @@ from go_ship_it.state import (
     register_repo,
     run_check,
     start_issue,
-    update_repo_config,
     write_handoff,
 )
 
@@ -22,33 +21,35 @@ def test_prepare_pull_request_writes_issue_local_preview(tmp_path):
     worktree = root / "worktrees" / "sample" / "issue-001"
     (worktree / "README.md").write_text("# Sample\n\nMore detail.\n")
 
-    preview = prepare_pull_request(root, "sample/issue-001")
+    preview = prepare_pull_request(root, "sample/issue-001", branch="feature/readme-change")
 
     assert preview.path == root / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001" / "pr.md"
-    assert preview.branch == "go-ship-it/issue-001-change-readme"
+    assert preview.branch == "feature/readme-change"
     text = preview.path.read_text()
     assert "Local work branch: `go-ship-it/issue-001`" in text
-    assert "PR branch: `go-ship-it/issue-001-change-readme`" in text
+    assert "PR branch: `feature/readme-change`" in text
     assert "The worktree has uncommitted changes" in text
     run = yaml.safe_load(
         (root / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001" / "run.yaml").read_text()
     )
     assert run["pull_request"]["body_file"] == "state/repos/sample/issues/execution/issue-001/pr.md"
-    assert run["pull_request"]["branch"] == "go-ship-it/issue-001-change-readme"
+    assert run["pull_request"]["branch"] == "feature/readme-change"
 
 
-def test_prepare_pull_request_uses_repo_branch_template(tmp_path):
+def test_prepare_pull_request_requires_branch_first_time(tmp_path):
     root = _started_issue_root(tmp_path)
-    update_repo_config(
-        root,
-        "sample",
-        updates={"pull_request": {"branch_template": "feature/{slug}"}},
-        clears=set(),
-    )
+
+    with pytest.raises(ValueError, match="PR branch is required"):
+        prepare_pull_request(root, "sample/issue-001")
+
+
+def test_prepare_pull_request_reuses_recorded_issue_branch(tmp_path):
+    root = _started_issue_root(tmp_path)
+    prepare_pull_request(root, "sample/issue-001", branch="feature/readme")
 
     preview = prepare_pull_request(root, "sample/issue-001")
 
-    assert preview.branch == "feature/change-readme"
+    assert preview.branch == "feature/readme"
 
 
 def test_prepare_pull_request_accepts_explicit_branch(tmp_path):
@@ -63,7 +64,7 @@ def test_publish_pull_request_rejects_dirty_worktree(tmp_path):
     root = _started_issue_root(tmp_path)
     worktree = root / "worktrees" / "sample" / "issue-001"
     (worktree / "README.md").write_text("# Sample\n\nMore detail.\n")
-    prepare_pull_request(root, "sample/issue-001")
+    prepare_pull_request(root, "sample/issue-001", branch="feature/readme")
 
     with pytest.raises(GoShipitError, match="uncommitted changes"):
         publish_pull_request(root, "sample/issue-001")

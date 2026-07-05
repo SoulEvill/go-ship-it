@@ -337,6 +337,8 @@ def _run_first_issue_flow(*, go_ship_it: Path, temp_root: Path, control_root: Pa
             str(control_root),
             "prepare-pr",
             "target/issue-001",
+            "--branch",
+            "feature/readme-smoke",
         ],
         "flow.verify_strict": [str(go_ship_it), "--root", str(control_root), "verify-run", "target/issue-001", "--strict"],
         "flow.cleanup_archive": [

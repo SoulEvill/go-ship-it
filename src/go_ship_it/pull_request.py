@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime
@@ -56,12 +55,9 @@ def prepare_pull_request(
     worktree = _worktree_path(root, run.run.get("worktree"))
     local_branch = _required_run_string(run.run, "branch")
     base = _required_repo_string(repo, "default_branch")
-    pr_branch = branch or _render_branch_name(
-        str(pr_config["branch_template"]),
-        repo_id=issue.summary.repo,
-        issue_id=issue.summary.issue_id,
-        title=issue.summary.title,
-    )
+    pr_branch = branch or _existing_pr_branch(run.run)
+    if pr_branch is None:
+        raise ValueError("PR branch is required the first time; pass --branch <team-branch-name>")
     _validate_branch_name(worktree, pr_branch)
 
     pr_title = (title or issue.summary.title).strip()
@@ -288,6 +284,8 @@ def _validation_lines(commands: list[dict[str, object]]) -> list[str]:
 
 
 def _section(markdown: str, title: str) -> str:
+    import re
+
     match = re.search(rf"^## {re.escape(title)}\s*$([\s\S]*?)(?=^## |\Z)", markdown, flags=re.MULTILINE)
     if match is None:
         return ""
@@ -312,23 +310,12 @@ def _fenced_or_empty(value: str, empty: str) -> str:
     return f"```text\n{text}\n```"
 
 
-def _render_branch_name(template: str, *, repo_id: str, issue_id: str, title: str) -> str:
-    slug = _slug(title)
-    try:
-        branch = template.format(repo=repo_id, issue_id=issue_id, slug=slug)
-    except KeyError as exc:
-        raise ValueError(f"Unsupported pull_request.branch_template placeholder: {exc.args[0]}") from exc
-    branch = branch.strip()
-    if not branch:
-        raise ValueError("PR branch must not be empty")
-    return branch
-
-
-def _slug(value: str) -> str:
-    slug = re.sub(r"[^a-zA-Z0-9]+", "-", value.strip().lower()).strip("-")
-    if not slug:
-        return "change"
-    return slug[:64].strip("-") or "change"
+def _existing_pr_branch(run: dict[str, object]) -> str | None:
+    record = run.get("pull_request")
+    if not isinstance(record, dict):
+        return None
+    value = record.get("branch")
+    return value if isinstance(value, str) and value.strip() else None
 
 
 def _validate_branch_name(worktree: Path, branch: str) -> None:

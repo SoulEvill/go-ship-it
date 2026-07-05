@@ -29,7 +29,6 @@ def test_read_repo_config_returns_registered_yaml(tmp_path):
         "provider": "github",
         "remote": "origin",
         "auto_publish": False,
-        "branch_template": "go-ship-it/{issue_id}-{slug}",
     }
 
 
@@ -90,16 +89,15 @@ def test_update_repo_config_merges_pull_request_config(tmp_path):
     update_repo_config(
         tmp_path,
         "sample",
-        updates={"pull_request": {"branch_template": "feature/{slug}", "auto_publish": True}},
+        updates={"pull_request": {"remote": "upstream", "auto_publish": True}},
         clears=set(),
     )
 
     data = read_repo_config(tmp_path, "sample")
     assert data["pull_request"] == {
         "provider": "github",
-        "remote": "origin",
+        "remote": "upstream",
         "auto_publish": True,
-        "branch_template": "feature/{slug}",
     }
 
 

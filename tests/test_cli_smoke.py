@@ -289,7 +289,6 @@ def test_main_show_repo_prints_yaml(tmp_path, capsys):
         "  provider: github\n"
         "  remote: origin\n"
         "  auto_publish: false\n"
-        "  branch_template: go-ship-it/{issue_id}-{slug}\n"
     )
 
 
@@ -337,15 +336,15 @@ def test_main_update_repo_changes_pull_request_config(tmp_path):
             str(tmp_path),
             "update-repo",
             "sample",
-            "--pr-branch-template",
-            "feature/{slug}",
+            "--pr-remote",
+            "upstream",
             "--pr-auto-publish",
         ]
     )
 
     assert exit_code == 0
     text = (tmp_path / "state" / "repos" / "sample" / "repo.yaml").read_text()
-    assert "branch_template: feature/{slug}" in text
+    assert "remote: upstream" in text
     assert "auto_publish: true" in text
 
 
@@ -654,7 +653,7 @@ def test_main_status_guides_test_phase_to_readiness_sequence(tmp_path, capsys):
     assert "go-ship-it run-check sample/issue-001 --check test" in out
     assert "go-ship-it handoff sample/issue-001 --write" in out
     assert "go-ship-it export-run sample/issue-001" in out
-    assert "go-ship-it prepare-pr sample/issue-001" in out
+    assert "go-ship-it prepare-pr sample/issue-001 --branch <pr-branch>" in out
     assert "docs/dogfood" not in out
     assert "go-ship-it verify-run sample/issue-001 --strict" in out
     assert "go-ship-it cleanup-issue sample/issue-001 --destination archive --note \"<note>\" --remove-worktree" in out

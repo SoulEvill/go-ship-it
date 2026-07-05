@@ -57,7 +57,7 @@ go-ship-it run-check my-repo/issue-001 --check test
 go-ship-it handoff my-repo/issue-001 --write
 go-ship-it export-run my-repo/issue-001
 go-ship-it verify-run my-repo/issue-001 --strict
-go-ship-it prepare-pr my-repo/issue-001
+go-ship-it prepare-pr my-repo/issue-001 --branch feature/fix-parser
 go-ship-it cleanup-issue my-repo/issue-001 --destination archive --note "Done." --remove-worktree
 ```
 
@@ -117,10 +117,9 @@ pull_request:
   provider: github
   remote: origin
   auto_publish: false
-  branch_template: go-ship-it/{issue_id}-{slug}
 ```
 
-The managed local work branch remains GoShipit-owned, for example `go-ship-it/issue-001`. The PR branch is separate and is chosen when preparing/publishing the PR. Use `--branch feature/<name>` when a team has strict branch naming rules, or set `pull_request.branch_template` once for that repo.
+The managed local work branch remains GoShipit-owned, for example `go-ship-it/issue-001`. The PR branch is separate and is chosen per issue when preparing the PR. Use `prepare-pr --branch <team-branch-name>` the first time; GoShipit records that branch in the issue run and reuses it on later PR preview or publish commands.
 
 `start-issue` creates a deterministic claim id and writes `.go-ship-it/context.yaml` inside the managed worktree so parallel sessions can anchor themselves to the right issue/run. From inside that worktree, run-bound commands can omit the issue id; `--current` is the explicit form when you want to make that intent visible:
 
@@ -161,10 +160,10 @@ go-ship-it status
 go-ship-it handoff <repo>/<issue-id> --write
 go-ship-it export-run <repo>/<issue-id>
 go-ship-it verify-run <repo>/<issue-id> --strict
-go-ship-it prepare-pr <repo>/<issue-id>
+go-ship-it prepare-pr <repo>/<issue-id> --branch <team-branch-name>
 ```
 
-`prepare-pr` is local-only. It writes `pr.md` for review and records the PR branch plan in `run.yaml`. `publish-pr` is the native GitHub path: it pushes the local work branch to the planned PR branch, then runs `gh pr create --body-file pr.md`. Agents should not run `publish-pr` without explicit approval unless `pull_request.auto_publish` is true for that repo.
+`prepare-pr` is local-only. It writes `pr.md` for review and records the issue-level PR branch in `run.yaml`. `publish-pr` is the native GitHub path: it pushes the local work branch to the recorded PR branch, then runs `gh pr create --body-file pr.md`. Agents should not run `publish-pr` without explicit approval unless `pull_request.auto_publish` is true for that repo.
 
 `verify-run --strict` fails on warnings, including missing acceptance criteria evidence or missing handoff context. Agents can use structured output when they should not scrape Markdown:
 

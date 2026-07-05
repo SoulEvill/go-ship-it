@@ -140,6 +140,8 @@ def test_packaged_install_acceptance_checks_fresh_room_and_agent_clis(tmp_path, 
         str(temp_root / "control"),
         "prepare-pr",
         "target/issue-001",
+        "--branch",
+        "feature/readme-smoke",
     ] in calls
     assert [
         str(temp_root / "venv" / "bin" / "go-ship-it"),

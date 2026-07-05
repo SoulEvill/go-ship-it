@@ -105,7 +105,6 @@ def build_parser() -> argparse.ArgumentParser:
     update_repo.add_argument("--lint-command", default=None)
     update_repo.add_argument("--pr-provider", default=None)
     update_repo.add_argument("--pr-remote", default=None)
-    update_repo.add_argument("--pr-branch-template", default=None)
     update_repo.add_argument("--pr-auto-publish", action=argparse.BooleanOptionalAction, default=None)
     update_repo.add_argument("--clear-setup-command", action="store_true")
     update_repo.add_argument("--clear-test-command", action="store_true")
@@ -225,7 +224,6 @@ def _repo_updates(args: argparse.Namespace) -> tuple[dict[str, object], set[str]
         for key, value in {
             "provider": args.pr_provider,
             "remote": args.pr_remote,
-            "branch_template": args.pr_branch_template,
             "auto_publish": args.pr_auto_publish,
         }.items()
         if value is not None
@@ -711,7 +709,7 @@ def _active_issue_next_commands(root: Path, item: object) -> list[str]:
             [
                 f"go-ship-it handoff {ref} --write",
                 f"go-ship-it export-run {ref}",
-                f"go-ship-it prepare-pr {ref}",
+                f"go-ship-it prepare-pr {ref} --branch <pr-branch>",
             ]
         )
     commands.extend(

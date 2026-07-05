@@ -26,13 +26,12 @@ ISSUE_STATES = ("todo", "execution", "archive")
 ALLOWED_PHASES = {"setup", "investigate", "propose", "implement", "test", "cleanup"}
 OPTIONAL_COMMAND_FIELDS = {"setup_command", "test_command", "lint_command"}
 REQUIRED_REPO_FIELDS = {"id", "path", "default_branch", "worktree_root"}
-PULL_REQUEST_FIELDS = {"provider", "remote", "auto_publish", "branch_template"}
+PULL_REQUEST_FIELDS = {"provider", "remote", "auto_publish"}
 UPDATABLE_REPO_FIELDS = REQUIRED_REPO_FIELDS | OPTIONAL_COMMAND_FIELDS | {"pull_request"}
 DEFAULT_PULL_REQUEST_CONFIG = {
     "provider": "github",
     "remote": "origin",
     "auto_publish": False,
-    "branch_template": "go-ship-it/{issue_id}-{slug}",
 }
 
 
@@ -423,7 +422,7 @@ def _merged_pull_request_config(existing: object, updates: object) -> dict[str, 
 
 
 def _validate_pull_request_config(config: dict[str, object]) -> None:
-    for field in ("provider", "remote", "branch_template"):
+    for field in ("provider", "remote"):
         value = config.get(field)
         if not isinstance(value, str) or not value.strip():
             raise ValueError(f"pull_request.{field} must not be empty")

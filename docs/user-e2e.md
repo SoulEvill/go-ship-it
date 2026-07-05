@@ -114,7 +114,7 @@ Use `skills/manage-issues/SKILL.md` for steps 1-3 and 11-12. Use `skills/work-is
 12. Create an explicit resume snapshot with `go-ship-it handoff --write` from the worktree, or `go-ship-it handoff <repo>/<issue-id> --write` from the control root, when another session should continue.
 13. Export issue-local evidence with `go-ship-it export-run`.
 14. Run `go-ship-it verify-run <repo>/<issue-id> --strict` and resolve or explicitly report every warning before cleanup.
-15. Prepare a local PR preview with `go-ship-it prepare-pr <repo>/<issue-id>`. Use `--branch <team-branch-name>` when the repo requires a specific PR branch convention.
+15. Prepare a local PR preview with `go-ship-it prepare-pr <repo>/<issue-id> --branch <team-branch-name>`. The managed local branch is internal; this PR branch is chosen per issue and recorded in the run for later publish/rerun commands.
 16. Publish only after approval, or when `pull_request.auto_publish: true` is set for the repo. Publishing uses `go-ship-it publish-pr <repo>/<issue-id>`.
 17. Cleanup to `archive` with `--remove-worktree` for completed work, or return to `todo` with `--remove-worktree` when work should be retried later.
 18. Run `go-ship-it doctor` again.
