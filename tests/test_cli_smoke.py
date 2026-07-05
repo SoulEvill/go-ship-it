@@ -165,6 +165,15 @@ def test_parser_has_evidence_commands():
     export_with_output = parser.parse_args(["export-run", "sample/issue-001", "--output", "exports/issue-001.md"])
     assert export_with_output.output == "exports/issue-001.md"
 
+    prepare_pr = parser.parse_args(["prepare-pr", "sample/issue-001", "--branch", "feature/readme"])
+    assert prepare_pr.command == "prepare-pr"
+    assert prepare_pr.issue_id == "sample/issue-001"
+    assert prepare_pr.branch == "feature/readme"
+
+    publish_pr = parser.parse_args(["publish-pr", "sample/issue-001"])
+    assert publish_pr.command == "publish-pr"
+    assert publish_pr.issue_id == "sample/issue-001"
+
 
 def test_parser_has_repo_config_commands():
     parser = build_parser()
@@ -276,6 +285,11 @@ def test_main_show_repo_prints_yaml(tmp_path, capsys):
         "setup_command: uv sync\n"
         "test_command: uv run pytest\n"
         "lint_command: null\n"
+        "pull_request:\n"
+        "  provider: github\n"
+        "  remote: origin\n"
+        "  auto_publish: false\n"
+        "  branch_template: go-ship-it/{issue_id}-{slug}\n"
     )
 
 
@@ -304,6 +318,35 @@ def test_main_update_repo_changes_command(tmp_path):
     assert exit_code == 0
     text = (tmp_path / "state" / "repos" / "sample" / "repo.yaml").read_text()
     assert "test_command: env -u VIRTUAL_ENV uv run --extra dev pytest -q" in text
+
+
+def test_main_update_repo_changes_pull_request_config(tmp_path):
+    register_repo(
+        tmp_path,
+        repo_id="sample",
+        path=Path("../sample"),
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+    )
+
+    exit_code = main(
+        [
+            "--root",
+            str(tmp_path),
+            "update-repo",
+            "sample",
+            "--pr-branch-template",
+            "feature/{slug}",
+            "--pr-auto-publish",
+        ]
+    )
+
+    assert exit_code == 0
+    text = (tmp_path / "state" / "repos" / "sample" / "repo.yaml").read_text()
+    assert "branch_template: feature/{slug}" in text
+    assert "auto_publish: true" in text
 
 
 def test_main_update_repo_rejects_command_and_clear_conflict(tmp_path, capsys):
@@ -611,6 +654,7 @@ def test_main_status_guides_test_phase_to_readiness_sequence(tmp_path, capsys):
     assert "go-ship-it run-check sample/issue-001 --check test" in out
     assert "go-ship-it handoff sample/issue-001 --write" in out
     assert "go-ship-it export-run sample/issue-001" in out
+    assert "go-ship-it prepare-pr sample/issue-001" in out
     assert "docs/dogfood" not in out
     assert "go-ship-it verify-run sample/issue-001 --strict" in out
     assert "go-ship-it cleanup-issue sample/issue-001 --destination archive --note \"<note>\" --remove-worktree" in out

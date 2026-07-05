@@ -54,6 +54,11 @@ def test_register_repo_writes_simple_registry_file(tmp_path):
         "setup_command: uv sync\n"
         "test_command: uv run pytest\n"
         "lint_command: null\n"
+        "pull_request:\n"
+        "  provider: github\n"
+        "  remote: origin\n"
+        "  auto_publish: false\n"
+        "  branch_template: go-ship-it/{issue_id}-{slug}\n"
     )
     context_file = tmp_path / "state" / "repos" / "sample" / "context.md"
     assert context_file.exists()

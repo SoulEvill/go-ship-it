@@ -67,6 +67,23 @@ def test_packaged_install_acceptance_checks_fresh_room_and_agent_clis(tmp_path, 
                 ),
                 stderr="",
             )
+        if "prepare-pr" in command:
+            return module.CommandResult(
+                command=command,
+                returncode=0,
+                stdout=str(
+                    temp_root
+                    / "control"
+                    / "state"
+                    / "repos"
+                    / "target"
+                    / "issues"
+                    / "execution"
+                    / "issue-001"
+                    / "pr.md"
+                ),
+                stderr="",
+            )
         if "verify-run" in command and "--strict" in command:
             return module.CommandResult(command=command, returncode=0, stdout="# GoShipit Run Verification\n", stderr="")
         if "cleanup-issue" in command:
@@ -101,6 +118,7 @@ def test_packaged_install_acceptance_checks_fresh_room_and_agent_clis(tmp_path, 
         "flow.run_check",
         "flow.handoff",
         "flow.export",
+        "flow.prepare_pr",
         "flow.verify_strict",
         "flow.cleanup_archive",
         "flow.final_doctor",
@@ -114,6 +132,13 @@ def test_packaged_install_acceptance_checks_fresh_room_and_agent_clis(tmp_path, 
         "--root",
         str(temp_root / "control"),
         "export-run",
+        "target/issue-001",
+    ] in calls
+    assert [
+        str(temp_root / "venv" / "bin" / "go-ship-it"),
+        "--root",
+        str(temp_root / "control"),
+        "prepare-pr",
         "target/issue-001",
     ] in calls
     assert [

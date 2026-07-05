@@ -12,6 +12,7 @@ import yaml
 from go_ship_it.doctor import run_doctor
 from go_ship_it.package_assets import package_root
 from go_ship_it.portable import portable_path_value, portable_text, relative_to_root
+from go_ship_it.pull_request import prepare_pull_request, publish_pull_request
 from go_ship_it.state import (
     CheckFailedError,
     GoShipitError,
@@ -53,7 +54,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  cleanup-issue <repo>/<issue-id> --destination archive --note <note> --remove-worktree\n\n"
             "Advanced/support:\n"
             "  show-issue, show-run, handoff, append-note, set-phase,\n"
-            "  export-run, verify-run, doctor, package-root, update-repo\n"
+            "  export-run, prepare-pr, publish-pr, verify-run, doctor, package-root, update-repo\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -102,6 +103,10 @@ def build_parser() -> argparse.ArgumentParser:
     update_repo.add_argument("--setup-command", default=None)
     update_repo.add_argument("--test-command", default=None)
     update_repo.add_argument("--lint-command", default=None)
+    update_repo.add_argument("--pr-provider", default=None)
+    update_repo.add_argument("--pr-remote", default=None)
+    update_repo.add_argument("--pr-branch-template", default=None)
+    update_repo.add_argument("--pr-auto-publish", action=argparse.BooleanOptionalAction, default=None)
     update_repo.add_argument("--clear-setup-command", action="store_true")
     update_repo.add_argument("--clear-test-command", action="store_true")
     update_repo.add_argument("--clear-lint-command", action="store_true")
@@ -189,6 +194,19 @@ def build_parser() -> argparse.ArgumentParser:
     export.add_argument("issue_id", nargs="?")
     export.add_argument("--current", action="store_true", help="Use the managed worktree's current run context.")
     export.add_argument("--output", default=None, help="Defaults to evidence.md inside the issue folder.")
+
+    prepare_pr = subparsers.add_parser("prepare-pr", help="Write a local PR preview markdown file.")
+    prepare_pr.add_argument("issue_id", nargs="?")
+    prepare_pr.add_argument("--current", action="store_true", help="Use the managed worktree's current run context.")
+    prepare_pr.add_argument("--branch", default=None, help="PR branch name to publish later.")
+    prepare_pr.add_argument("--title", default=None, help="PR title. Defaults to the issue title.")
+    prepare_pr.add_argument("--output", default=None, help="Defaults to pr.md inside the issue folder.")
+
+    publish_pr = subparsers.add_parser("publish-pr", help="Push the PR branch and create a GitHub PR.")
+    publish_pr.add_argument("issue_id", nargs="?")
+    publish_pr.add_argument("--current", action="store_true", help="Use the managed worktree's current run context.")
+    publish_pr.add_argument("--branch", default=None, help="Override the PR branch name before publishing.")
+    publish_pr.add_argument("--title", default=None, help="Override the PR title before publishing.")
     return parser
 
 
@@ -202,6 +220,18 @@ def _repo_updates(args: argparse.Namespace) -> tuple[dict[str, object], set[str]
         "lint_command": args.lint_command,
     }
     updates = {key: value for key, value in pairs.items() if value is not None}
+    pr_updates = {
+        key: value
+        for key, value in {
+            "provider": args.pr_provider,
+            "remote": args.pr_remote,
+            "branch_template": args.pr_branch_template,
+            "auto_publish": args.pr_auto_publish,
+        }.items()
+        if value is not None
+    }
+    if pr_updates:
+        updates["pull_request"] = pr_updates
     clears = {
         field
         for field, flag in {
@@ -681,6 +711,7 @@ def _active_issue_next_commands(root: Path, item: object) -> list[str]:
             [
                 f"go-ship-it handoff {ref} --write",
                 f"go-ship-it export-run {ref}",
+                f"go-ship-it prepare-pr {ref}",
             ]
         )
     commands.extend(
@@ -895,6 +926,25 @@ def main(argv: Sequence[str] | None = None) -> int:
             output_path = Path(args.output) if args.output is not None else None
             output = export_run(target_root, issue_id, output=output_path)
             print(output)
+            return 0
+
+        if args.command == "prepare-pr":
+            target_root, issue_id = _resolve_issue_target(root, args)
+            output_path = Path(args.output) if args.output is not None else None
+            preview = prepare_pull_request(
+                target_root,
+                issue_id,
+                branch=args.branch,
+                title=args.title,
+                output=output_path,
+            )
+            print(preview.path)
+            return 0
+
+        if args.command == "publish-pr":
+            target_root, issue_id = _resolve_issue_target(root, args)
+            published = publish_pull_request(target_root, issue_id, branch=args.branch, title=args.title)
+            print(published.url)
             return 0
     except CheckFailedError as exc:
         print(exc, file=sys.stderr)

@@ -26,10 +26,13 @@ go-ship-it run-check <repo>/<issue-id> --check test
 go-ship-it handoff <repo>/<issue-id> --write
 go-ship-it export-run <repo>/<issue-id>
 go-ship-it verify-run <repo>/<issue-id> --strict
+go-ship-it prepare-pr <repo>/<issue-id>
 go-ship-it cleanup-issue <repo>/<issue-id> --destination archive --note <note> --remove-worktree
 ```
 
 `export-run` defaults to `evidence.md` inside the issue folder. Use `--output` only when the user explicitly wants a copy somewhere else.
+
+`prepare-pr` is local-only and writes `pr.md` inside the issue folder. `publish-pr` pushes the local work branch to the planned PR branch and runs `gh pr create`; use it only after approval unless the repo allows auto publish.
 
 For GoShipit dogfood or self-improvement, setup can also register `go-ship-it` as the product-feedback repo:
 
@@ -70,6 +73,7 @@ state/repos/<repo>/
       notes.md
       handoff.md
       evidence.md
+      pr.md
       logs/
         events.jsonl
         commands/*.yaml
@@ -89,6 +93,18 @@ go-ship-it handoff --write
 ```
 
 Current-run detection reads `.go-ship-it/context.yaml` and verifies it against the run metadata before writing state.
+
+Repo-level PR config lives in `state/repos/<repo>/repo.yaml`:
+
+```yaml
+pull_request:
+  provider: github
+  remote: origin
+  auto_publish: false
+  branch_template: go-ship-it/{issue_id}-{slug}
+```
+
+The local work branch remains GoShipit-owned. The PR branch is generated from `branch_template` or supplied with `prepare-pr --branch <branch>`.
 
 ## Maintainer Surface
 

@@ -25,6 +25,12 @@ def test_read_repo_config_returns_registered_yaml(tmp_path):
     assert config["setup_command"] == "uv sync"
     assert config["test_command"] == "uv run pytest"
     assert config["lint_command"] is None
+    assert config["pull_request"] == {
+        "provider": "github",
+        "remote": "origin",
+        "auto_publish": False,
+        "branch_template": "go-ship-it/{issue_id}-{slug}",
+    }
 
 
 def test_update_repo_config_updates_one_command_and_preserves_relative_path(tmp_path):
@@ -68,6 +74,48 @@ def test_update_repo_config_clears_optional_command(tmp_path):
 
     data = read_repo_config(tmp_path, "sample")
     assert data["lint_command"] is None
+
+
+def test_update_repo_config_merges_pull_request_config(tmp_path):
+    register_repo(
+        tmp_path,
+        repo_id="sample",
+        path=Path("../sample"),
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+    )
+
+    update_repo_config(
+        tmp_path,
+        "sample",
+        updates={"pull_request": {"branch_template": "feature/{slug}", "auto_publish": True}},
+        clears=set(),
+    )
+
+    data = read_repo_config(tmp_path, "sample")
+    assert data["pull_request"] == {
+        "provider": "github",
+        "remote": "origin",
+        "auto_publish": True,
+        "branch_template": "feature/{slug}",
+    }
+
+
+def test_update_repo_config_rejects_unknown_pull_request_field(tmp_path):
+    register_repo(
+        tmp_path,
+        repo_id="sample",
+        path=Path("../sample"),
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+    )
+
+    with pytest.raises(ValueError, match="Unknown pull_request fields"):
+        update_repo_config(tmp_path, "sample", updates={"pull_request": {"base": "main"}}, clears=set())
 
 
 def test_update_repo_config_rejects_empty_required_field(tmp_path):

@@ -57,6 +57,7 @@ go-ship-it run-check my-repo/issue-001 --check test
 go-ship-it handoff my-repo/issue-001 --write
 go-ship-it export-run my-repo/issue-001
 go-ship-it verify-run my-repo/issue-001 --strict
+go-ship-it prepare-pr my-repo/issue-001
 go-ship-it cleanup-issue my-repo/issue-001 --destination archive --note "Done." --remove-worktree
 ```
 
@@ -109,6 +110,18 @@ state/repos/<repo>/
 
 `repo.yaml` is the machine-readable config. `context.md` is the repo-level background file for conventions, commands, and gotchas that should apply across issues. Issue ids are repo-local, so explicit issue references use `<repo>/<issue-id>`.
 
+Repo PR behavior also lives in `repo.yaml`:
+
+```yaml
+pull_request:
+  provider: github
+  remote: origin
+  auto_publish: false
+  branch_template: go-ship-it/{issue_id}-{slug}
+```
+
+The managed local work branch remains GoShipit-owned, for example `go-ship-it/issue-001`. The PR branch is separate and is chosen when preparing/publishing the PR. Use `--branch feature/<name>` when a team has strict branch naming rules, or set `pull_request.branch_template` once for that repo.
+
 `start-issue` creates a deterministic claim id and writes `.go-ship-it/context.yaml` inside the managed worktree so parallel sessions can anchor themselves to the right issue/run. From inside that worktree, run-bound commands can omit the issue id; `--current` is the explicit form when you want to make that intent visible:
 
 ```sh
@@ -133,12 +146,13 @@ state/repos/<repo>/issues/execution/<issue-id>/run.yaml
 state/repos/<repo>/issues/execution/<issue-id>/notes.md
 state/repos/<repo>/issues/execution/<issue-id>/handoff.md
 state/repos/<repo>/issues/execution/<issue-id>/evidence.md
+state/repos/<repo>/issues/execution/<issue-id>/pr.md
 state/repos/<repo>/issues/execution/<issue-id>/logs/events.jsonl
 state/repos/<repo>/issues/execution/<issue-id>/logs/commands/*.yaml
 worktrees/<repo>/<issue-id>/.go-ship-it/context.yaml
 ```
 
-`evidence.md` appears after `export-run`; `handoff.md` appears after `handoff --write`.
+`evidence.md` appears after `export-run`; `handoff.md` appears after `handoff --write`; `pr.md` appears after `prepare-pr`.
 
 Before cleanup, run the readiness gate:
 
@@ -147,7 +161,10 @@ go-ship-it status
 go-ship-it handoff <repo>/<issue-id> --write
 go-ship-it export-run <repo>/<issue-id>
 go-ship-it verify-run <repo>/<issue-id> --strict
+go-ship-it prepare-pr <repo>/<issue-id>
 ```
+
+`prepare-pr` is local-only. It writes `pr.md` for review and records the PR branch plan in `run.yaml`. `publish-pr` is the native GitHub path: it pushes the local work branch to the planned PR branch, then runs `gh pr create --body-file pr.md`. Agents should not run `publish-pr` without explicit approval unless `pull_request.auto_publish` is true for that repo.
 
 `verify-run --strict` fails on warnings, including missing acceptance criteria evidence or missing handoff context. Agents can use structured output when they should not scrape Markdown:
 

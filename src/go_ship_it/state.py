@@ -26,7 +26,14 @@ ISSUE_STATES = ("todo", "execution", "archive")
 ALLOWED_PHASES = {"setup", "investigate", "propose", "implement", "test", "cleanup"}
 OPTIONAL_COMMAND_FIELDS = {"setup_command", "test_command", "lint_command"}
 REQUIRED_REPO_FIELDS = {"id", "path", "default_branch", "worktree_root"}
-UPDATABLE_REPO_FIELDS = REQUIRED_REPO_FIELDS | OPTIONAL_COMMAND_FIELDS
+PULL_REQUEST_FIELDS = {"provider", "remote", "auto_publish", "branch_template"}
+UPDATABLE_REPO_FIELDS = REQUIRED_REPO_FIELDS | OPTIONAL_COMMAND_FIELDS | {"pull_request"}
+DEFAULT_PULL_REQUEST_CONFIG = {
+    "provider": "github",
+    "remote": "origin",
+    "auto_publish": False,
+    "branch_template": "go-ship-it/{issue_id}-{slug}",
+}
 
 
 class GoShipitError(RuntimeError):
@@ -180,6 +187,7 @@ def register_repo(
         "setup_command": setup_command,
         "test_command": test_command,
         "lint_command": lint_command,
+        "pull_request": dict(DEFAULT_PULL_REQUEST_CONFIG),
     }
     repo_file.write_text(_render_mapping(values))
     if not context_file.exists():
@@ -367,6 +375,9 @@ def update_repo_config(
 
     config = _parse_mapping(repo_file.read_text())
     for key, value in updates.items():
+        if key == "pull_request":
+            config[key] = _merged_pull_request_config(config.get(key), value)
+            continue
         if key in REQUIRED_REPO_FIELDS and (not isinstance(value, str) or not value.strip()):
             raise ValueError(f"{key} must not be empty")
         config[key] = value
@@ -380,6 +391,44 @@ def update_repo_config(
 
     repo_file.write_text(_render_mapping(config))
     return repo_file
+
+
+def pull_request_config(repo: dict[str, object]) -> dict[str, object]:
+    return _merged_pull_request_config(repo.get("pull_request"), {})
+
+
+def _merged_pull_request_config(existing: object, updates: object) -> dict[str, object]:
+    if existing is None:
+        current: dict[str, object] = {}
+    elif isinstance(existing, dict):
+        current = dict(existing)
+    else:
+        raise ValueError("pull_request must be a mapping")
+    if updates is None:
+        incoming: dict[str, object] = {}
+    elif isinstance(updates, dict):
+        incoming = dict(updates)
+    else:
+        raise ValueError("pull_request update must be a mapping")
+
+    unknown = (set(current) | set(incoming)) - PULL_REQUEST_FIELDS
+    if unknown:
+        raise ValueError(f"Unknown pull_request fields: {', '.join(sorted(unknown))}")
+
+    merged = dict(DEFAULT_PULL_REQUEST_CONFIG)
+    merged.update(current)
+    merged.update(incoming)
+    _validate_pull_request_config(merged)
+    return merged
+
+
+def _validate_pull_request_config(config: dict[str, object]) -> None:
+    for field in ("provider", "remote", "branch_template"):
+        value = config.get(field)
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"pull_request.{field} must not be empty")
+    if config.get("auto_publish") not in {True, False}:
+        raise ValueError("pull_request.auto_publish must be true or false")
 
 
 def add_issue(

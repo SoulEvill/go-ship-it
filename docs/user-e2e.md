@@ -68,6 +68,7 @@ state/repos/<repo>/issues/execution/<issue-id>/run.yaml
 state/repos/<repo>/issues/execution/<issue-id>/notes.md
 state/repos/<repo>/issues/execution/<issue-id>/handoff.md
 state/repos/<repo>/issues/execution/<issue-id>/evidence.md
+state/repos/<repo>/issues/execution/<issue-id>/pr.md
 state/repos/<repo>/issues/execution/<issue-id>/logs/events.jsonl
 state/repos/<repo>/issues/execution/<issue-id>/logs/commands/*.yaml
 worktrees/<repo>/<issue-id>/.go-ship-it/context.yaml
@@ -75,7 +76,7 @@ worktrees/<repo>/<issue-id>/.go-ship-it/context.yaml
 
 `state/repos/<repo>/issues/execution/<issue-id>/run.yaml` is the active run metadata source of truth. `.go-ship-it/context.yaml` is only a worktree pointer back to that run and must match before current-run commands write notes or command records.
 
-`evidence.md` appears after `export-run`. It is an optional issue-local snapshot for review and handoff. GoShipit maintainers also keep committed historical dogfood reports under `docs/dogfood/`; normal user runs should not write there by default.
+`evidence.md` appears after `export-run`. It is an optional issue-local snapshot for review and handoff. `pr.md` appears after `prepare-pr` and is the local PR preview. GoShipit maintainers also keep committed historical dogfood reports under `docs/dogfood/`; normal user runs should not write there by default.
 
 ## Disposable Target Harness
 
@@ -113,8 +114,10 @@ Use `skills/manage-issues/SKILL.md` for steps 1-3 and 11-12. Use `skills/work-is
 12. Create an explicit resume snapshot with `go-ship-it handoff --write` from the worktree, or `go-ship-it handoff <repo>/<issue-id> --write` from the control root, when another session should continue.
 13. Export issue-local evidence with `go-ship-it export-run`.
 14. Run `go-ship-it verify-run <repo>/<issue-id> --strict` and resolve or explicitly report every warning before cleanup.
-15. Cleanup to `archive` with `--remove-worktree` for completed work, or return to `todo` with `--remove-worktree` when work should be retried later.
-16. Run `go-ship-it doctor` again.
+15. Prepare a local PR preview with `go-ship-it prepare-pr <repo>/<issue-id>`. Use `--branch <team-branch-name>` when the repo requires a specific PR branch convention.
+16. Publish only after approval, or when `pull_request.auto_publish: true` is set for the repo. Publishing uses `go-ship-it publish-pr <repo>/<issue-id>`.
+17. Cleanup to `archive` with `--remove-worktree` for completed work, or return to `todo` with `--remove-worktree` when work should be retried later.
+18. Run `go-ship-it doctor` again.
 
 For agent-driven checks, prefer structured output:
 

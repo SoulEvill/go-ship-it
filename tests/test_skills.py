@@ -43,6 +43,7 @@ SKILL_COMMANDS = {
         "go-ship-it append-note",
         "go-ship-it run-check",
         "go-ship-it handoff",
+        "go-ship-it prepare-pr",
     ),
 }
 
@@ -145,6 +146,7 @@ def test_command_surface_mentions_json_and_strict_readiness():
     assert "go-ship-it status --json" in text
     assert "go-ship-it doctor --json" in text
     assert "go-ship-it verify-run <repo>/<issue-id> --strict" in text
+    assert "go-ship-it prepare-pr <repo>/<issue-id>" in text
 
 
 def test_first_issue_docs_explain_what_gets_created():
