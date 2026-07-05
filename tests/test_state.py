@@ -24,11 +24,9 @@ def test_ensure_layout_creates_state_directories(tmp_path):
     ensure_layout(tmp_path)
 
     assert (tmp_path / "state" / "repos").is_dir()
-    assert (tmp_path / "state" / "issues" / "todo").is_dir()
-    assert (tmp_path / "state" / "issues" / "execution").is_dir()
-    assert (tmp_path / "state" / "issues" / "archive").is_dir()
-    assert (tmp_path / "state" / "runs").is_dir()
     assert (tmp_path / "worktrees").is_dir()
+    assert not (tmp_path / "state" / "issues").exists()
+    assert not (tmp_path / "state" / "runs").exists()
 
 
 def test_register_repo_writes_simple_registry_file(tmp_path):
@@ -59,6 +57,10 @@ def test_register_repo_writes_simple_registry_file(tmp_path):
     context_file = tmp_path / "state" / "repos" / "sample" / "context.md"
     assert context_file.exists()
     assert context_file.read_text().startswith("# sample Context\n")
+    assert (tmp_path / "state" / "repos" / "sample" / "issues" / "todo").is_dir()
+    assert (tmp_path / "state" / "repos" / "sample" / "issues" / "execution").is_dir()
+    assert (tmp_path / "state" / "repos" / "sample" / "issues" / "archive").is_dir()
+    assert not (tmp_path / "state" / "repos" / "sample" / "runs").exists()
 
 
 def test_read_repo_config_rejects_flat_registry_file(tmp_path):
@@ -98,11 +100,11 @@ def test_add_issue_creates_todo_markdown(tmp_path):
         acceptance_criteria=["A focused test exists.", "The test passes."],
     )
 
-    assert issue_file == tmp_path / "state" / "issues" / "todo" / "issue-001.md"
+    assert issue_file == tmp_path / "state" / "repos" / "parawave" / "issues" / "todo" / "issue-001" / "issue.md"
     metadata, body = parse_frontmatter(issue_file.read_text())
     assert metadata["id"] == "issue-001"
-    assert metadata["repo"] == "parawave"
-    assert metadata["status"] == "todo"
+    assert "repo" not in metadata
+    assert "status" not in metadata
     assert metadata["phase"] == "setup"
     assert isinstance(metadata["created_at"], str)
     assert metadata["worktree"] is None
@@ -124,14 +126,66 @@ def test_add_issue_rejects_unregistered_repo(tmp_path):
             acceptance_criteria=["No issue should be created."],
         )
 
-    assert not list((tmp_path / "state" / "issues" / "todo").glob("issue-*.md"))
+    assert not list((tmp_path / "state" / "repos").glob("*/issues/todo/issue-*/issue.md"))
+
+
+def test_explicit_issue_refs_require_exactly_repo_and_issue(tmp_path):
+    ensure_layout(tmp_path)
+
+    with pytest.raises(ValueError, match="<repo>/<issue-id>"):
+        start_issue(tmp_path, "issue-001")
+    with pytest.raises(ValueError, match="<repo>/<issue-id>"):
+        start_issue(tmp_path, "sample/team/issue-001")
 
 
 def test_next_issue_id_counts_preserved_managed_worktrees(tmp_path):
-    ensure_layout(tmp_path)
+    register_repo(
+        tmp_path,
+        repo_id="sample",
+        path=tmp_path / "sample",
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+    )
     (tmp_path / "worktrees" / "sample" / "issue-001").mkdir(parents=True)
 
-    assert next_issue_id(tmp_path) == "issue-002"
+    assert next_issue_id(tmp_path, "sample") == "issue-002"
+
+
+def test_next_issue_id_is_repo_local(tmp_path):
+    for repo_id in ("alpha", "beta"):
+        register_repo(
+            tmp_path,
+            repo_id=repo_id,
+            path=tmp_path / repo_id,
+            default_branch="main",
+            setup_command=None,
+            test_command=None,
+            lint_command=None,
+        )
+
+    first = add_issue(
+        tmp_path,
+        repo_id="alpha",
+        title="Alpha issue",
+        problem="Alpha problem.",
+        context="",
+        acceptance_criteria=["Alpha done."],
+    )
+    second = add_issue(
+        tmp_path,
+        repo_id="beta",
+        title="Beta issue",
+        problem="Beta problem.",
+        context="",
+        acceptance_criteria=["Beta done."],
+    )
+
+    assert first == tmp_path / "state" / "repos" / "alpha" / "issues" / "todo" / "issue-001" / "issue.md"
+    assert second == tmp_path / "state" / "repos" / "beta" / "issues" / "todo" / "issue-001" / "issue.md"
+    assert next_issue_id(tmp_path, "alpha") == "issue-002"
+    assert next_issue_id(tmp_path, "beta") == "issue-002"
 
 
 def _run_git(repo: Path, *args: str) -> None:
@@ -178,9 +232,11 @@ def test_start_issue_claims_issue_and_creates_worktree(tmp_path):
     )
     _add_sample_issue(tmp_path)
 
-    run = start_issue(tmp_path, "issue-001", claimed_by="test-thread")
+    run = start_issue(tmp_path, "sample/issue-001", claimed_by="test-thread")
 
     assert run.issue_id == "issue-001"
+    assert run.repo_id == "sample"
+    assert run.issue_ref == "sample/issue-001"
     assert run.branch == "go-ship-it/issue-001"
     assert run.worktree == tmp_path / "worktrees" / "sample" / "issue-001"
     assert run.claimed_by == "test-thread"
@@ -188,15 +244,16 @@ def test_start_issue_claims_issue_and_creates_worktree(tmp_path):
     assert run.already_active is False
     assert run.context_file == run.worktree / ".go-ship-it" / "context.yaml"
     assert (run.worktree / "README.md").exists()
-    assert not (tmp_path / "state" / "issues" / "todo" / "issue-001.md").exists()
-    execution_file = tmp_path / "state" / "issues" / "execution" / "issue-001.md"
+    assert not (tmp_path / "state" / "repos" / "sample" / "issues" / "todo" / "issue-001").exists()
+    execution_file = tmp_path / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001" / "issue.md"
     metadata, _body = parse_frontmatter(execution_file.read_text())
-    assert metadata["status"] == "execution"
+    assert "status" not in metadata
+    assert "repo" not in metadata
     assert metadata["phase"] == "investigate"
     assert metadata["branch"] == "go-ship-it/issue-001"
     assert metadata["worktree"] == "worktrees/sample/issue-001"
-    assert (tmp_path / "state" / "runs" / "issue-001" / "claim.lock").is_dir()
-    run_file = tmp_path / "state" / "runs" / "issue-001" / "run.yaml"
+    assert (tmp_path / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001" / "claim.lock").is_dir()
+    run_file = tmp_path / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001" / "run.yaml"
     assert run_file.exists()
     assert "claimed_by: test-thread\n" in run_file.read_text()
     assert f"claim_id: {run.claim_id}\n" in run_file.read_text()
@@ -204,8 +261,8 @@ def test_start_issue_claims_issue_and_creates_worktree(tmp_path):
     assert context["issue_id"] == "issue-001"
     assert context["repo_id"] == "sample"
     assert context["control_root"] == str(tmp_path)
-    assert context["run_dir"] == "state/runs/issue-001"
-    assert context["issue_file"] == "state/issues/execution/issue-001.md"
+    assert context["run_dir"] == "state/repos/sample/issues/execution/issue-001"
+    assert context["issue_file"] == "state/repos/sample/issues/execution/issue-001/issue.md"
     assert context["worktree"] == "worktrees/sample/issue-001"
     assert context["branch"] == "go-ship-it/issue-001"
     assert context["claimed_by"] == "test-thread"
@@ -225,7 +282,7 @@ def test_resolve_current_run_uses_worktree_context_and_run_claim(tmp_path):
         lint_command=None,
     )
     _add_sample_issue(tmp_path)
-    run = start_issue(tmp_path, "issue-001", claimed_by="test-thread")
+    run = start_issue(tmp_path, "sample/issue-001", claimed_by="test-thread")
     nested = run.worktree / "src" / "package"
     nested.mkdir(parents=True)
 
@@ -235,7 +292,9 @@ def test_resolve_current_run_uses_worktree_context_and_run_claim(tmp_path):
     assert current.repo_id == "sample"
     assert current.control_root == tmp_path.resolve()
     assert current.worktree == run.worktree.resolve()
-    assert current.run_file == (tmp_path / "state" / "runs" / "issue-001" / "run.yaml").resolve()
+    assert current.run_file == (
+        tmp_path / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001" / "run.yaml"
+    ).resolve()
     assert current.context_file == (run.worktree / ".go-ship-it" / "context.yaml").resolve()
     assert current.claim_id == run.claim_id
     assert current.claimed_by == "test-thread"
@@ -253,7 +312,7 @@ def test_resolve_current_run_rejects_claim_mismatch(tmp_path):
         lint_command=None,
     )
     _add_sample_issue(tmp_path)
-    run = start_issue(tmp_path, "issue-001", claimed_by="test-thread")
+    run = start_issue(tmp_path, "sample/issue-001", claimed_by="test-thread")
     context_file = run.worktree / ".go-ship-it" / "context.yaml"
     context = yaml.safe_load(context_file.read_text())
     context["claim_id"] = "claim-issue-001-wrong"
@@ -279,7 +338,7 @@ def test_start_issue_auto_claim_is_stable_for_same_control_root_and_cwd(tmp_path
     monkeypatch.setenv("USER", "tester")
     monkeypatch.chdir(tmp_path)
 
-    run = start_issue(tmp_path, "issue-001")
+    run = start_issue(tmp_path, "sample/issue-001")
 
     assert run.claimed_by is not None
     assert run.claimed_by.startswith("codex:tester@")
@@ -298,9 +357,9 @@ def test_start_issue_reuses_duplicate_active_run(tmp_path):
         lint_command=None,
     )
     _add_sample_issue(tmp_path)
-    first = start_issue(tmp_path, "issue-001", claimed_by="first-thread")
+    first = start_issue(tmp_path, "sample/issue-001", claimed_by="first-thread")
 
-    second = start_issue(tmp_path, "issue-001", claimed_by="second-thread")
+    second = start_issue(tmp_path, "sample/issue-001", claimed_by="second-thread")
 
     assert second.already_active is True
     assert second.issue_id == first.issue_id
@@ -324,8 +383,8 @@ def test_start_issue_supports_two_active_issues_for_same_repo(tmp_path):
     _add_sample_issue(tmp_path, title="First")
     _add_sample_issue(tmp_path, title="Second")
 
-    first = start_issue(tmp_path, "issue-001", claimed_by="first-thread")
-    second = start_issue(tmp_path, "issue-002", claimed_by="second-thread")
+    first = start_issue(tmp_path, "sample/issue-001", claimed_by="first-thread")
+    second = start_issue(tmp_path, "sample/issue-002", claimed_by="second-thread")
 
     assert first.worktree == tmp_path / "worktrees" / "sample" / "issue-001"
     assert second.worktree == tmp_path / "worktrees" / "sample" / "issue-002"
@@ -346,11 +405,10 @@ def test_start_issue_leaves_todo_unmoved_when_target_repo_is_missing(tmp_path):
     _add_sample_issue(tmp_path)
 
     with pytest.raises(FileNotFoundError):
-        start_issue(tmp_path, "issue-001", claimed_by="test-thread")
+        start_issue(tmp_path, "sample/issue-001", claimed_by="test-thread")
 
-    assert (tmp_path / "state" / "issues" / "todo" / "issue-001.md").exists()
-    assert not (tmp_path / "state" / "issues" / "execution" / "issue-001.md").exists()
-    assert not (tmp_path / "state" / "runs" / "issue-001" / "claim.lock").exists()
+    assert (tmp_path / "state" / "repos" / "sample" / "issues" / "todo" / "issue-001" / "issue.md").exists()
+    assert not (tmp_path / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001").exists()
     assert not (tmp_path / "worktrees" / "sample" / "issue-001").exists()
 
 
@@ -366,7 +424,7 @@ def _started_issue_root(tmp_path: Path) -> Path:
         lint_command=None,
     )
     _add_sample_issue(tmp_path)
-    start_issue(tmp_path, "issue-001", claimed_by="test-thread")
+    start_issue(tmp_path, "sample/issue-001", claimed_by="test-thread")
     return tmp_path
 
 
@@ -376,21 +434,25 @@ def test_cleanup_return_to_todo_moves_issue_back_and_removes_active_worktree(tmp
     active_worktree = root / "worktrees" / "sample" / "issue-001"
     assert active_worktree.exists()
 
-    result = cleanup_issue(root, "issue-001", destination="todo", note="Needs a clearer ask.", remove_worktree=True)
+    result = cleanup_issue(root, "sample/issue-001", destination="todo", note="Needs a clearer ask.", remove_worktree=True)
 
-    assert result == root / "state" / "issues" / "todo" / "issue-001.md"
+    assert result == root / "state" / "repos" / "sample" / "issues" / "todo" / "issue-001" / "issue.md"
     assert result.exists()
     assert not active_worktree.exists()
-    assert not (root / "state" / "issues" / "execution" / "issue-001.md").exists()
+    assert not (root / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001").exists()
     metadata, _body = parse_frontmatter(result.read_text())
-    assert metadata["status"] == "todo"
+    assert "status" not in metadata
     assert metadata["phase"] == "setup"
     assert metadata["worktree"] is None
     assert metadata["branch"] is None
-    assert (root / "state" / "runs" / "issue-001" / "run.yaml").exists()
-    assert "cleanup_destination: todo\n" in (root / "state" / "runs" / "issue-001" / "run.yaml").read_text()
-    assert "Needs a clearer ask." in (root / "state" / "runs" / "issue-001" / "journal.md").read_text()
-    assert not (root / "state" / "runs" / "issue-001" / "claim.lock").exists()
+    assert (root / "state" / "repos" / "sample" / "issues" / "todo" / "issue-001" / "run.yaml").exists()
+    assert "cleanup_destination: todo\n" in (
+        root / "state" / "repos" / "sample" / "issues" / "todo" / "issue-001" / "run.yaml"
+    ).read_text()
+    assert "Needs a clearer ask." in (
+        root / "state" / "repos" / "sample" / "issues" / "todo" / "issue-001" / "notes.md"
+    ).read_text()
+    assert not (root / "state" / "repos" / "sample" / "issues" / "todo" / "issue-001" / "claim.lock").exists()
     assert "go-ship-it/issue-001" not in _git_output(root / "target", "branch", "--list", "go-ship-it/issue-001")
 
 
@@ -398,35 +460,35 @@ def test_cleanup_return_to_todo_requires_worktree_removal(tmp_path):
     root = _started_issue_root(tmp_path)
 
     with pytest.raises(ValueError, match="returning an issue to todo requires remove_worktree=True"):
-        cleanup_issue(root, "issue-001", destination="todo", note="Needs a clearer ask.", remove_worktree=False)
+        cleanup_issue(root, "sample/issue-001", destination="todo", note="Needs a clearer ask.", remove_worktree=False)
 
-    assert (root / "state" / "issues" / "execution" / "issue-001.md").exists()
+    assert (root / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001" / "issue.md").exists()
     assert (root / "worktrees" / "sample" / "issue-001").exists()
-    assert (root / "state" / "runs" / "issue-001" / "claim.lock").exists()
+    assert (root / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001" / "claim.lock").exists()
 
 
 def test_cleanup_archive_moves_issue_to_archive_and_preserves_worktree(tmp_path):
     root = _started_issue_root(tmp_path)
     active_worktree = root / "worktrees" / "sample" / "issue-001"
 
-    result = cleanup_issue(root, "issue-001", destination="archive", note="Closed after review.", remove_worktree=False)
+    result = cleanup_issue(root, "sample/issue-001", destination="archive", note="Closed after review.", remove_worktree=False)
 
-    assert result == root / "state" / "issues" / "archive" / "issue-001.md"
+    assert result == root / "state" / "repos" / "sample" / "issues" / "archive" / "issue-001" / "issue.md"
     assert result.exists()
     assert active_worktree.exists()
-    assert not (root / "state" / "issues" / "execution" / "issue-001.md").exists()
+    assert not (root / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001").exists()
     metadata, body = parse_frontmatter(result.read_text())
-    assert metadata["status"] == "archive"
+    assert "status" not in metadata
     assert metadata["phase"] == "cleanup"
     assert "Closed after review." in body
-    assert not (root / "state" / "runs" / "issue-001" / "claim.lock").exists()
+    assert not (root / "state" / "repos" / "sample" / "issues" / "archive" / "issue-001" / "claim.lock").exists()
 
 
 def test_cleanup_archive_can_remove_managed_worktree(tmp_path):
     root = _started_issue_root(tmp_path)
     active_worktree = root / "worktrees" / "sample" / "issue-001"
 
-    cleanup_issue(root, "issue-001", destination="archive", note="Closed after review.", remove_worktree=True)
+    cleanup_issue(root, "sample/issue-001", destination="archive", note="Closed after review.", remove_worktree=True)
 
     assert not active_worktree.exists()
 
@@ -434,9 +496,9 @@ def test_cleanup_archive_can_remove_managed_worktree(tmp_path):
 def test_render_handoff_includes_resume_context(tmp_path):
     root = _started_issue_root(tmp_path)
 
-    text = render_handoff(root, "issue-001")
+    text = render_handoff(root, "sample/issue-001")
 
-    assert "# GoShipit Handoff: issue-001" in text
+    assert "# GoShipit Handoff: sample/issue-001" in text
     assert f"Control Root: `{root}`" in text
     assert "Repo: `sample`" in text
     assert "Status: `execution`" in text
@@ -444,14 +506,14 @@ def test_render_handoff_includes_resume_context(tmp_path):
     assert "Claimed By: `test-thread`" in text
     assert "Claim ID: `claim-issue-001-" in text
     assert "Worktree: `worktrees/sample/issue-001`" in text
-    assert "go-ship-it show-run issue-001 --logs" in text
-    assert "go-ship-it verify-run issue-001" in text
+    assert "go-ship-it show-run sample/issue-001 --trace" in text
+    assert "go-ship-it verify-run sample/issue-001" in text
 
 
 def test_write_handoff_defaults_to_run_directory(tmp_path):
     root = _started_issue_root(tmp_path)
 
-    path = write_handoff(root, "issue-001")
+    path = write_handoff(root, "sample/issue-001")
 
-    assert path == root / "state" / "runs" / "issue-001" / "handoff.md"
-    assert "# GoShipit Handoff: issue-001" in path.read_text()
+    assert path == root / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001" / "handoff.md"
+    assert "# GoShipit Handoff: sample/issue-001" in path.read_text()

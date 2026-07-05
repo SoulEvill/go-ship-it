@@ -71,7 +71,7 @@ go-ship-it --root <control-root> status
 go-ship-it --root <control-root> doctor
 ```
 
-Do not continue lifecycle work from an arbitrary target repo checkout. Target repo code changes happen inside the active issue worktree only after `go-ship-it show-run <issue-id>` confirms the worktree path.
+Do not continue lifecycle work from an arbitrary target repo checkout. Target repo code changes happen inside the active issue worktree only after `go-ship-it show-run <repo>/<issue-id>` confirms the worktree path.
 
 Inside a managed issue worktree, `.go-ship-it/context.yaml` locks the session to the issue/run. Run-bound commands can omit the issue id there; use `--current` when you want the command to be explicit:
 
@@ -106,6 +106,14 @@ GoShipit does not automatically launch headless agents, discover work, create PR
 
 Remote integrations are optional future extensions. Keep local lifecycle evidence useful without them.
 
+## Dogfood And Feedback Routing
+
+In this development workspace, `parawave` may be registered as a dogfood target repo. Treat `state/repos/parawave/repo.yaml` and `state/repos/parawave/context.md` as the source of truth before starting ParaWave work. Do not present ParaWave as a default target repo for external users.
+
+When GoShipit itself is being improved, use the registered `go-ship-it` repo. If the user reports GoShipit friction, confusing behavior, install problems, bad command output, or lifecycle UX issues while working any target repo, create or offer to create a normal todo issue under `go-ship-it`. Link it back to the source repo, source issue, active run path, and a concise note about what happened.
+
+Do not create a separate feedback, learning, or observation folder for GoShipit product issues. Use the same repo-centric issue lifecycle so the feedback can be investigated, implemented, tested, archived, and exported like any other issue.
+
 ## Handoff Habit
 
 When preparing a handoff, include:
@@ -122,7 +130,7 @@ When preparing a handoff, include:
 For an explicit handoff file, run:
 
 ```sh
-go-ship-it handoff <issue-id> --write
+go-ship-it handoff <repo>/<issue-id> --write
 # or, inside the managed worktree:
 go-ship-it handoff --current --write
 ```

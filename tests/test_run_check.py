@@ -18,9 +18,11 @@ from go_ship_it.state import (
 def test_run_check_executes_registered_test_command_in_worktree(tmp_path):
     root = _started_issue_root(tmp_path, test_command="python -c 'print(\"ok\")'")
 
-    record = run_check(root, "issue-001", check="test")
+    record = run_check(root, "sample/issue-001", check="test")
 
-    assert record.parent == root / "state" / "runs" / "issue-001" / "commands"
+    assert record.parent == (
+        root / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001" / "logs" / "commands"
+    )
     data = yaml.safe_load(record.read_text())
     assert data["check"] == "test"
     assert data["command"] == "python -c 'print(\"ok\")'"
@@ -31,16 +33,16 @@ def test_run_check_executes_registered_test_command_in_worktree(tmp_path):
     assert "started_at" in data
     assert "ended_at" in data
 
-    journal = (root / "state" / "runs" / "issue-001" / "journal.md").read_text()
-    assert "## Check: test" in journal
-    assert "Exit code: 0" in journal
+    notes = (root / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001" / "notes.md").read_text()
+    assert "## Check: test" in notes
+    assert "Exit code: 0" in notes
 
 
 def test_run_check_records_failed_command(tmp_path):
     root = _started_issue_root(tmp_path, test_command="python -c 'import sys; print(\"bad\"); sys.exit(3)'")
 
     with pytest.raises(CheckFailedError) as exc_info:
-        run_check(root, "issue-001", check="test")
+        run_check(root, "sample/issue-001", check="test")
 
     assert exc_info.value.exit_code == 3
     record = exc_info.value.record_file
@@ -48,27 +50,31 @@ def test_run_check_records_failed_command(tmp_path):
     assert data["exit_code"] == 3
     assert "bad" in data["stdout_tail"]
 
-    journal = (root / "state" / "runs" / "issue-001" / "journal.md").read_text()
-    assert "Exit code: 3" in journal
+    notes = (root / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001" / "notes.md").read_text()
+    assert "Exit code: 3" in notes
 
 
 def test_run_check_rejects_missing_command(tmp_path):
     root = _started_issue_root(tmp_path, lint_command=None)
 
     with pytest.raises(GoShipitError, match="No lint command configured"):
-        run_check(root, "issue-001", check="lint")
+        run_check(root, "sample/issue-001", check="lint")
 
-    commands_dir = root / "state" / "runs" / "issue-001" / "commands"
+    commands_dir = root / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001" / "logs" / "commands"
     assert not commands_dir.exists()
 
 
 def test_main_run_check_returns_command_exit_code(tmp_path):
     root = _started_issue_root(tmp_path, test_command="python -c 'import sys; sys.exit(4)'")
 
-    exit_code = main(["--root", str(root), "run-check", "issue-001", "--check", "test"])
+    exit_code = main(["--root", str(root), "run-check", "sample/issue-001", "--check", "test"])
 
     assert exit_code == 4
-    records = list((root / "state" / "runs" / "issue-001" / "commands").glob("*.yaml"))
+    records = list(
+        (root / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001" / "logs" / "commands").glob(
+            "*.yaml"
+        )
+    )
     assert len(records) == 1
     data = yaml.safe_load(records[0].read_text())
     assert data["exit_code"] == 4
@@ -99,7 +105,7 @@ def _started_issue_root(
         context="Use the test repo.",
         acceptance_criteria=["README changes."],
     )
-    start_issue(tmp_path, "issue-001", claimed_by="test-thread")
+    start_issue(tmp_path, "sample/issue-001", claimed_by="test-thread")
     return tmp_path
 
 

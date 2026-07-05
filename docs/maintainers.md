@@ -19,14 +19,18 @@ State should stay visible on disk and easy to inspect:
 ```text
 state/repos/<repo>/repo.yaml
 state/repos/<repo>/context.md
-state/issues/todo/<issue-id>.md
-state/issues/execution/<issue-id>.md
-state/issues/archive/<issue-id>.md
-state/runs/<issue-id>/
+state/repos/<repo>/issues/todo/<issue-id>/issue.md
+state/repos/<repo>/issues/execution/<issue-id>/issue.md
+state/repos/<repo>/issues/execution/<issue-id>/run.yaml
+state/repos/<repo>/issues/execution/<issue-id>/notes.md
+state/repos/<repo>/issues/execution/<issue-id>/logs/
+state/repos/<repo>/issues/archive/<issue-id>/issue.md
 worktrees/<repo>/<issue-id>/
 ```
 
 Do not add flat repo files such as `state/repos/<repo>.yaml`. Repo folders give each target a clear home for machine config and human context.
+
+Do not add global issue or run folders. Issue ids are repo-local, and explicit CLI references should use `<repo>/<issue-id>`.
 
 ## Status vs Doctor
 

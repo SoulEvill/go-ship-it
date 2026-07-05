@@ -97,8 +97,8 @@ def go_ship_it_argv(paths: RunPaths, *args: str) -> list[str]:
     return ["uv", "run", "go-ship-it", "--root", str(paths.state_root), *args]
 
 
-def phase_argv(paths: RunPaths, issue_id: str, phase: str, note: str) -> list[str]:
-    return go_ship_it_argv(paths, "set-phase", issue_id, phase, "--note", note)
+def phase_argv(paths: RunPaths, issue_ref: str, phase: str, note: str) -> list[str]:
+    return go_ship_it_argv(paths, "set-phase", issue_ref, phase, "--note", note)
 
 
 def parse_start_worktree(stdout: str) -> str:
@@ -199,6 +199,7 @@ def main(argv: list[str] | None = None) -> int:
 
     records: list[CommandRecord] = []
     issue_id = "issue-001"
+    issue_ref = f"{args.target_id}/{issue_id}"
     worktree = ""
     result = "failure"
     started_at = datetime.now(timezone.utc).isoformat()
@@ -245,9 +246,18 @@ def main(argv: list[str] | None = None) -> int:
             cwd=ROOT,
         )
         issue_path = Path(add.stdout.strip())
-        if issue_path.name:
+        if issue_path.name == "issue.md" and issue_path.parent.name:
+            issue_id = issue_path.parent.name
+            issue_ref = f"{args.target_id}/{issue_id}"
+        elif issue_path.name:
             issue_id = issue_path.stem
-        start = checked(records, "start issue", go_ship_it_argv(paths, "start-issue", issue_id, "--claimed-by", "target-e2e"), cwd=ROOT)
+            issue_ref = f"{args.target_id}/{issue_id}"
+        start = checked(
+            records,
+            "start issue",
+            go_ship_it_argv(paths, "start-issue", issue_ref, "--claimed-by", "target-e2e"),
+            cwd=ROOT,
+        )
         worktree = parse_start_worktree(start.stdout)
         worktree_path = Path(worktree)
         if not worktree_path.is_absolute():
@@ -277,7 +287,7 @@ def main(argv: list[str] | None = None) -> int:
             go_ship_it_argv(
                 paths,
                 "append-note",
-                issue_id,
+                issue_ref,
                 "--section",
                 "Investigation",
                 "--phase",
@@ -290,7 +300,7 @@ def main(argv: list[str] | None = None) -> int:
         checked(
             records,
             "set phase proposal",
-            phase_argv(paths, issue_id, "propose", "Disposable target investigation complete."),
+            phase_argv(paths, issue_ref, "propose", "Disposable target investigation complete."),
             cwd=ROOT,
         )
         checked(
@@ -299,7 +309,7 @@ def main(argv: list[str] | None = None) -> int:
             go_ship_it_argv(
                 paths,
                 "append-note",
-                issue_id,
+                issue_ref,
                 "--section",
                 "Proposal",
                 "--phase",
@@ -312,18 +322,18 @@ def main(argv: list[str] | None = None) -> int:
         checked(
             records,
             "set phase test",
-            phase_argv(paths, issue_id, "test", "Marker implementation committed; ready for configured checks."),
+            phase_argv(paths, issue_ref, "test", "Marker implementation committed; ready for configured checks."),
             cwd=ROOT,
         )
-        checked(records, "run setup check", go_ship_it_argv(paths, "run-check", issue_id, "--check", "setup"), cwd=ROOT)
-        checked(records, "run test check", go_ship_it_argv(paths, "run-check", issue_id, "--check", "test"), cwd=ROOT)
+        checked(records, "run setup check", go_ship_it_argv(paths, "run-check", issue_ref, "--check", "setup"), cwd=ROOT)
+        checked(records, "run test check", go_ship_it_argv(paths, "run-check", issue_ref, "--check", "test"), cwd=ROOT)
         checked(
             records,
             "note review",
             go_ship_it_argv(
                 paths,
                 "append-note",
-                issue_id,
+                issue_ref,
                 "--section",
                 "Review",
                 "--phase",
@@ -336,7 +346,7 @@ def main(argv: list[str] | None = None) -> int:
         checked(
             records,
             "export run",
-            go_ship_it_argv(paths, "export-run", issue_id, "--output", str(exported_run)),
+            go_ship_it_argv(paths, "export-run", issue_ref, "--output", str(exported_run)),
             cwd=ROOT,
         )
         if args.cleanup_worktree:
@@ -346,7 +356,7 @@ def main(argv: list[str] | None = None) -> int:
                 go_ship_it_argv(
                     paths,
                     "cleanup-issue",
-                    issue_id,
+                    issue_ref,
                     "--destination",
                     "archive",
                     "--note",

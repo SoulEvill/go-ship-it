@@ -35,27 +35,27 @@ def test_packaged_install_acceptance_checks_fresh_room_and_agent_clis(tmp_path, 
             return module.CommandResult(command=command, returncode=0, stdout=f"{package_root}\n", stderr="")
         if "init" in command:
             control_root = Path(command[2])
-            for relative in ("state/repos", "state/issues/todo", "state/issues/execution", "state/issues/archive", "state/runs", "worktrees"):
+            for relative in ("state/repos", "worktrees"):
                 (control_root / relative).mkdir(parents=True, exist_ok=True)
             return module.CommandResult(command=command, returncode=0, stdout="", stderr="")
         if "add-issue" in command:
-            return module.CommandResult(command=command, returncode=0, stdout=str(temp_root / "control" / "state" / "issues" / "todo" / "issue-001.md"), stderr="")
+            return module.CommandResult(command=command, returncode=0, stdout=str(temp_root / "control" / "state" / "repos" / "target" / "issues" / "todo" / "issue-001" / "issue.md"), stderr="")
         if "start-issue" in command:
-            return module.CommandResult(command=command, returncode=0, stdout="Issue: issue-001\n", stderr="")
+            return module.CommandResult(command=command, returncode=0, stdout="Issue: target/issue-001\n", stderr="")
         if "status" in command and "--json" in command:
-            return module.CommandResult(command=command, returncode=0, stdout='{"summary": {"execution": 1}, "active": [{"issue_id": "issue-001"}]}\n', stderr="")
+            return module.CommandResult(command=command, returncode=0, stdout='{"summary": {"execution": 1}, "active": [{"repo_id": "target", "issue_id": "issue-001", "issue_ref": "target/issue-001"}]}\n', stderr="")
         if "append-note" in command:
-            return module.CommandResult(command=command, returncode=0, stdout=str(temp_root / "control" / "state" / "runs" / "issue-001" / "journal.md"), stderr="")
+            return module.CommandResult(command=command, returncode=0, stdout=str(temp_root / "control" / "state" / "repos" / "target" / "issues" / "execution" / "issue-001" / "notes.md"), stderr="")
         if "run-check" in command:
-            return module.CommandResult(command=command, returncode=0, stdout=str(temp_root / "control" / "state" / "runs" / "issue-001" / "commands" / "test.yaml"), stderr="")
+            return module.CommandResult(command=command, returncode=0, stdout=str(temp_root / "control" / "state" / "repos" / "target" / "issues" / "execution" / "issue-001" / "logs" / "commands" / "test.yaml"), stderr="")
         if "handoff" in command:
-            return module.CommandResult(command=command, returncode=0, stdout=str(temp_root / "control" / "state" / "runs" / "issue-001" / "handoff.md"), stderr="")
+            return module.CommandResult(command=command, returncode=0, stdout=str(temp_root / "control" / "state" / "repos" / "target" / "issues" / "execution" / "issue-001" / "handoff.md"), stderr="")
         if "export-run" in command:
             return module.CommandResult(command=command, returncode=0, stdout=str(temp_root / "control" / "docs" / "dogfood" / "issue-001-evidence.md"), stderr="")
         if "verify-run" in command and "--strict" in command:
             return module.CommandResult(command=command, returncode=0, stdout="# GoShipit Run Verification\n", stderr="")
         if "cleanup-issue" in command:
-            return module.CommandResult(command=command, returncode=0, stdout=str(temp_root / "control" / "state" / "issues" / "archive" / "issue-001.md"), stderr="")
+            return module.CommandResult(command=command, returncode=0, stdout=str(temp_root / "control" / "state" / "repos" / "target" / "issues" / "archive" / "issue-001" / "issue.md"), stderr="")
         if command[-1] == "doctor":
             return module.CommandResult(command=command, returncode=0, stdout="# GoShipit Doctor\n", stderr="")
         return module.CommandResult(command=command, returncode=0, stdout="--plugin-dir\n", stderr="")
@@ -99,7 +99,7 @@ def test_packaged_install_acceptance_checks_fresh_room_and_agent_clis(tmp_path, 
         "--root",
         str(temp_root / "control"),
         "verify-run",
-        "issue-001",
+        "target/issue-001",
         "--strict",
     ] in calls
     assert ["/fake/claude", "--plugin-dir", str(package_root), "--help"] in calls
@@ -119,10 +119,6 @@ def test_packaged_install_acceptance_skips_missing_agent_clis(tmp_path, monkeypa
         if command[-1] == "init":
             control_root = Path(command[2])
             (control_root / "state" / "repos").mkdir(parents=True, exist_ok=True)
-            (control_root / "state" / "issues" / "todo").mkdir(parents=True, exist_ok=True)
-            (control_root / "state" / "issues" / "execution").mkdir(parents=True, exist_ok=True)
-            (control_root / "state" / "issues" / "archive").mkdir(parents=True, exist_ok=True)
-            (control_root / "state" / "runs").mkdir(parents=True, exist_ok=True)
             (control_root / "worktrees").mkdir(parents=True, exist_ok=True)
         return module.CommandResult(command=command, returncode=0, stdout="", stderr="")
 

@@ -20,11 +20,7 @@ exclude = [
   "/.pytest_cache",
   "/**/__pycache__",
   "/**/*.pyc",
-  "/state/repos/*.yaml",
-  "/state/runs/**",
-  "/state/issues/todo/*.md",
-  "/state/issues/execution/*.md",
-  "/state/issues/archive/*.md",
+  "/state/repos/*/",
   "/worktrees/**",
 ]
 

@@ -109,9 +109,9 @@ def test_parse_start_worktree_reads_labeled_start_output():
     harness = load_harness()
 
     worktree = harness.parse_start_worktree(
-        "Issue: issue-001\n"
+        "Issue: sample/issue-001\n"
         "Worktree: /tmp/run/worktrees/sample/issue-001\n"
-        "Run File: /tmp/run/state/runs/issue-001/run.yaml\n"
+        "Run File: /tmp/run/state/repos/sample/issues/execution/issue-001/run.yaml\n"
         "Claim ID: claim-issue-001-abc123\n"
     )
 
@@ -122,14 +122,14 @@ def test_phase_argv_builds_set_phase_command(tmp_path):
     harness = load_harness()
     paths = harness.RunPaths.from_root(tmp_path, "sample")
 
-    assert harness.phase_argv(paths, "issue-001", "test", "Ready for checks.") == [
+    assert harness.phase_argv(paths, "sample/issue-001", "test", "Ready for checks.") == [
         "uv",
         "run",
         "go-ship-it",
         "--root",
         str(tmp_path / "go-ship-it-state"),
         "set-phase",
-        "issue-001",
+        "sample/issue-001",
         "test",
         "--note",
         "Ready for checks.",

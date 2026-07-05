@@ -8,7 +8,6 @@ from go_ship_it.state import (
     CheckFailedError,
     add_issue,
     append_note,
-    append_run_log,
     cleanup_issue,
     export_run,
     register_repo,
@@ -19,18 +18,19 @@ from go_ship_it.state import (
 
 def test_export_run_writes_archived_issue_evidence_snapshot(tmp_path):
     root = _started_issue_root(tmp_path, test_command="python -c 'print(\"ok\")'")
-    append_note(root, "issue-001", section="Investigation", note="Read README.", phase="investigate")
-    run_check(root, "issue-001", check="test")
-    cleanup_issue(root, "issue-001", destination="archive", note="Done.", remove_worktree=False)
+    append_note(root, "sample/issue-001", section="Investigation", note="Read README.", phase="investigate")
+    run_check(root, "sample/issue-001", check="test")
+    cleanup_issue(root, "sample/issue-001", destination="archive", note="Done.", remove_worktree=False)
 
-    output = export_run(root, "issue-001", output=tmp_path / "docs" / "dogfood" / "issue-001-evidence.md")
+    output = export_run(root, "sample/issue-001", output=tmp_path / "docs" / "dogfood" / "issue-001-evidence.md")
 
     text = output.read_text()
-    assert "# GoShipit Run Evidence: issue-001" in text
+    assert "# GoShipit Run Evidence: sample/issue-001" in text
     assert "## Issue" in text
     assert "## Run Metadata" in text
-    assert "## Journal" in text
+    assert "## Notes" in text
     assert "Read README." in text
+    assert "## Generated Logs" in text
     assert "## Command Records" in text
     assert "- Check: `test`" in text
     assert "- Command: `python -c 'print(\"ok\")'`" in text
@@ -42,23 +42,23 @@ def test_export_run_writes_archived_issue_evidence_snapshot(tmp_path):
 
 def test_export_run_removes_root_absolute_paths_from_snapshot(tmp_path):
     root = _started_issue_root(tmp_path, test_command="python -c 'print(\"ok\")'")
-    run_check(root, "issue-001", check="test")
-    cleanup_issue(root, "issue-001", destination="archive", note="Done.", remove_worktree=False)
+    run_check(root, "sample/issue-001", check="test")
+    cleanup_issue(root, "sample/issue-001", destination="archive", note="Done.", remove_worktree=False)
 
-    output = export_run(root, "issue-001", output=tmp_path / "issue-001-evidence.md")
+    output = export_run(root, "sample/issue-001", output=tmp_path / "issue-001-evidence.md")
 
     text = output.read_text()
     assert str(root) not in text
     assert "- CWD: `worktrees/sample/issue-001`" in text
-    assert "Evidence: `state/runs/issue-001/commands/" in text
+    assert "Log: `logs/commands/" in text
 
 
 def test_export_run_includes_failed_command_exit_code(tmp_path):
     root = _started_issue_root(tmp_path, test_command="python -c 'import sys; print(\"bad\"); sys.exit(3)'")
     with pytest.raises(CheckFailedError):
-        run_check(root, "issue-001", check="test")
+        run_check(root, "sample/issue-001", check="test")
 
-    output = export_run(root, "issue-001", output=tmp_path / "issue-001-failed-evidence.md")
+    output = export_run(root, "sample/issue-001", output=tmp_path / "issue-001-failed-evidence.md")
 
     text = output.read_text()
     assert "- Exit Code: `3`" in text
@@ -68,41 +68,25 @@ def test_export_run_includes_failed_command_exit_code(tmp_path):
 
 def test_export_run_fails_for_missing_issue_and_run(tmp_path):
     with pytest.raises(FileNotFoundError, match="No issue or run evidence"):
-        export_run(tmp_path, "issue-999", output=tmp_path / "out.md")
+        export_run(tmp_path, "sample/issue-999", output=tmp_path / "out.md")
 
 
 def test_export_run_records_export_metadata(tmp_path):
     root = _started_issue_root(tmp_path, test_command="python -c 'print(\"ok\")'")
-    run_check(root, "issue-001", check="test")
-    cleanup_issue(root, "issue-001", destination="archive", note="Done.", remove_worktree=False)
+    run_check(root, "sample/issue-001", check="test")
+    cleanup_issue(root, "sample/issue-001", destination="archive", note="Done.", remove_worktree=False)
 
-    output = export_run(root, "issue-001", output=tmp_path / "docs" / "dogfood" / "issue-001-evidence.md")
+    output = export_run(root, "sample/issue-001", output=tmp_path / "docs" / "dogfood" / "issue-001-evidence.md")
 
-    run = yaml.safe_load((root / "state" / "runs" / "issue-001" / "run.yaml").read_text())
+    run = yaml.safe_load(
+        (root / "state" / "repos" / "sample" / "issues" / "archive" / "issue-001" / "run.yaml").read_text()
+    )
     assert len(run["exports"]) == 1
     export = run["exports"][0]
     assert export["path"] == output.relative_to(root).as_posix()
     assert export["issue_status"] == "archive"
     assert export["run_phase"] == "cleanup"
     assert isinstance(export["exported_at"], str)
-
-
-def test_export_run_includes_run_log_when_present(tmp_path):
-    root = _started_issue_root(tmp_path, test_command="python -c 'print(\"ok\")'")
-    append_run_log(
-        root,
-        "issue-001",
-        note="Agent recovered with --root.",
-        author="codex",
-        sources=["transcript:/tmp/session.jsonl"],
-    )
-
-    output = export_run(root, "issue-001", output=tmp_path / "issue-001-evidence.md")
-
-    text = output.read_text()
-    assert "## Run Log" in text
-    assert "Agent recovered with --root." in text
-    assert "transcript:/tmp/session.jsonl" in text
 
 
 def _started_issue_root(tmp_path: Path, *, test_command: str) -> Path:
@@ -124,7 +108,7 @@ def _started_issue_root(tmp_path: Path, *, test_command: str) -> Path:
         context="Use the test repo.",
         acceptance_criteria=["README changes."],
     )
-    start_issue(tmp_path, "issue-001", claimed_by="test-thread")
+    start_issue(tmp_path, "sample/issue-001", claimed_by="test-thread")
     return tmp_path
 
 

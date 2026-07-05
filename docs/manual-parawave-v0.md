@@ -21,28 +21,28 @@ uv run go-ship-it add-issue \
   --acceptance "A worktree is created for the printed issue id."
 ```
 
-Expected: a new issue file path is printed, such as `state/issues/todo/<issue-id>.md`.
+Expected: a new issue file path is printed, such as `state/repos/parawave/issues/todo/<issue-id>/issue.md`.
 Copy the issue id from that path for the next commands.
 
 ## 3. Start the issue
 
 ```sh
-uv run go-ship-it start-issue <issue-id> --claimed-by manual-validation
+uv run go-ship-it start-issue parawave/<issue-id> --claimed-by manual-validation
 ```
 
 Expected:
 
-- `state/issues/execution/<issue-id>.md` exists.
-- `state/runs/<issue-id>/run.yaml` exists.
+- `state/repos/parawave/issues/execution/<issue-id>/issue.md` exists.
+- `state/repos/parawave/issues/execution/<issue-id>/run.yaml` exists.
 - `worktrees/parawave/<issue-id>/` exists.
 
 ## 4. Return the issue to todo
 
 ```sh
-uv run go-ship-it cleanup-issue <issue-id> --destination todo --note "Manual validation complete." --remove-worktree
+uv run go-ship-it cleanup-issue parawave/<issue-id> --destination todo --note "Manual validation complete." --remove-worktree
 ```
 
 Expected:
 
-- `state/issues/todo/<issue-id>.md` exists again.
-- `state/issues/execution/<issue-id>.md` no longer exists.
+- `state/repos/parawave/issues/todo/<issue-id>/issue.md` exists again.
+- `state/repos/parawave/issues/execution/<issue-id>/` no longer exists.

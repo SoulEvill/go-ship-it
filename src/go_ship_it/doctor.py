@@ -10,7 +10,7 @@ import yaml
 
 from go_ship_it.frontmatter import parse_frontmatter
 from go_ship_it.package_assets import package_root
-from go_ship_it.state import STATE_DIRS, repo_config_exists, repo_config_files, repo_config_id
+from go_ship_it.state import ISSUE_STATES, STATE_DIRS, repo_config_exists, repo_config_files, repo_config_id
 
 
 @dataclass(frozen=True)
@@ -94,6 +94,21 @@ def _check_repos(root: Path, *, repo_id: str | None) -> list[DoctorFinding]:
                 findings.append(
                     DoctorFinding("warning", "repo.context_missing", subject, "Repo context file is missing")
                 )
+            for issue_state in ISSUE_STATES:
+                issue_dir = repo_file.parent / "issues" / issue_state
+                if issue_dir.is_dir():
+                    findings.append(
+                        DoctorFinding("ok", f"repo.issues_{issue_state}_exists", subject, f"{issue_state} issue folder exists")
+                    )
+                else:
+                    findings.append(
+                        DoctorFinding(
+                            "error",
+                            f"repo.issues_{issue_state}_missing",
+                            subject,
+                            f"Missing repo issue folder: issues/{issue_state}",
+                        )
+                    )
 
         path_value = config.get("path")
         if isinstance(path_value, str):
@@ -163,10 +178,11 @@ def _report(findings: list[DoctorFinding]) -> DoctorReport:
 
 def _check_issues(root: Path) -> list[DoctorFinding]:
     findings: list[DoctorFinding] = []
-    by_id: dict[str, list[tuple[str, Path, dict[str, object]]]] = {}
+    by_id: dict[tuple[str, str], list[tuple[str, Path, dict[str, object]]]] = {}
 
-    for state, issue_file in _issue_files(root):
-        subject = f"issue/{issue_file.stem}"
+    for repo, state, issue_file in _issue_files(root):
+        issue_dir = issue_file.parent
+        subject = f"issue/{repo}/{issue_dir.name}"
         try:
             metadata, _body = parse_frontmatter(issue_file.read_text())
         except Exception as exc:
@@ -178,34 +194,40 @@ def _check_issues(root: Path) -> list[DoctorFinding]:
             findings.append(DoctorFinding("error", "issue.id_missing", subject, "issue id must be set"))
             continue
 
-        by_id.setdefault(issue_id, []).append((state, issue_file, metadata))
-        if issue_id != issue_file.stem:
+        by_id.setdefault((repo, issue_id), []).append((state, issue_file, metadata))
+        if issue_id != issue_dir.name:
             findings.append(
                 DoctorFinding("error", "issue.id_mismatch", subject, "issue id must match issue filename")
             )
 
-        status = metadata.get("status")
-        if status != state:
+        if "status" in metadata:
             findings.append(
-                DoctorFinding("error", "issue.status_mismatch", subject, f"status must match folder: {state}")
+                DoctorFinding("error", "issue.status_redundant", subject, "status is path-derived and must not be set")
             )
 
-        repo = metadata.get("repo")
-        if not isinstance(repo, str) or not repo.strip():
-            findings.append(DoctorFinding("error", "issue.repo_missing", subject, "repo must be set"))
-        elif not repo_config_exists(root, repo):
+        if "repo" in metadata:
+            findings.append(
+                DoctorFinding("error", "issue.repo_redundant", subject, "repo is path-derived and must not be set")
+            )
+
+        if not repo_config_exists(root, repo):
             findings.append(
                 DoctorFinding("error", "issue.repo_unregistered", subject, f"repo is not registered: {repo}")
             )
 
         if state == "execution":
-            run_file = root / "state" / "runs" / issue_id / "run.yaml"
+            run_file = issue_dir / "run.yaml"
             if not run_file.exists():
                 findings.append(
-                    DoctorFinding("error", "run.missing_metadata", f"run/{issue_id}", "execution issue has no run.yaml")
+                    DoctorFinding(
+                        "error",
+                        "run.missing_metadata",
+                        f"run/{repo}/{issue_id}",
+                        "execution issue has no run.yaml",
+                    )
                 )
             else:
-                findings.extend(_check_active_run_metadata(root, issue_id, metadata, run_file))
+                findings.extend(_check_active_run_metadata(root, repo, issue_id, metadata, run_file))
 
             worktree = metadata.get("worktree")
             if isinstance(worktree, str) and not (root / worktree).exists():
@@ -218,14 +240,14 @@ def _check_issues(root: Path) -> list[DoctorFinding]:
                     )
                 )
 
-    for issue_id, occurrences in by_id.items():
+    for (repo, issue_id), occurrences in by_id.items():
         if len(occurrences) > 1:
             locations = ", ".join(path.relative_to(root).as_posix() for _state, path, _metadata in occurrences)
             findings.append(
                 DoctorFinding(
                     "error",
                     "issue.duplicate_id",
-                    f"issue/{issue_id}",
+                    f"issue/{repo}/{issue_id}",
                     f"issue id appears in multiple files: {locations}",
                 )
             )
@@ -235,17 +257,20 @@ def _check_issues(root: Path) -> list[DoctorFinding]:
 
 def _check_active_run_metadata(
     root: Path,
+    repo: str,
     issue_id: str,
     issue_metadata: dict[str, object],
     run_file: Path,
 ) -> list[DoctorFinding]:
-    subject = f"run/{issue_id}"
+    subject = f"run/{repo}/{issue_id}"
     try:
         run = _parse_mapping(run_file.read_text())
     except Exception as exc:
         return [DoctorFinding("error", "run.invalid_yaml", subject, str(exc))]
 
     findings: list[DoctorFinding] = []
+    if run.get("repo") != repo:
+        findings.append(DoctorFinding("error", "run.repo_mismatch", subject, "run repo must match repo folder"))
     if run.get("worktree") != issue_metadata.get("worktree"):
         findings.append(
             DoctorFinding("error", "run.worktree_mismatch", subject, "run worktree must match active issue metadata")
@@ -254,41 +279,56 @@ def _check_active_run_metadata(
         findings.append(
             DoctorFinding("error", "run.branch_mismatch", subject, "run branch must match active issue metadata")
         )
-    if (root / "state" / "runs" / issue_id / "claim.lock").exists():
-        findings.append(DoctorFinding("ok", "claim.exists", f"claim/{issue_id}", "claim lock exists for active issue"))
+    if (run_file.parent / "claim.lock").exists():
+        findings.append(
+            DoctorFinding("ok", "claim.exists", f"claim/{repo}/{issue_id}", "claim lock exists for active issue")
+        )
     return findings
 
 
 def _check_runs_and_worktrees(root: Path) -> list[DoctorFinding]:
     findings: list[DoctorFinding] = []
-    issue_ids = {path.stem for _state, path in _issue_files(root)}
-    active_issue_ids = {path.stem for state, path in _issue_files(root) if state == "execution"}
+    issue_keys = {(repo, path.parent.name) for repo, _state, path in _issue_files(root)}
+    active_issue_keys = {(repo, path.parent.name) for repo, state, path in _issue_files(root) if state == "execution"}
 
-    runs_root = root / "state" / "runs"
-    for run_dir in sorted(runs_root.glob("issue-*")) if runs_root.exists() else []:
-        if not run_dir.is_dir():
-            continue
-        issue_id = run_dir.name
-        if issue_id not in issue_ids:
-            findings.append(
-                DoctorFinding("warning", "run.without_issue", f"run/{issue_id}", "run directory has no issue file")
-            )
-        claim = run_dir / "claim.lock"
-        if claim.exists() and issue_id not in active_issue_ids:
-            findings.append(
-                DoctorFinding(
-                    "error",
-                    "claim.stale_lock",
-                    f"claim/{issue_id}",
-                    "claim lock exists without an active execution issue",
+    repos_root = root / "state" / "repos"
+    for repo_dir in sorted(path for path in repos_root.iterdir() if path.is_dir()) if repos_root.exists() else []:
+        repo = repo_dir.name
+        for issue_state in ISSUE_STATES:
+            issues_dir = repo_dir / "issues" / issue_state
+            for issue_dir in sorted(issues_dir.glob("issue-*")) if issues_dir.exists() else []:
+                if not issue_dir.is_dir():
+                    continue
+                issue_id = issue_dir.name
+                key = (repo, issue_id)
+                if (issue_dir / "run.yaml").exists() and key not in issue_keys:
+                    findings.append(
+                        DoctorFinding(
+                            "warning",
+                            "run.without_issue",
+                            f"run/{repo}/{issue_id}",
+                            "run metadata has no issue.md file",
+                        )
+                    )
+                claim = issue_dir / "claim.lock"
+                if not claim.exists() or key in active_issue_keys:
+                    continue
+                findings.append(
+                    DoctorFinding(
+                        "error",
+                        "claim.stale_lock",
+                        f"claim/{repo}/{issue_id}",
+                        "claim lock exists without an active execution issue",
+                    )
                 )
-            )
 
     worktrees_root = root / "worktrees"
     for worktree in _managed_worktree_dirs(worktrees_root):
+        repo = worktree.parent.name
         issue_id = worktree.name
         subject = f"worktree/{worktree.relative_to(worktrees_root).as_posix()}"
-        if issue_id not in issue_ids:
+        key = (repo, issue_id)
+        if key not in issue_keys:
             findings.append(
                 DoctorFinding(
                     "warning",
@@ -297,7 +337,7 @@ def _check_runs_and_worktrees(root: Path) -> list[DoctorFinding]:
                     "preserved worktree has no matching issue file",
                 )
             )
-        elif issue_id not in active_issue_ids:
+        elif key not in active_issue_keys:
             findings.append(
                 DoctorFinding(
                     "warning",
@@ -438,12 +478,20 @@ def _project_version(root: Path) -> str | None:
     return None
 
 
-def _issue_files(root: Path) -> list[tuple[str, Path]]:
-    files: list[tuple[str, Path]] = []
-    for state in ("todo", "execution", "archive"):
-        directory = root / "state" / "issues" / state
-        if directory.exists():
-            files.extend((state, path) for path in sorted(directory.glob("issue-*.md")))
+def _issue_files(root: Path) -> list[tuple[str, str, Path]]:
+    files: list[tuple[str, str, Path]] = []
+    repos_root = root / "state" / "repos"
+    if not repos_root.exists():
+        return files
+    for repo_dir in sorted(path for path in repos_root.iterdir() if path.is_dir()):
+        for state in ISSUE_STATES:
+            directory = repo_dir / "issues" / state
+            if directory.exists():
+                files.extend(
+                    (repo_dir.name, state, path / "issue.md")
+                    for path in sorted(directory.glob("issue-*"))
+                    if path.is_dir() and (path / "issue.md").exists()
+                )
     return files
 
 

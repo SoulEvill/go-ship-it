@@ -17,7 +17,6 @@ from go_ship_it.state import (
     GoShipitError,
     add_issue,
     append_note,
-    append_run_log,
     cleanup_issue,
     ensure_layout,
     export_run,
@@ -47,12 +46,12 @@ def build_parser() -> argparse.ArgumentParser:
             "Normal path:\n"
             "  init --repo-id <id> --repo-path <path> [--test-command <cmd>]\n"
             "  add-issue --repo <id> --title <title> --problem <problem>\n"
-            "  start-issue <issue-id>\n"
+            "  start-issue <repo>/<issue-id>\n"
             "  status\n"
-            "  run-check <issue-id> --check test    # or run-check --current --check test from the worktree\n"
-            "  cleanup-issue <issue-id> --destination archive --note <note> --remove-worktree\n\n"
+            "  run-check <repo>/<issue-id> --check test    # or run-check --current --check test from the worktree\n"
+            "  cleanup-issue <repo>/<issue-id> --destination archive --note <note> --remove-worktree\n\n"
             "Advanced/support:\n"
-            "  show-issue, show-run, handoff, append-note, append-log, set-phase,\n"
+            "  show-issue, show-run, handoff, append-note, set-phase,\n"
             "  export-run, verify-run, doctor, package-root, update-repo\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -118,19 +117,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Remove the managed worktree. Required when returning to todo.",
     )
 
-    note = subparsers.add_parser("append-note", help="Append a journal note for an active issue.")
+    note = subparsers.add_parser("append-note", help="Append an authored note for an active issue.")
     note.add_argument("issue_id", nargs="?")
     note.add_argument("--current", action="store_true", help="Use the managed worktree's current run context.")
     note.add_argument("--section", required=True)
     note.add_argument("--note", required=True)
     note.add_argument("--phase", default=None)
-
-    log = subparsers.add_parser("append-log", help="Append a freeform run log comment.")
-    log.add_argument("issue_id", nargs="?")
-    log.add_argument("--current", action="store_true", help="Use the managed worktree's current run context.")
-    log.add_argument("--note", required=True)
-    log.add_argument("--author", default=None)
-    log.add_argument("--source", action="append", default=[])
 
     phase = subparsers.add_parser("set-phase", help="Set the current workflow phase for an active issue.")
     phase.add_argument("issue_id", nargs="?")
@@ -155,14 +147,17 @@ def build_parser() -> argparse.ArgumentParser:
     show_run_cmd.add_argument("issue_id", nargs="?")
     show_run_cmd.add_argument("--current", action="store_true", help="Use the managed worktree's current run context.")
     show_run_cmd.add_argument("--commands", action="store_true")
-    show_run_cmd.add_argument("--logs", action="store_true", help="Include freeform run log comments.")
-    show_run_cmd.add_argument("--trace", action="store_true", help="Show chronological run trace.")
+    show_run_cmd.add_argument("--trace", action="store_true", help="Show generated chronological event logs.")
     show_run_cmd.add_argument("--handoff", action="store_true", help="Show copy-pasteable resume context.")
 
     handoff = subparsers.add_parser("handoff", help="Print or write resume context for one run.")
     handoff.add_argument("issue_id", nargs="?")
     handoff.add_argument("--current", action="store_true", help="Use the managed worktree's current run context.")
-    handoff.add_argument("--write", action="store_true", help="Write state/runs/<issue-id>/handoff.md.")
+    handoff.add_argument(
+        "--write",
+        action="store_true",
+        help="Write state/repos/<repo>/issues/<state>/<issue-id>/handoff.md.",
+    )
     handoff.add_argument("--output", default=None, help="Write handoff markdown to a custom path.")
 
     status = subparsers.add_parser("status", help="Show workspace status.")
@@ -213,24 +208,24 @@ def _repo_updates(args: argparse.Namespace) -> tuple[dict[str, object], set[str]
 
 
 def _resolve_issue_target(root: Path, args: argparse.Namespace) -> tuple[Path, str]:
-    issue_id = getattr(args, "issue_id", None)
+    issue_ref = getattr(args, "issue_id", None)
     if getattr(args, "current", False):
         current = resolve_current_run(Path.cwd())
-        if issue_id is not None and issue_id != current.issue_id:
+        if issue_ref is not None and issue_ref != current.issue_ref:
             raise ValueError(
-                f"--current resolved {current.issue_id}, but command specified {issue_id}. "
-                "Use one issue id or switch to the matching worktree."
+                f"--current resolved {current.issue_ref}, but command specified {issue_ref}. "
+                "Use one issue ref or switch to the matching worktree."
             )
-        return current.control_root, current.issue_id
-    if issue_id is None:
+        return current.control_root, current.issue_ref
+    if issue_ref is None:
         try:
             current = resolve_current_run(Path.cwd())
         except GoShipitError as exc:
             raise ValueError(
-                "issue id is required unless --current is used or the command is run from a managed worktree"
+                "issue ref is required unless --current is used or the command is run from a managed worktree"
             ) from exc
-        return current.control_root, current.issue_id
-    return root, issue_id
+        return current.control_root, current.issue_ref
+    return root, issue_ref
 
 
 def _resolve_phase_target(root: Path, args: argparse.Namespace) -> tuple[Path, str, str]:
@@ -275,7 +270,7 @@ def _maybe_current_run() -> object | None:
 def _format_issue_list(items: list[object]) -> str:
     if not items:
         return "No issues found."
-    return "\n".join(f"{item.issue_id} [{item.status}] {item.repo} - {item.title}" for item in items)
+    return "\n".join(f"{_summary_ref(item)} [{item.status}] - {item.title}" for item in items)
 
 
 def _format_issue_detail(detail: object, root: Path) -> str:
@@ -283,7 +278,7 @@ def _format_issue_detail(detail: object, root: Path) -> str:
     branch = detail.metadata.get("branch")
     worktree = detail.metadata.get("worktree")
     lines = [
-        f"# {summary.issue_id}",
+        f"# {_summary_ref(summary)}",
         "",
         f"Title: {summary.title}",
         f"Repo: {summary.repo}",
@@ -298,9 +293,9 @@ def _format_issue_detail(detail: object, root: Path) -> str:
     return "\n".join(lines).rstrip()
 
 
-def _format_run_detail(detail: object, root: Path, *, include_commands: bool, include_logs: bool) -> str:
+def _format_run_detail(detail: object, root: Path, *, include_commands: bool) -> str:
     lines = [
-        f"# Run: {detail.issue_id}",
+        f"# Run: {detail.issue_ref}",
         "",
         f"Run File: {relative_to_root(root, detail.run_file)}",
         f"Phase: {_display_value(detail.run.get('phase'))}",
@@ -320,12 +315,8 @@ def _format_run_detail(detail: object, root: Path, *, include_commands: bool, in
     else:
         lines.append("No command records found.")
 
-    journal = portable_text(root, detail.journal).strip()
-    lines.extend(["", "## Journal", "", journal or "No journal found."])
-
-    if include_logs:
-        run_log = portable_text(root, detail.run_log).strip()
-        lines.extend(["", "## Run Log", "", run_log or "No run log found."])
+    notes = portable_text(root, detail.notes).strip()
+    lines.extend(["", "## Notes", "", notes or "No notes found."])
 
     if include_commands and detail.commands:
         lines.extend(["", "## Command Records"])
@@ -386,7 +377,7 @@ def _format_status(status: object, root: Path, *, current: object | None = None)
     if current is not None:
         lines.extend(
             [
-                f"Current Issue: {current.issue_id}",
+                f"Current Issue: {current.issue_ref}",
                 f"Current Worktree: {relative_to_root(root, current.worktree)}",
                 f"Current Run Branch: {current.branch}",
                 f"Current Claim ID: {current.claim_id}",
@@ -408,17 +399,17 @@ def _format_status(status: object, root: Path, *, current: object | None = None)
     lines.extend(["", "## Active Issues"])
     if status.active:
         for item in status.active:
-            lines.append(f"- {item.issue_id} {item.repo} {item.title}")
+            lines.append(f"- {_summary_ref(item)} {item.title}")
             lines.append(f"  Phase: {item.phase or 'unknown'}")
             try:
-                detail = show_issue(root, item.issue_id)
+                detail = show_issue(root, _summary_ref(item))
                 worktree = detail.metadata.get("worktree")
             except (OSError, ValueError):
                 worktree = None
             if isinstance(worktree, str) and worktree:
                 lines.append(f"  Worktree: {worktree}")
             try:
-                run_detail = show_run(root, item.issue_id)
+                run_detail = show_run(root, _summary_ref(item))
                 claimed_by = run_detail.run.get("claimed_by")
                 claim_id = run_detail.run.get("claim_id")
             except (OSError, ValueError):
@@ -473,9 +464,9 @@ def _format_todo_status(root: Path) -> list[str]:
         lines.append("No todo issues.")
         return lines
     for item in todo:
-        lines.append(f"- {item.issue_id} {item.repo} {item.title}")
+        lines.append(f"- {_summary_ref(item)} {item.title}")
         lines.append("  Next useful command:")
-        lines.append(f"    go-ship-it start-issue {item.issue_id}")
+        lines.append(f"    go-ship-it start-issue {_summary_ref(item)}")
     return lines
 
 
@@ -518,6 +509,8 @@ def _status_payload(status: object, root: Path, *, current: object | None = None
     if current is not None:
         current_payload = {
             "issue_id": current.issue_id,
+            "repo": current.repo_id,
+            "issue_ref": current.issue_ref,
             "worktree": relative_to_root(root, current.worktree),
             "branch": current.branch,
             "claim_id": current.claim_id,
@@ -545,12 +538,12 @@ def _status_payload(status: object, root: Path, *, current: object | None = None
 def _active_issue_payload(root: Path, item: object) -> dict[str, object]:
     payload = _issue_summary_payload(item)
     try:
-        detail = show_issue(root, item.issue_id)
+        detail = show_issue(root, _summary_ref(item))
         worktree = detail.metadata.get("worktree")
     except (OSError, ValueError):
         worktree = None
     try:
-        run_detail = show_run(root, item.issue_id)
+        run_detail = show_run(root, _summary_ref(item))
         claimed_by = run_detail.run.get("claimed_by")
         claim_id = run_detail.run.get("claim_id")
     except (OSError, ValueError):
@@ -570,6 +563,7 @@ def _active_issue_payload(root: Path, item: object) -> dict[str, object]:
 def _issue_summary_payload(item: object) -> dict[str, object]:
     return {
         "issue_id": item.issue_id,
+        "issue_ref": _summary_ref(item),
         "status": item.status,
         "repo": item.repo,
         "title": item.title,
@@ -637,52 +631,58 @@ def _configured_checks(root: Path, repo_id: str) -> list[str]:
 
 
 def _active_issue_next_commands(root: Path, item: object) -> list[str]:
+    ref = _summary_ref(item)
     commands = [
-        f"go-ship-it show-run {item.issue_id} --logs",
-        f"go-ship-it show-run {item.issue_id} --handoff",
+        f"go-ship-it show-run {ref}",
+        f"go-ship-it show-run {ref} --trace",
+        f"go-ship-it show-run {ref} --handoff",
     ]
     phase = (item.phase or "").strip().casefold()
     if phase in {"", "setup", "investigate"}:
         commands.extend(
             [
-                f"go-ship-it append-note {item.issue_id} --section \"Investigation\" --phase investigate --note \"<findings>\"",
-                f"go-ship-it set-phase {item.issue_id} propose --note \"<investigation summary>\"",
+                f"go-ship-it append-note {ref} --section \"Investigation\" --phase investigate --note \"<findings>\"",
+                f"go-ship-it set-phase {ref} propose --note \"<investigation summary>\"",
             ]
         )
     elif phase == "propose":
         commands.extend(
             [
-                f"go-ship-it append-note {item.issue_id} --section \"Proposal\" --phase propose --note \"<proposal>\"",
-                f"go-ship-it set-phase {item.issue_id} implement --note \"<proposal accepted>\"",
+                f"go-ship-it append-note {ref} --section \"Proposal\" --phase propose --note \"<proposal>\"",
+                f"go-ship-it set-phase {ref} implement --note \"<proposal accepted>\"",
             ]
         )
     elif phase == "implement":
         commands.extend(
             [
-                f"go-ship-it append-note {item.issue_id} --section \"Implementation\" --phase implement --note \"<changed files and decisions>\"",
-                f"go-ship-it set-phase {item.issue_id} test --note \"<ready for checks>\"",
+                f"go-ship-it append-note {ref} --section \"Implementation\" --phase implement --note \"<changed files and decisions>\"",
+                f"go-ship-it set-phase {ref} test --note \"<ready for checks>\"",
             ]
         )
     elif phase == "test":
-        commands.append(f"go-ship-it append-note {item.issue_id} --section \"Review\" --phase test --note \"<readiness review>\"")
+        commands.append(f"go-ship-it append-note {ref} --section \"Review\" --phase test --note \"<readiness review>\"")
 
     checks = _configured_checks(root, item.repo)
     for check in checks:
-        commands.append(f"go-ship-it run-check {item.issue_id} --check {check}")
+        commands.append(f"go-ship-it run-check {ref} --check {check}")
     if phase == "test":
         commands.extend(
             [
-                f"go-ship-it handoff {item.issue_id} --write",
-                f"go-ship-it export-run {item.issue_id} --output docs/dogfood/{item.issue_id}-evidence.md",
+                f"go-ship-it handoff {ref} --write",
+                f"go-ship-it export-run {ref} --output docs/dogfood/{item.repo}-{item.issue_id}-evidence.md",
             ]
         )
     commands.extend(
         [
-            f"go-ship-it verify-run {item.issue_id} --strict",
-            f"go-ship-it cleanup-issue {item.issue_id} --destination archive --note \"<note>\" --remove-worktree",
+            f"go-ship-it verify-run {ref} --strict",
+            f"go-ship-it cleanup-issue {ref} --destination archive --note \"<note>\" --remove-worktree",
         ]
     )
     return commands
+
+
+def _summary_ref(item: object) -> str:
+    return f"{item.repo}/{item.issue_id}"
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -758,7 +758,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             run = start_issue(root, args.issue_id, claimed_by=args.claimed_by)
             if run.already_active:
                 print("Active run already exists.")
-            print(f"Issue: {run.issue_id}")
+            print(f"Issue: {run.issue_ref}")
             print(f"Worktree: {run.worktree}")
             print(f"Run File: {run.run_file}")
             print(f"Claimed By: {_display_value(run.claimed_by)}")
@@ -781,20 +781,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         if args.command == "append-note":
             target_root, issue_id = _resolve_issue_target(root, args)
-            journal = append_note(target_root, issue_id, section=args.section, note=args.note, phase=args.phase)
-            print(journal)
-            return 0
-
-        if args.command == "append-log":
-            target_root, issue_id = _resolve_issue_target(root, args)
-            run_log = append_run_log(
-                target_root,
-                issue_id,
-                note=args.note,
-                author=args.author,
-                sources=args.source,
-            )
-            print(run_log)
+            notes = append_note(target_root, issue_id, section=args.section, note=args.note, phase=args.phase)
+            print(notes)
             return 0
 
         if args.command == "set-phase":
@@ -830,7 +818,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                         show_run(target_root, issue_id),
                         target_root,
                         include_commands=args.commands,
-                        include_logs=args.logs,
                     )
                 )
             return 0

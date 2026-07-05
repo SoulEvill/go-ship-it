@@ -51,11 +51,11 @@ def verify_run(root: Path, issue_id: str) -> VerificationReport:
         return _report(findings)
 
     _check_run_metadata(findings, run.run)
-    _check_journal(findings, run.journal)
+    _check_notes(findings, run.notes)
     _check_commands(findings, run.commands)
     if issue is not None:
-        _check_acceptance_criteria(findings, issue.body, run.journal, run.commands)
-        _check_active_handoff(findings, root, issue_id, issue.summary.status)
+        _check_acceptance_criteria(findings, issue.body, run.notes, run.commands)
+        _check_active_handoff(findings, root, run.run_file, issue.summary.status)
         _check_cleanup_and_exports(findings, root, issue_id, issue.summary.status, issue.metadata, run.run)
     return _report(findings)
 
@@ -68,14 +68,14 @@ def _check_run_metadata(findings: list[VerificationFinding], run: dict[str, obje
             findings.append(_error(f"run.{field}_missing", f"run/{field}", f"{field} is missing"))
 
 
-def _check_journal(findings: list[VerificationFinding], journal: str) -> None:
+def _check_notes(findings: list[VerificationFinding], notes: str) -> None:
     required_sections = ("Investigation", "Proposal", "Implementation", "Review")
     for section in required_sections:
-        if f"## {section}" in journal:
-            findings.append(_ok(f"journal.{section.lower()}", f"journal/{section}", f"{section} evidence exists"))
+        if f"## {section}" in notes:
+            findings.append(_ok(f"notes.{section.lower()}", f"notes/{section}", f"{section} note exists"))
         else:
             findings.append(
-                _warning(f"journal.{section.lower()}_missing", f"journal/{section}", f"{section} evidence is missing")
+                _warning(f"notes.{section.lower()}_missing", f"notes/{section}", f"{section} note is missing")
             )
 
 
@@ -100,7 +100,7 @@ def _check_commands(findings: list[VerificationFinding], commands: list[dict[str
 def _check_acceptance_criteria(
     findings: list[VerificationFinding],
     issue_body: str,
-    journal: str,
+    notes: str,
     commands: list[dict[str, object]],
 ) -> None:
     criteria = _acceptance_criteria(issue_body)
@@ -111,7 +111,7 @@ def _check_acceptance_criteria(
     evidence = _normalize_evidence_text(
         "\n".join(
             [
-                journal,
+                notes,
                 *(
                     "\n".join(
                         str(command.get(field) or "")
@@ -154,10 +154,10 @@ def _normalize_evidence_text(value: str) -> str:
     return re.sub(r"\W+", " ", value.casefold()).strip()
 
 
-def _check_active_handoff(findings: list[VerificationFinding], root: Path, issue_id: str, issue_status: str) -> None:
+def _check_active_handoff(findings: list[VerificationFinding], root: Path, run_file: Path, issue_status: str) -> None:
     if issue_status != "execution":
         return
-    handoff = root / "state" / "runs" / issue_id / "handoff.md"
+    handoff = run_file.parent / "handoff.md"
     if handoff.exists():
         findings.append(_ok("handoff.present", "handoff", "Active run handoff exists"))
     else:

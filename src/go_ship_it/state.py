@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -18,10 +19,6 @@ from go_ship_it.portable import portable_path_value, portable_text, relative_to_
 
 STATE_DIRS = (
     "state/repos",
-    "state/issues/todo",
-    "state/issues/execution",
-    "state/issues/archive",
-    "state/runs",
     "worktrees",
 )
 
@@ -70,6 +67,8 @@ class IssueAlreadyActiveError(GoShipitError):
 @dataclass(frozen=True)
 class StartedRun:
     issue_id: str
+    repo_id: str
+    issue_ref: str
     branch: str
     worktree: Path
     issue_file: Path
@@ -84,6 +83,7 @@ class StartedRun:
 class CurrentRun:
     issue_id: str
     repo_id: str
+    issue_ref: str
     control_root: Path
     worktree: Path
     branch: str
@@ -113,10 +113,11 @@ class IssueDetail:
 @dataclass(frozen=True)
 class RunDetail:
     issue_id: str
+    repo_id: str
+    issue_ref: str
     run_file: Path
     run: dict[str, object]
-    journal: str
-    run_log: str
+    notes: str
     commands: list[dict[str, object]]
 
 
@@ -143,15 +144,11 @@ def ensure_layout(root: Path) -> None:
         (root / relative).mkdir(parents=True, exist_ok=True)
 
 
-def next_issue_id(root: Path) -> str:
-    issue_dirs = (
-        root / "state" / "issues" / "todo",
-        root / "state" / "issues" / "execution",
-        root / "state" / "issues" / "archive",
-    )
-    existing = [path for directory in issue_dirs for path in _collect_issue_files(directory)]
-    existing.extend(_collect_issue_dirs(root / "state" / "runs"))
-    existing.extend(_collect_worktree_issue_dirs(root / "worktrees"))
+def next_issue_id(root: Path, repo_id: str) -> str:
+    safe_repo_id = _safe_id(repo_id)
+    issue_dirs = tuple(_repo_issues_dir(root, safe_repo_id, state) for state in ISSUE_STATES)
+    existing = [path for directory in issue_dirs for path in _collect_issue_dirs(directory)]
+    existing.extend(_collect_issue_dirs(root / "worktrees" / safe_repo_id))
     next_number = max((_issue_number(path) for path in existing), default=0) + 1
     return f"issue-{next_number:03d}"
 
@@ -170,6 +167,8 @@ def register_repo(
     safe_repo_id = _safe_id(repo_id)
     repo_dir = _repo_dir(root, safe_repo_id)
     repo_dir.mkdir(parents=True, exist_ok=True)
+    for state in ISSUE_STATES:
+        _repo_issues_dir(root, safe_repo_id, state).mkdir(parents=True, exist_ok=True)
     repo_file = repo_dir / "repo.yaml"
     context_file = repo_dir / "context.md"
     values = {
@@ -216,41 +215,39 @@ def list_issues(root: Path, *, state: str = "all", repo_id: str | None = None) -
         raise ValueError("state must be one of: todo, execution, archive, all")
 
     states = ISSUE_STATES if state == "all" else (state,)
-    safe_repo = _safe_id(repo_id) if repo_id is not None else None
+    repo_ids = [_safe_id(repo_id)] if repo_id is not None else [repo_config_id(path) for path in repo_config_files(root)]
     summaries: list[IssueSummary] = []
 
-    for issue_state in states:
-        directory = root / "state" / "issues" / issue_state
-        for issue_file in _collect_issue_files(directory):
-            metadata, _body = parse_frontmatter(issue_file.read_text())
-            repo = _required_string(metadata, "repo")
-            if safe_repo is not None and repo != safe_repo:
-                continue
-            summaries.append(
-                IssueSummary(
-                    issue_id=_required_string(metadata, "id"),
-                    status=issue_state,
-                    repo=repo,
-                    title=_required_string(metadata, "title"),
-                    phase=str(metadata.get("phase") or ""),
-                    issue_file=issue_file,
+    for repo in repo_ids:
+        for issue_state in states:
+            directory = _repo_issues_dir(root, repo, issue_state)
+            for issue_file in _collect_issue_files(directory):
+                metadata, _body = parse_frontmatter(issue_file.read_text())
+                summaries.append(
+                    IssueSummary(
+                        issue_id=_required_string(metadata, "id"),
+                        status=issue_state,
+                        repo=repo,
+                        title=_required_string(metadata, "title"),
+                        phase=str(metadata.get("phase") or ""),
+                        issue_file=issue_file,
+                    )
                 )
-            )
 
-    return sorted(summaries, key=lambda item: item.issue_id)
+    return sorted(summaries, key=lambda item: (item.repo, item.issue_id))
 
 
-def show_issue(root: Path, issue_id: str) -> IssueDetail:
-    safe_issue_id = _safe_id(issue_id)
-    issue_file = _find_issue_file(root, safe_issue_id)
+def show_issue(root: Path, issue_ref: str) -> IssueDetail:
+    repo_id, issue_id = _parse_issue_ref(issue_ref)
+    issue_file = _find_issue_file(root, repo_id, issue_id)
     if issue_file is None:
-        raise FileNotFoundError(f"No issue found for {safe_issue_id}")
+        raise FileNotFoundError(f"No issue found for {_issue_ref(repo_id, issue_id)}")
 
     metadata, body = parse_frontmatter(issue_file.read_text())
     summary = IssueSummary(
         issue_id=_required_string(metadata, "id"),
-        status=issue_file.parent.name,
-        repo=_required_string(metadata, "repo"),
+        status=issue_file.parent.parent.name,
+        repo=repo_id,
         title=_required_string(metadata, "title"),
         phase=str(metadata.get("phase") or ""),
         issue_file=issue_file,
@@ -258,80 +255,34 @@ def show_issue(root: Path, issue_id: str) -> IssueDetail:
     return IssueDetail(summary=summary, metadata=metadata, body=body.strip())
 
 
-def show_run(root: Path, issue_id: str) -> RunDetail:
-    safe_issue_id = _safe_id(issue_id)
-    run_dir = root / "state" / "runs" / safe_issue_id
+def show_run(root: Path, issue_ref: str) -> RunDetail:
+    repo_id, issue_id = _parse_issue_ref(issue_ref)
+    run_dir = _repo_run_dir(root, repo_id, issue_id)
     if not run_dir.is_dir():
         raise FileNotFoundError(f"Run directory not found: {run_dir}")
 
     run_file = run_dir / "run.yaml"
-    journal_file = run_dir / "journal.md"
-    run_log_file = run_dir / "run-log.md"
-    commands_dir = run_dir / "commands"
+    notes_file = run_dir / "notes.md"
+    commands_dir = _logs_dir(run_dir) / "commands"
     commands = [
         _parse_mapping(command_file.read_text()) | {"record_file": command_file}
         for command_file in sorted(commands_dir.glob("*.yaml"))
     ] if commands_dir.exists() else []
     return RunDetail(
-        issue_id=safe_issue_id,
+        issue_id=issue_id,
+        repo_id=repo_id,
+        issue_ref=_issue_ref(repo_id, issue_id),
         run_file=run_file,
         run=_load_run(run_file),
-        journal=journal_file.read_text().strip() if journal_file.exists() else "",
-        run_log=run_log_file.read_text().strip() if run_log_file.exists() else "",
+        notes=notes_file.read_text().strip() if notes_file.exists() else "",
         commands=commands,
     )
 
 
-def run_timeline(root: Path, issue_id: str) -> list[RunEvent]:
-    safe_issue_id = _safe_id(issue_id)
-    issue_file = _find_issue_file(root, safe_issue_id)
-    run_dir = root / "state" / "runs" / safe_issue_id
-    run_file = run_dir / "run.yaml"
-    events: list[RunEvent] = []
-
-    if issue_file is not None:
-        metadata, _body = parse_frontmatter(issue_file.read_text())
-        created = metadata.get("created_at")
-        if isinstance(created, str):
-            events.append(RunEvent(created, "issue.created", _required_string(metadata, "title")))
-
-    if run_file.exists():
-        run = _parse_mapping(run_file.read_text())
-        started = run.get("started_at")
-        if isinstance(started, str):
-            branch = run.get("branch")
-            worktree = run.get("worktree")
-            events.append(RunEvent(started, "run.started", f"branch={branch} worktree={worktree}"))
-        closed = run.get("closed_at")
-        if isinstance(closed, str):
-            destination = run.get("cleanup_destination")
-            events.append(RunEvent(closed, "run.cleanup", f"destination={destination}"))
-        exports = run.get("exports")
-        if isinstance(exports, list):
-            for item in exports:
-                if isinstance(item, dict) and isinstance(item.get("exported_at"), str):
-                    events.append(RunEvent(str(item["exported_at"]), "export.written", str(item.get("path"))))
-
-    journal = run_dir / "journal.md"
-    if journal.exists():
-        events.extend(_journal_timeline_events(journal.read_text()))
-
-    run_log = run_dir / "run-log.md"
-    if run_log.exists():
-        events.extend(_run_log_timeline_events(run_log.read_text()))
-
-    commands_dir = run_dir / "commands"
-    if commands_dir.exists():
-        for record in sorted(commands_dir.glob("*.yaml")):
-            data = _parse_mapping(record.read_text())
-            started = data.get("started_at")
-            check = data.get("check")
-            exit_code = data.get("exit_code")
-            command = data.get("command")
-            if isinstance(started, str):
-                events.append(RunEvent(started, f"check.{check}", f"exit={exit_code} command={command}"))
-
-    return sorted(events, key=lambda event: event.timestamp)
+def run_timeline(root: Path, issue_ref: str) -> list[RunEvent]:
+    repo_id, issue_id = _parse_issue_ref(issue_ref)
+    run_dir = _repo_run_dir(root, repo_id, issue_id)
+    return sorted(_read_events(run_dir), key=lambda event: event.timestamp)
 
 
 def workspace_status(root: Path) -> WorkspaceStatus:
@@ -340,7 +291,13 @@ def workspace_status(root: Path) -> WorkspaceStatus:
     todo = list_issues(root, state="todo")
     execution = list_issues(root, state="execution")
     archive = list_issues(root, state="archive")
-    runs = _collect_issue_dirs(root / "state" / "runs")
+    runs = [
+        issue_dir
+        for repo_file in repos
+        for state in ISSUE_STATES
+        for issue_dir in _collect_issue_dirs(_repo_issues_dir(root, repo_config_id(repo_file), state))
+        if (issue_dir / "run.yaml").exists()
+    ]
     worktrees_root = root / "worktrees"
     worktrees = [path.relative_to(worktrees_root).as_posix() for path in _collect_worktree_issue_dirs(worktrees_root)]
     return WorkspaceStatus(
@@ -414,15 +371,16 @@ def add_issue(
     ensure_layout(root)
     safe_repo_id = _safe_id(repo_id)
     _read_repo(root, safe_repo_id)
-    issue_id = next_issue_id(root)
-    issue_file = root / "state" / "issues" / "todo" / f"{issue_id}.md"
+    issue_id = next_issue_id(root, safe_repo_id)
+    issue_dir = _repo_issue_dir(root, safe_repo_id, "todo", issue_id)
+    issue_dir.mkdir(parents=True, exist_ok=False)
+    issue_file = issue_dir / "issue.md"
+    created_at = datetime.now().astimezone().isoformat(timespec="seconds")
     metadata = {
         "id": issue_id,
-        "repo": safe_repo_id,
-        "status": "todo",
         "phase": "setup",
         "title": title,
-        "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "created_at": created_at,
         "worktree": None,
         "branch": None,
     }
@@ -433,23 +391,27 @@ def add_issue(
         f"## Acceptance Criteria\n\n{criteria}\n"
     )
     issue_file.write_text(render_frontmatter(metadata, body))
+    _append_event(issue_dir, "issue.created", title, created_at=created_at)
     return issue_file
 
 
-def start_issue(root: Path, issue_id: str, *, claimed_by: str | None = None) -> StartedRun:
+def start_issue(root: Path, issue_ref: str, *, claimed_by: str | None = None) -> StartedRun:
     ensure_layout(root)
-    safe_issue_id = _safe_id(issue_id)
-    todo_file = root / "state" / "issues" / "todo" / f"{safe_issue_id}.md"
-    execution_file = root / "state" / "issues" / "execution" / f"{safe_issue_id}.md"
-    run_dir = root / "state" / "runs" / safe_issue_id
+    repo_id, safe_issue_id = _parse_issue_ref(issue_ref)
+    todo_dir = _repo_issue_dir(root, repo_id, "todo", safe_issue_id)
+    todo_file = todo_dir / "issue.md"
+    execution_dir = _repo_issue_dir(root, repo_id, "execution", safe_issue_id)
+    execution_file = execution_dir / "issue.md"
+    run_dir = execution_dir
     claim_dir = run_dir / "claim.lock"
 
     if execution_file.exists() or claim_dir.exists():
-        return _existing_started_run(root, safe_issue_id, execution_file, run_dir)
+        return _existing_started_run(root, repo_id, safe_issue_id, execution_file, run_dir)
     if not todo_file.exists():
         raise FileNotFoundError(f"No todo issue found at {todo_file}")
 
-    run_dir.mkdir(parents=True, exist_ok=True)
+    execution_dir.parent.mkdir(parents=True, exist_ok=True)
+    todo_dir.rename(execution_dir)
     try:
         claim_dir.mkdir()
     except FileExistsError as exc:
@@ -460,8 +422,7 @@ def start_issue(root: Path, issue_id: str, *, claimed_by: str | None = None) -> 
     branch: str | None = None
     worktree: Path | None = None
     try:
-        metadata, body = parse_frontmatter(todo_file.read_text())
-        repo_id = _required_string(metadata, "repo")
+        metadata, body = parse_frontmatter(execution_file.read_text())
         repo = _read_repo(root, repo_id)
         target_repo = _resolve_repo_path(root, repo.get("path"))
         _ensure_git_repo(target_repo)
@@ -478,7 +439,6 @@ def start_issue(root: Path, issue_id: str, *, claimed_by: str | None = None) -> 
         worktree_created = True
 
         timestamp = _now_iso()
-        metadata["status"] = "execution"
         metadata["phase"] = "investigate"
         metadata["branch"] = branch
         metadata["worktree"] = worktree_relative.as_posix()
@@ -487,7 +447,6 @@ def start_issue(root: Path, issue_id: str, *, claimed_by: str | None = None) -> 
         metadata["started_at"] = timestamp
         metadata["last_activity_at"] = timestamp
         execution_file.write_text(render_frontmatter(metadata, body))
-        todo_file.unlink()
 
         run_file = run_dir / "run.yaml"
         run_file.write_text(
@@ -505,6 +464,16 @@ def start_issue(root: Path, issue_id: str, *, claimed_by: str | None = None) -> 
                 }
             )
         )
+        _append_event(
+            run_dir,
+            "run.started",
+            f"branch={branch} worktree={worktree_relative.as_posix()}",
+            timestamp=timestamp,
+            branch=branch,
+            worktree=worktree_relative.as_posix(),
+            claim_id=claim_id,
+            claimed_by=resolved_claimed_by,
+        )
         context_file = _write_worktree_context(
             root,
             issue_id=safe_issue_id,
@@ -515,11 +484,13 @@ def start_issue(root: Path, issue_id: str, *, claimed_by: str | None = None) -> 
             claim_id=claim_id,
         )
         return StartedRun(
-            safe_issue_id,
-            branch,
-            worktree,
-            execution_file,
-            run_file,
+            issue_id=safe_issue_id,
+            repo_id=repo_id,
+            issue_ref=_issue_ref(repo_id, safe_issue_id),
+            branch=branch,
+            worktree=worktree,
+            issue_file=execution_file,
+            run_file=run_file,
             claim_id=claim_id,
             claimed_by=resolved_claimed_by,
             context_file=context_file,
@@ -530,7 +501,8 @@ def start_issue(root: Path, issue_id: str, *, claimed_by: str | None = None) -> 
         if worktree_created and target_repo is not None and branch is not None:
             _delete_branch(target_repo, branch)
         shutil.rmtree(claim_dir, ignore_errors=True)
-        _remove_empty_directory(run_dir)
+        if execution_dir.exists() and not todo_dir.exists():
+            execution_dir.rename(todo_dir)
         raise
 
 
@@ -556,7 +528,8 @@ def resolve_current_run(cwd: Path | None = None) -> CurrentRun:
     issue_id = _safe_id(_required_string(context, "issue_id"))
     repo_id = _safe_id(_required_string(context, "repo_id"))
     control_root = Path(_required_string(context, "control_root")).expanduser().resolve()
-    run_file = control_root / "state" / "runs" / issue_id / "run.yaml"
+    run_dir = Path(_required_string(context, "run_dir"))
+    run_file = control_root / run_dir / "run.yaml"
     run = _load_run(run_file)
 
     claim_id = _required_string(context, "claim_id")
@@ -585,6 +558,7 @@ def resolve_current_run(cwd: Path | None = None) -> CurrentRun:
     return CurrentRun(
         issue_id=issue_id,
         repo_id=repo_id,
+        issue_ref=_issue_ref(repo_id, issue_id),
         control_root=control_root,
         worktree=worktree,
         branch=branch,
@@ -595,59 +569,31 @@ def resolve_current_run(cwd: Path | None = None) -> CurrentRun:
     )
 
 
-def append_note(root: Path, issue_id: str, *, section: str, note: str, phase: str | None = None) -> Path:
-    safe_issue_id = _safe_id(issue_id)
+def append_note(root: Path, issue_ref: str, *, section: str, note: str, phase: str | None = None) -> Path:
+    repo_id, issue_id = _parse_issue_ref(issue_ref)
     if phase is not None:
         _validate_phase(phase)
-    _active_issue_file(root, safe_issue_id)
-    run_dir = _run_dir(root, safe_issue_id)
+    _active_issue_file(root, repo_id, issue_id)
+    run_dir = _run_dir(root, repo_id, issue_id)
 
-    journal = run_dir / "journal.md"
-    _append_note_to_journal(journal, section=section, note=note, phase=phase)
-    return journal
-
-
-def append_run_log(
-    root: Path,
-    issue_id: str,
-    *,
-    note: str,
-    author: str | None,
-    sources: list[str],
-) -> Path:
-    safe_issue_id = _safe_id(issue_id)
-    run_dir = _run_dir(root, safe_issue_id)
-    run_log = run_dir / "run-log.md"
-    timestamp = _now_iso()
-    cleaned_note = note.strip()
-    if not cleaned_note:
-        raise ValueError("note must not be empty")
-
-    entry = [f"## {timestamp}", ""]
-    if author is not None and author.strip():
-        entry.extend([f"Author: {author.strip()}", ""])
-    cleaned_sources = [source.strip() for source in sources if source.strip()]
-    if cleaned_sources:
-        entry.extend(["Sources:", *[f"- {source}" for source in cleaned_sources], ""])
-    entry.extend([cleaned_note, ""])
-
-    existing = run_log.read_text().rstrip() if run_log.exists() else ""
-    text = "\n\n".join(part for part in (existing, "\n".join(entry).rstrip()) if part)
-    run_log.write_text(f"{text}\n")
-    return run_log
+    notes = run_dir / "notes.md"
+    timestamp = _append_note_to_notes(notes, section=section, note=note, phase=phase)
+    _append_event(
+        run_dir,
+        "note.appended",
+        f"section={section.strip()}",
+        timestamp=timestamp,
+        section=section.strip(),
+        phase=phase,
+    )
+    return notes
 
 
-def read_run_log(root: Path, issue_id: str) -> str:
-    safe_issue_id = _safe_id(issue_id)
-    run_log = root / "state" / "runs" / safe_issue_id / "run-log.md"
-    return run_log.read_text().strip() if run_log.exists() else ""
-
-
-def set_phase(root: Path, issue_id: str, phase: str, *, note: str) -> Path:
-    safe_issue_id = _safe_id(issue_id)
+def set_phase(root: Path, issue_ref: str, phase: str, *, note: str) -> Path:
+    repo_id, issue_id = _parse_issue_ref(issue_ref)
     safe_phase = _validate_phase(phase)
-    issue_file = _active_issue_file(root, safe_issue_id)
-    run_dir = _run_dir(root, safe_issue_id)
+    issue_file = _active_issue_file(root, repo_id, issue_id)
+    run_dir = _run_dir(root, repo_id, issue_id)
     run_file = run_dir / "run.yaml"
 
     metadata, body = parse_frontmatter(issue_file.read_text())
@@ -661,20 +607,27 @@ def set_phase(root: Path, issue_id: str, phase: str, *, note: str) -> Path:
     run["last_activity_at"] = timestamp
     run_file.write_text(_render_mapping(run))
 
-    _append_note_to_journal(run_dir / "journal.md", section=f"Phase: {safe_phase}", note=note, phase=safe_phase)
+    note_timestamp = _append_note_to_notes(run_dir / "notes.md", section=f"Phase: {safe_phase}", note=note, phase=safe_phase)
+    _append_event(
+        run_dir,
+        "phase.changed",
+        f"phase={safe_phase}",
+        timestamp=timestamp,
+        phase=safe_phase,
+        note_timestamp=note_timestamp,
+    )
     return issue_file
 
 
-def run_check(root: Path, issue_id: str, *, check: str) -> Path:
-    safe_issue_id = _safe_id(issue_id)
+def run_check(root: Path, issue_ref: str, *, check: str) -> Path:
+    repo_id, issue_id = _parse_issue_ref(issue_ref)
     safe_check = check.strip().lower()
     if safe_check not in {"setup", "test", "lint"}:
         raise ValueError("check must be one of: setup, test, lint")
 
-    issue_file = _active_issue_file(root, safe_issue_id)
-    run_dir = _run_dir(root, safe_issue_id)
+    issue_file = _active_issue_file(root, repo_id, issue_id)
+    run_dir = _run_dir(root, repo_id, issue_id)
     metadata, _body = parse_frontmatter(issue_file.read_text())
-    repo_id = _required_string(metadata, "repo")
     repo = _read_repo(root, repo_id)
     command = repo.get(f"{safe_check}_command")
     if not isinstance(command, str) or not command.strip():
@@ -698,7 +651,7 @@ def run_check(root: Path, issue_id: str, *, check: str) -> Path:
     )
     ended_at = _now_iso()
 
-    commands_dir = run_dir / "commands"
+    commands_dir = _logs_dir(run_dir) / "commands"
     commands_dir.mkdir(parents=True, exist_ok=True)
     record_file = commands_dir / f"{_timestamp_slug(started_at)}-{safe_check}.yaml"
     record = {
@@ -713,8 +666,19 @@ def run_check(root: Path, issue_id: str, *, check: str) -> Path:
     }
     record_file.write_text(_render_mapping(record))
 
-    note = f"Command: `{command}`\n\nExit code: {result.returncode}\n\nEvidence: `{record_file}`"
-    _append_note_to_journal(run_dir / "journal.md", section=f"Check: {safe_check}", note=note, phase="test")
+    record_label = record_file.relative_to(run_dir).as_posix()
+    note = f"Command: `{command}`\n\nExit code: {result.returncode}\n\nLog: `{record_label}`"
+    _append_note_to_notes(run_dir / "notes.md", section=f"Check: {safe_check}", note=note, phase="test")
+    _append_event(
+        run_dir,
+        f"check.{safe_check}",
+        f"exit={result.returncode} command={command}",
+        timestamp=started_at,
+        check=safe_check,
+        command=command,
+        exit_code=result.returncode,
+        record_file=record_label,
+    )
 
     if result.returncode != 0:
         raise CheckFailedError(safe_check, result.returncode, record_file)
@@ -723,25 +687,26 @@ def run_check(root: Path, issue_id: str, *, check: str) -> Path:
 
 def cleanup_issue(
     root: Path,
-    issue_id: str,
+    issue_ref: str,
     *,
     destination: str,
     note: str,
     remove_worktree: bool,
 ) -> Path:
     ensure_layout(root)
-    safe_issue_id = _safe_id(issue_id)
+    repo_id, issue_id = _parse_issue_ref(issue_ref)
     if destination not in {"todo", "archive"}:
         raise ValueError("destination must be 'todo' or 'archive'")
     if destination == "todo" and not remove_worktree:
         raise ValueError("returning an issue to todo requires remove_worktree=True")
 
-    execution_file = root / "state" / "issues" / "execution" / f"{safe_issue_id}.md"
+    execution_dir = _repo_issue_dir(root, repo_id, "execution", issue_id)
+    execution_file = execution_dir / "issue.md"
     if not execution_file.exists():
         raise FileNotFoundError(f"No execution issue found at {execution_file}")
 
     metadata, body = parse_frontmatter(execution_file.read_text())
-    repo = _read_repo(root, _required_string(metadata, "repo"))
+    repo = _read_repo(root, repo_id)
     target_repo = _resolve_repo_path(root, repo.get("path"))
     worktree_value = metadata.get("worktree")
     branch_value = metadata.get("branch")
@@ -758,24 +723,22 @@ def cleanup_issue(
         if isinstance(branch_value, str):
             _ensure_git_repo(target_repo)
             _delete_branch(target_repo, branch_value)
-        metadata["status"] = "todo"
         metadata["phase"] = "setup"
         metadata["worktree"] = None
         metadata["branch"] = None
         metadata.pop("claimed_by", None)
         metadata.pop("started_at", None)
         metadata["last_activity_at"] = timestamp
-        target_file = root / "state" / "issues" / "todo" / f"{safe_issue_id}.md"
+        target_dir = _repo_issue_dir(root, repo_id, "todo", issue_id)
     else:
-        metadata["status"] = "archive"
         metadata["phase"] = "cleanup"
         metadata["last_activity_at"] = timestamp
-        target_file = root / "state" / "issues" / "archive" / f"{safe_issue_id}.md"
+        target_dir = _repo_issue_dir(root, repo_id, "archive", issue_id)
         body = f"{body.rstrip()}\n\n## Final Note\n\n{note.strip()}\n"
 
-    run_dir = root / "state" / "runs" / safe_issue_id
+    run_dir = execution_dir
     run_dir.mkdir(parents=True, exist_ok=True)
-    _append_journal(run_dir / "journal.md", destination=destination, note=note)
+    _append_cleanup_note(run_dir / "notes.md", destination=destination, note=note)
     _write_run_cleanup(
         run_dir / "run.yaml",
         destination=destination,
@@ -783,42 +746,61 @@ def cleanup_issue(
         branch=branch_value if isinstance(branch_value, str) else None,
         timestamp=timestamp,
     )
+    _append_event(
+        run_dir,
+        "run.cleanup",
+        f"destination={destination}",
+        timestamp=timestamp,
+        destination=destination,
+        remove_worktree=remove_worktree,
+    )
 
-    target_file.write_text(render_frontmatter(metadata, body))
-    execution_file.unlink()
     shutil.rmtree(run_dir / "claim.lock", ignore_errors=True)
+    target_dir.parent.mkdir(parents=True, exist_ok=True)
+    target_file = target_dir / "issue.md"
+    execution_file.write_text(render_frontmatter(metadata, body))
+    if target_dir.exists():
+        raise FileExistsError(f"Target issue directory already exists: {target_dir}")
+    execution_dir.rename(target_dir)
     return target_file
 
 
-def export_run(root: Path, issue_id: str, *, output: Path) -> Path:
-    safe_issue_id = _safe_id(issue_id)
-    issue_file = _find_issue_file(root, safe_issue_id)
-    run_dir = root / "state" / "runs" / safe_issue_id
+def export_run(root: Path, issue_ref: str, *, output: Path) -> Path:
+    repo_id, issue_id = _parse_issue_ref(issue_ref)
+    issue_file = _find_issue_file(root, repo_id, issue_id)
+    run_dir = _repo_run_dir(root, repo_id, issue_id)
     if issue_file is None and not run_dir.exists():
-        raise FileNotFoundError(f"No issue or run evidence found for {safe_issue_id}")
+        raise FileNotFoundError(f"No issue or run evidence found for {_issue_ref(repo_id, issue_id)}")
 
     output = output if output.is_absolute() else root / output
     output.parent.mkdir(parents=True, exist_ok=True)
     run_file = run_dir / "run.yaml"
-    _record_export_metadata(root, issue_file, run_file, output)
-    sections = [f"# GoShipit Run Evidence: {safe_issue_id}", ""]
+    exported_at = _record_export_metadata(root, issue_file, run_file, output)
+    if exported_at is not None:
+        _append_event(
+            run_dir,
+            "export.written",
+            relative_to_root(root, output),
+            timestamp=exported_at,
+            path=relative_to_root(root, output),
+        )
+    sections = [f"# GoShipit Run Evidence: {_issue_ref(repo_id, issue_id)}", ""]
     sections.extend(_issue_export_section(root, issue_file))
     sections.extend(_run_metadata_export_section(root, run_file))
-    sections.extend(_journal_export_section(root, run_dir / "journal.md"))
-    run_log = read_run_log(root, safe_issue_id)
-    if run_log:
-        sections.extend(["## Run Log", "", portable_text(root, run_log), ""])
-    sections.extend(_command_records_export_section(root, run_dir / "commands"))
+    sections.extend(_notes_export_section(root, run_dir / "notes.md"))
+    sections.extend(_events_export_section(root, _events_file(run_dir)))
+    sections.extend(_command_records_export_section(root, _logs_dir(run_dir) / "commands"))
     sections.extend(_worktree_export_section(issue_file, run_file))
-    sections.extend(_notes_export_section())
+    sections.extend(_export_footer_section())
     output.write_text("\n".join(sections).rstrip() + "\n")
     return output
 
 
-def render_handoff(root: Path, issue_id: str) -> str:
-    safe_issue_id = _safe_id(issue_id)
-    issue = show_issue(root, safe_issue_id)
-    run = show_run(root, safe_issue_id)
+def render_handoff(root: Path, issue_ref: str) -> str:
+    repo_id, issue_id = _parse_issue_ref(issue_ref)
+    canonical = _issue_ref(repo_id, issue_id)
+    issue = show_issue(root, canonical)
+    run = show_run(root, canonical)
     worktree = run.run.get("worktree") or issue.metadata.get("worktree")
     branch = run.run.get("branch") or issue.metadata.get("branch")
     claimed_by = run.run.get("claimed_by") or issue.metadata.get("claimed_by")
@@ -826,7 +808,7 @@ def render_handoff(root: Path, issue_id: str) -> str:
     commands = sorted(run.commands, key=lambda item: str(item.get("started_at") or ""))
 
     lines = [
-        f"# GoShipit Handoff: {safe_issue_id}",
+        f"# GoShipit Handoff: {canonical}",
         "",
         f"Control Root: `{root}`",
         f"Issue File: `{relative_to_root(root, issue.summary.issue_file)}`",
@@ -845,13 +827,9 @@ def render_handoff(root: Path, issue_id: str) -> str:
         "",
         issue.body or "No issue body found.",
         "",
-        "## Latest Journal",
+        "## Latest Notes",
         "",
-        _last_section(run.journal) or "No journal found.",
-        "",
-        "## Latest Run Log",
-        "",
-        _last_section(run.run_log) or "No run log found.",
+        _last_section(run.notes) or "No notes found.",
         "",
         "## Command Summary",
     ]
@@ -872,9 +850,10 @@ def render_handoff(root: Path, issue_id: str) -> str:
             "",
             "```sh",
             f"cd {root}",
-            f"go-ship-it show-run {safe_issue_id} --logs",
-            f"go-ship-it show-run {safe_issue_id} --handoff",
-            f"go-ship-it verify-run {safe_issue_id}",
+            f"go-ship-it show-run {canonical}",
+            f"go-ship-it show-run {canonical} --trace",
+            f"go-ship-it show-run {canonical} --handoff",
+            f"go-ship-it verify-run {canonical}",
             "```",
             "",
             "Target repo edits belong only inside the active worktree above.",
@@ -883,13 +862,13 @@ def render_handoff(root: Path, issue_id: str) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def write_handoff(root: Path, issue_id: str, *, output: Path | None = None) -> Path:
-    safe_issue_id = _safe_id(issue_id)
-    output_path = output or root / "state" / "runs" / safe_issue_id / "handoff.md"
+def write_handoff(root: Path, issue_ref: str, *, output: Path | None = None) -> Path:
+    repo_id, issue_id = _parse_issue_ref(issue_ref)
+    output_path = output or _repo_run_dir(root, repo_id, issue_id) / "handoff.md"
     if not output_path.is_absolute():
         output_path = root / output_path
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(render_handoff(root, safe_issue_id))
+    output_path.write_text(render_handoff(root, _issue_ref(repo_id, issue_id)))
     return output_path
 
 
@@ -912,7 +891,13 @@ def _claim_id(root: Path, issue_id: str, worktree_relative: Path) -> str:
     return f"claim-{issue_id}-{digest}"
 
 
-def _existing_started_run(root: Path, issue_id: str, execution_file: Path, run_dir: Path) -> StartedRun:
+def _existing_started_run(
+    root: Path,
+    repo_id: str,
+    issue_id: str,
+    execution_file: Path,
+    run_dir: Path,
+) -> StartedRun:
     run_file = run_dir / "run.yaml"
     if not execution_file.exists() or not run_file.exists():
         raise _active_run_error(issue_id, execution_file, run_dir)
@@ -932,22 +917,23 @@ def _existing_started_run(root: Path, issue_id: str, execution_file: Path, run_d
         execution_file.write_text(render_frontmatter(metadata, body))
     context_file = worktree / ".go-ship-it" / "context.yaml"
     if not context_file.exists() and worktree.exists():
-        repo = _required_string(run, "repo")
         context_file = _write_worktree_context(
             root,
             issue_id=issue_id,
-            repo_id=repo,
+            repo_id=repo_id,
             branch=branch,
             worktree_relative=Path(worktree_value),
             claimed_by=claimed_by,
             claim_id=claim_id,
         )
     return StartedRun(
-        issue_id,
-        branch,
-        worktree,
-        execution_file,
-        run_file,
+        issue_id=issue_id,
+        repo_id=repo_id,
+        issue_ref=_issue_ref(repo_id, issue_id),
+        branch=branch,
+        worktree=worktree,
+        issue_file=execution_file,
+        run_file=run_file,
         claim_id=claim_id,
         claimed_by=claimed_by,
         already_active=True,
@@ -973,8 +959,8 @@ def _write_worktree_context(
         "issue_id": issue_id,
         "repo_id": repo_id,
         "control_root": str(root.resolve()),
-        "run_dir": f"state/runs/{issue_id}",
-        "issue_file": f"state/issues/execution/{issue_id}.md",
+        "run_dir": f"state/repos/{repo_id}/issues/execution/{issue_id}",
+        "issue_file": f"state/repos/{repo_id}/issues/execution/{issue_id}/issue.md",
         "worktree": worktree_relative.as_posix(),
         "branch": branch,
         "claimed_by": claimed_by,
@@ -1027,12 +1013,32 @@ def _display_handoff_value(value: object) -> str:
     return "" if value is None else str(value)
 
 
-def _find_issue_file(root: Path, issue_id: str) -> Path | None:
+def _parse_issue_ref(value: str) -> tuple[str, str]:
+    raw = value.strip()
+    parts = raw.split("/")
+    if len(parts) != 2:
+        raise ValueError(f"issue ref must be <repo>/<issue-id>, got: {value}")
+    repo, issue = parts
+    return _safe_id(repo), _safe_id(issue)
+
+
+def _issue_ref(repo_id: str, issue_id: str) -> str:
+    return f"{_safe_id(repo_id)}/{_safe_id(issue_id)}"
+
+
+def _find_issue_file(root: Path, repo_id: str, issue_id: str) -> Path | None:
+    safe_repo_id = _safe_id(repo_id)
+    safe_issue_id = _safe_id(issue_id)
     for status in ("todo", "execution", "archive"):
-        path = root / "state" / "issues" / status / f"{issue_id}.md"
+        path = _repo_issue_dir(root, safe_repo_id, status, safe_issue_id) / "issue.md"
         if path.exists():
             return path
     return None
+
+
+def _find_issue_dir(root: Path, repo_id: str, issue_id: str) -> Path | None:
+    issue_file = _find_issue_file(root, repo_id, issue_id)
+    return issue_file.parent if issue_file is not None else None
 
 
 def _issue_export_section(root: Path, issue_file: Path | None) -> list[str]:
@@ -1056,74 +1062,64 @@ def _run_metadata_export_section(root: Path, run_file: Path) -> list[str]:
     return ["## Run Metadata", "", "```yaml", portable_text(root, run_file.read_text()).strip(), "```", ""]
 
 
-def _record_export_metadata(root: Path, issue_file: Path | None, run_file: Path, output: Path) -> None:
+def _record_export_metadata(root: Path, issue_file: Path | None, run_file: Path, output: Path) -> str | None:
     if not run_file.exists():
-        return
+        return None
     run = _parse_mapping(run_file.read_text())
-    issue_status = issue_file.parent.name if issue_file is not None else None
+    issue_status = issue_file.parent.parent.name if issue_file is not None else None
+    exported_at = _now_iso()
     exports = run.get("exports")
     if not isinstance(exports, list):
         exports = []
     exports.append(
         {
             "path": relative_to_root(root, output),
-            "exported_at": _now_iso(),
+            "exported_at": exported_at,
             "issue_status": issue_status,
             "run_phase": run.get("phase"),
         }
     )
     run["exports"] = exports
     run_file.write_text(_render_mapping(run))
+    return exported_at
 
 
-def _journal_timeline_events(text: str) -> list[RunEvent]:
+def _read_events(run_dir: Path) -> list[RunEvent]:
+    events_file = _events_file(run_dir)
     events: list[RunEvent] = []
-    for block in re.split(r"\n## ", "\n" + text.strip()):
-        block = block.strip()
-        if not block:
+    if not events_file.exists():
+        return events
+    for line in events_file.read_text().splitlines():
+        if not line.strip():
             continue
-        lines = block.splitlines()
-        title = lines[0].strip()
-        timestamp_index = next(
-            (index for index, line in enumerate(lines[1:], start=1) if line.startswith("Timestamp:")),
-            None,
-        )
-        if timestamp_index is None:
+        try:
+            data = json.loads(line)
+        except json.JSONDecodeError:
             continue
-        timestamp = lines[timestamp_index].split(":", 1)[1].strip()
-        body_start = timestamp_index + 1
-        for index, line in enumerate(lines[timestamp_index + 1 :], start=timestamp_index + 1):
-            if line == "":
-                body_start = index + 1
-                break
-        detail = " ".join(line.strip() for line in lines[body_start:] if line.strip())
-        events.append(RunEvent(timestamp, f"journal.{title}", detail))
+        timestamp = data.get("timestamp")
+        kind = data.get("kind")
+        detail = data.get("detail")
+        if not isinstance(timestamp, str) or not isinstance(kind, str):
+            continue
+        events.append(RunEvent(timestamp, kind, detail if isinstance(detail, str) else ""))
     return events
 
 
-def _run_log_timeline_events(text: str) -> list[RunEvent]:
-    events: list[RunEvent] = []
-    for block in re.split(r"\n## ", "\n" + text.strip()):
-        block = block.strip()
-        if not block:
-            continue
-        lines = block.splitlines()
-        timestamp = lines[0].strip()
-        body_lines = [
-            line.strip()
-            for line in lines[1:]
-            if line.strip() and not line.startswith("Author:") and line != "Sources:" and not line.startswith("- ")
-        ]
-        detail = " ".join(body_lines)
-        if timestamp:
-            events.append(RunEvent(timestamp, "log.entry", detail[:240]))
-    return events
+def _notes_export_section(root: Path, notes: Path) -> list[str]:
+    if not notes.exists():
+        return ["## Notes", "", "No notes found.", ""]
+    return ["## Notes", "", portable_text(root, notes.read_text()).strip(), ""]
 
 
-def _journal_export_section(root: Path, journal: Path) -> list[str]:
-    if not journal.exists():
-        return ["## Journal", "", "No journal found.", ""]
-    return ["## Journal", "", portable_text(root, journal.read_text()).strip(), ""]
+def _events_export_section(root: Path, events_file: Path) -> list[str]:
+    if not events_file.exists():
+        return ["## Generated Logs", "", "No event log found.", ""]
+    return [
+        "## Generated Logs",
+        "",
+        f"Events: `{relative_to_root(root, events_file)}`",
+        "",
+    ]
 
 
 def _command_records_export_section(root: Path, commands_dir: Path) -> list[str]:
@@ -1190,9 +1186,9 @@ def _worktree_export_section(issue_file: Path | None, run_file: Path) -> list[st
     return lines
 
 
-def _notes_export_section() -> list[str]:
+def _export_footer_section() -> list[str]:
     return [
-        "## Notes",
+        "## Export Notes",
         "",
         "Generated by `go-ship-it export-run`. Command records preserve recorded exit codes.",
         "",
@@ -1209,7 +1205,7 @@ def _safe_id(value: str) -> str:
 def _collect_issue_files(directory: Path) -> list[Path]:
     if not directory.exists():
         return []
-    return sorted(directory.glob("issue-*.md"))
+    return sorted(path / "issue.md" for path in _collect_issue_dirs(directory) if (path / "issue.md").exists())
 
 
 def _collect_issue_dirs(directory: Path) -> list[Path]:
@@ -1229,7 +1225,7 @@ def _collect_worktree_issue_dirs(worktrees_root: Path) -> list[Path]:
 
 
 def _issue_number(path: Path) -> int:
-    match = re.fullmatch(r"issue-(\d+)(?:\.md)?", path.name)
+    match = re.fullmatch(r"issue-(\d+)", path.name)
     return int(match.group(1)) if match else 0
 
 
@@ -1248,16 +1244,16 @@ def _active_run_error(issue_id: str, execution_file: Path, run_dir: Path) -> Iss
     )
 
 
-def _active_issue_file(root: Path, issue_id: str) -> Path:
-    issue_file = root / "state" / "issues" / "execution" / f"{_safe_id(issue_id)}.md"
+def _active_issue_file(root: Path, repo_id: str, issue_id: str) -> Path:
+    issue_file = _repo_issue_dir(root, _safe_id(repo_id), "execution", _safe_id(issue_id)) / "issue.md"
     if not issue_file.exists():
         raise FileNotFoundError(f"No execution issue found at {issue_file}")
     return issue_file
 
 
-def _run_dir(root: Path, issue_id: str) -> Path:
-    run_dir = root / "state" / "runs" / _safe_id(issue_id)
-    if not run_dir.is_dir():
+def _run_dir(root: Path, repo_id: str, issue_id: str) -> Path:
+    run_dir = _repo_run_dir(root, _safe_id(repo_id), _safe_id(issue_id))
+    if not run_dir.is_dir() or not (run_dir / "run.yaml").exists():
         raise FileNotFoundError(f"Run directory not found: {run_dir}")
     return run_dir
 
@@ -1270,6 +1266,23 @@ def _load_run(run_file: Path) -> dict[str, object]:
 
 def _repo_dir(root: Path, repo_id: str) -> Path:
     return root / "state" / "repos" / _safe_id(repo_id)
+
+
+def _repo_issues_dir(root: Path, repo_id: str, state: str) -> Path:
+    if state not in ISSUE_STATES:
+        raise ValueError("state must be one of: todo, execution, archive")
+    return _repo_dir(root, repo_id) / "issues" / state
+
+
+def _repo_issue_dir(root: Path, repo_id: str, state: str, issue_id: str) -> Path:
+    return _repo_issues_dir(root, repo_id, state) / _safe_id(issue_id)
+
+
+def _repo_run_dir(root: Path, repo_id: str, issue_id: str) -> Path:
+    found = _find_issue_dir(root, repo_id, issue_id)
+    if found is not None:
+        return found
+    return _repo_issue_dir(root, repo_id, "execution", issue_id)
 
 
 def _repo_file(root: Path, repo_id: str) -> Path:
@@ -1355,7 +1368,37 @@ def _is_managed_worktree(root: Path, worktree: Path) -> bool:
     return True
 
 
-def _append_note_to_journal(journal: Path, *, section: str, note: str, phase: str | None) -> None:
+def _logs_dir(run_dir: Path) -> Path:
+    return run_dir / "logs"
+
+
+def _events_file(run_dir: Path) -> Path:
+    return _logs_dir(run_dir) / "events.jsonl"
+
+
+def _append_event(
+    run_dir: Path,
+    kind: str,
+    detail: str,
+    *,
+    timestamp: str | None = None,
+    **fields: object,
+) -> str:
+    created_at = timestamp or _now_iso()
+    payload = {
+        "timestamp": created_at,
+        "kind": kind,
+        "detail": detail,
+        **{key: value for key, value in fields.items() if value is not None},
+    }
+    events_file = _events_file(run_dir)
+    events_file.parent.mkdir(parents=True, exist_ok=True)
+    with events_file.open("a") as handle:
+        handle.write(json.dumps(payload, sort_keys=True) + "\n")
+    return created_at
+
+
+def _append_note_to_notes(notes: Path, *, section: str, note: str, phase: str | None) -> str:
     title = section.strip()
     if not title:
         raise ValueError("section must not be empty")
@@ -1363,16 +1406,18 @@ def _append_note_to_journal(journal: Path, *, section: str, note: str, phase: st
     if not body:
         raise ValueError("note must not be empty")
 
-    lines = [f"\n## {title}", "", f"Timestamp: {_now_iso()}"]
+    timestamp = _now_iso()
+    lines = [f"\n## {title}", "", f"Timestamp: {timestamp}"]
     if phase is not None:
         lines.append(f"Phase: {phase}")
     lines.extend(["", body, ""])
-    with journal.open("a") as handle:
+    with notes.open("a") as handle:
         handle.write("\n".join(lines))
+    return timestamp
 
 
-def _append_journal(journal: Path, *, destination: str, note: str) -> None:
-    with journal.open("a") as handle:
+def _append_cleanup_note(notes: Path, *, destination: str, note: str) -> None:
+    with notes.open("a") as handle:
         handle.write(f"\n## Cleanup\n\nDestination: {destination}\n\n{note.strip()}\n")
 
 

@@ -7,7 +7,7 @@ import yaml
 from go_ship_it import __version__
 from go_ship_it.cli import build_parser, main
 from go_ship_it.frontmatter import parse_frontmatter
-from go_ship_it.state import add_issue, append_note, append_run_log, register_repo, run_check, set_phase, start_issue
+from go_ship_it.state import add_issue, append_note, register_repo, run_check, set_phase, start_issue
 
 
 def test_version_is_defined():
@@ -53,7 +53,7 @@ def test_main_init_creates_state_layout(tmp_path):
 
     assert exit_code == 0
     assert (tmp_path / "state" / "repos").is_dir()
-    assert (tmp_path / "state" / "issues" / "todo").is_dir()
+    assert not (tmp_path / "state" / "issues").exists()
 
 
 def test_main_init_can_register_first_repo(tmp_path):
@@ -102,55 +102,27 @@ def test_register_repo_cli_preserves_relative_paths(tmp_path):
 def test_parser_has_evidence_commands():
     parser = build_parser()
 
-    append = parser.parse_args(["append-note", "issue-001", "--section", "Investigation", "--note", "Read README"])
+    append = parser.parse_args(["append-note", "sample/issue-001", "--section", "Investigation", "--note", "Read README"])
     assert append.command == "append-note"
-    assert append.issue_id == "issue-001"
+    assert append.issue_id == "sample/issue-001"
     assert append.section == "Investigation"
     assert append.note == "Read README"
 
-    phase = parser.parse_args(["set-phase", "issue-001", "propose", "--note", "Ready to propose"])
+    phase = parser.parse_args(["set-phase", "sample/issue-001", "propose", "--note", "Ready to propose"])
     assert phase.command == "set-phase"
-    assert phase.issue_id == "issue-001"
+    assert phase.issue_id == "sample/issue-001"
     assert phase.phase == "propose"
     assert phase.note == "Ready to propose"
 
-    check = parser.parse_args(["run-check", "issue-001", "--check", "test"])
+    check = parser.parse_args(["run-check", "sample/issue-001", "--check", "test"])
     assert check.command == "run-check"
-    assert check.issue_id == "issue-001"
+    assert check.issue_id == "sample/issue-001"
     assert check.check == "test"
 
-    export = parser.parse_args(["export-run", "issue-001", "--output", "docs/dogfood/issue-001-evidence.md"])
+    export = parser.parse_args(["export-run", "sample/issue-001", "--output", "docs/dogfood/sample-issue-001-evidence.md"])
     assert export.command == "export-run"
-    assert export.issue_id == "issue-001"
-    assert export.output == "docs/dogfood/issue-001-evidence.md"
-
-
-def test_parser_has_append_log_command():
-    parser = build_parser()
-
-    args = parser.parse_args(
-        [
-            "append-log",
-            "issue-001",
-            "--note",
-            "Agent recovered with --root.",
-            "--author",
-            "codex",
-            "--source",
-            "transcript:/tmp/session.jsonl",
-            "--source",
-            "command:state/runs/issue-001/commands/test.yaml",
-        ]
-    )
-
-    assert args.command == "append-log"
-    assert args.issue_id == "issue-001"
-    assert args.note == "Agent recovered with --root."
-    assert args.author == "codex"
-    assert args.source == [
-        "transcript:/tmp/session.jsonl",
-        "command:state/runs/issue-001/commands/test.yaml",
-    ]
+    assert export.issue_id == "sample/issue-001"
+    assert export.output == "docs/dogfood/sample-issue-001-evidence.md"
 
 
 def test_parser_has_repo_config_commands():
@@ -179,14 +151,14 @@ def test_parser_has_navigation_commands():
     parser = build_parser()
     assert parser.parse_args(["list-issues"]).command == "list-issues"
     assert parser.parse_args(["list-issues", "--state", "execution", "--repo", "parawave"]).state == "execution"
-    assert parser.parse_args(["show-issue", "issue-001"]).command == "show-issue"
+    assert parser.parse_args(["show-issue", "sample/issue-001"]).command == "show-issue"
     assert parser.parse_args(["show-issue", "--current"]).current is True
-    assert parser.parse_args(["show-run", "issue-001", "--commands"]).commands is True
+    assert parser.parse_args(["show-run", "sample/issue-001", "--commands"]).commands is True
     assert parser.parse_args(["show-run", "--current", "--commands"]).current is True
-    assert parser.parse_args(["show-run", "issue-001", "--trace"]).trace is True
-    assert parser.parse_args(["show-run", "issue-001", "--handoff"]).handoff is True
-    assert parser.parse_args(["handoff", "issue-001"]).command == "handoff"
-    assert parser.parse_args(["handoff", "issue-001", "--write"]).write is True
+    assert parser.parse_args(["show-run", "sample/issue-001", "--trace"]).trace is True
+    assert parser.parse_args(["show-run", "sample/issue-001", "--handoff"]).handoff is True
+    assert parser.parse_args(["handoff", "sample/issue-001"]).command == "handoff"
+    assert parser.parse_args(["handoff", "sample/issue-001", "--write"]).write is True
     assert parser.parse_args(["handoff", "--current", "--write"]).current is True
     status = parser.parse_args(["status", "--json"])
     assert status.command == "status"
@@ -196,10 +168,10 @@ def test_parser_has_navigation_commands():
 def test_parser_has_verify_run_command():
     parser = build_parser()
 
-    args = parser.parse_args(["verify-run", "issue-001", "--strict", "--json"])
+    args = parser.parse_args(["verify-run", "sample/issue-001", "--strict", "--json"])
 
     assert args.command == "verify-run"
-    assert args.issue_id == "issue-001"
+    assert args.issue_id == "sample/issue-001"
     assert args.strict is True
     assert args.json is True
 
@@ -327,7 +299,7 @@ def test_main_list_issues_prints_issue_summary(tmp_path, capsys):
     exit_code = main(["--root", str(tmp_path), "list-issues"])
 
     assert exit_code == 0
-    assert "issue-001 [execution] sample - Change README" in capsys.readouterr().out
+    assert "sample/issue-001 [execution] - Change README" in capsys.readouterr().out
 
 
 def test_main_list_issues_prints_no_matches(tmp_path, capsys):
@@ -340,27 +312,27 @@ def test_main_list_issues_prints_no_matches(tmp_path, capsys):
 def test_main_show_issue_prints_body_and_metadata(tmp_path, capsys):
     _started_issue_root(tmp_path)
 
-    exit_code = main(["--root", str(tmp_path), "show-issue", "issue-001"])
+    exit_code = main(["--root", str(tmp_path), "show-issue", "sample/issue-001"])
 
     assert exit_code == 0
     out = capsys.readouterr().out
-    assert "# issue-001" in out
+    assert "# sample/issue-001" in out
     assert "Branch: go-ship-it/issue-001" in out
     assert "Worktree: worktrees/sample/issue-001" in out
-    assert "Issue File: state/issues/execution/issue-001.md" in out
+    assert "Issue File: state/repos/sample/issues/execution/issue-001/issue.md" in out
     assert "README needs another line." in out
 
 
 def test_main_show_run_prints_summary_without_command_tails(tmp_path, capsys):
     root = _started_issue_root(tmp_path, test_command="python -c 'print(\"ok\")'")
-    append_note(root, "issue-001", section="Investigation", note="Read files.", phase="investigate")
-    run_check(root, "issue-001", check="test")
+    append_note(root, "sample/issue-001", section="Investigation", note="Read files.", phase="investigate")
+    run_check(root, "sample/issue-001", check="test")
 
-    exit_code = main(["--root", str(tmp_path), "show-run", "issue-001"])
+    exit_code = main(["--root", str(tmp_path), "show-run", "sample/issue-001"])
 
     assert exit_code == 0
     out = capsys.readouterr().out
-    assert "# Run: issue-001" in out
+    assert "# Run: sample/issue-001" in out
     assert "- test exit 0: python -c 'print(\"ok\")'" in out
     assert "Read files." in out
     assert "Stdout tail:" not in out
@@ -368,10 +340,10 @@ def test_main_show_run_prints_summary_without_command_tails(tmp_path, capsys):
 
 def test_main_show_run_commands_prints_portable_tails(tmp_path, capsys):
     root = _started_issue_root(tmp_path, test_command="python -c 'print(\"ok\")'")
-    run_check(root, "issue-001", check="test")
+    run_check(root, "sample/issue-001", check="test")
     capsys.readouterr()
 
-    exit_code = main(["--root", str(tmp_path), "show-run", "issue-001", "--commands"])
+    exit_code = main(["--root", str(tmp_path), "show-run", "sample/issue-001", "--commands"])
 
     assert exit_code == 0
     out = capsys.readouterr().out
@@ -385,11 +357,11 @@ def test_main_show_run_commands_prints_portable_tails(tmp_path, capsys):
 def test_main_show_run_trace_prints_timeline(tmp_path, capsys):
     _started_issue_root(tmp_path)
 
-    exit_code = main(["--root", str(tmp_path), "show-run", "issue-001", "--trace"])
+    exit_code = main(["--root", str(tmp_path), "show-run", "sample/issue-001", "--trace"])
 
     assert exit_code == 0
     output = capsys.readouterr().out
-    assert "# Trace: issue-001" in output
+    assert "# Trace: sample/issue-001" in output
     assert "issue.created" in output
     assert "run.started" in output
 
@@ -397,25 +369,25 @@ def test_main_show_run_trace_prints_timeline(tmp_path, capsys):
 def test_main_show_run_handoff_prints_resume_context(tmp_path, capsys):
     _started_issue_root(tmp_path)
 
-    exit_code = main(["--root", str(tmp_path), "show-run", "issue-001", "--handoff"])
+    exit_code = main(["--root", str(tmp_path), "show-run", "sample/issue-001", "--handoff"])
 
     assert exit_code == 0
     output = capsys.readouterr().out
-    assert "# GoShipit Handoff: issue-001" in output
+    assert "# GoShipit Handoff: sample/issue-001" in output
     assert "Claimed By: `test-thread`" in output
     assert "Claim ID: `claim-issue-001-" in output
-    assert "go-ship-it verify-run issue-001" in output
+    assert "go-ship-it verify-run sample/issue-001" in output
 
 
 def test_main_handoff_write_creates_resume_file(tmp_path, capsys):
     _started_issue_root(tmp_path)
 
-    exit_code = main(["--root", str(tmp_path), "handoff", "issue-001", "--write"])
+    exit_code = main(["--root", str(tmp_path), "handoff", "sample/issue-001", "--write"])
 
     assert exit_code == 0
-    output_path = tmp_path / "state" / "runs" / "issue-001" / "handoff.md"
+    output_path = tmp_path / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001" / "handoff.md"
     assert capsys.readouterr().out == f"{output_path}\n"
-    assert "# GoShipit Handoff: issue-001" in output_path.read_text()
+    assert "# GoShipit Handoff: sample/issue-001" in output_path.read_text()
 
 
 def test_main_handoff_output_writes_custom_resume_file(tmp_path, capsys):
@@ -426,7 +398,7 @@ def test_main_handoff_output_writes_custom_resume_file(tmp_path, capsys):
             "--root",
             str(tmp_path),
             "handoff",
-            "issue-001",
+            "sample/issue-001",
             "--output",
             "handoffs/issue-001.md",
         ]
@@ -445,10 +417,10 @@ def test_main_current_handoff_uses_worktree_context(tmp_path, monkeypatch, capsy
 
     exit_code = main(["handoff", "--current", "--write"])
 
-    output_path = root / "state" / "runs" / "issue-001" / "handoff.md"
+    output_path = root / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001" / "handoff.md"
     assert exit_code == 0
     assert capsys.readouterr().out == f"{output_path}\n"
-    assert "# GoShipit Handoff: issue-001" in output_path.read_text()
+    assert "# GoShipit Handoff: sample/issue-001" in output_path.read_text()
 
 
 def test_main_handoff_without_issue_auto_uses_worktree_context(tmp_path, monkeypatch, capsys):
@@ -457,7 +429,7 @@ def test_main_handoff_without_issue_auto_uses_worktree_context(tmp_path, monkeyp
 
     exit_code = main(["handoff", "--write"])
 
-    output_path = root / "state" / "runs" / "issue-001" / "handoff.md"
+    output_path = root / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001" / "handoff.md"
     assert exit_code == 0
     assert capsys.readouterr().out == f"{output_path}\n"
 
@@ -469,7 +441,7 @@ def test_main_show_run_without_issue_auto_uses_worktree_context(tmp_path, monkey
     exit_code = main(["show-run"])
 
     assert exit_code == 0
-    assert "# Run: issue-001" in capsys.readouterr().out
+    assert "# Run: sample/issue-001" in capsys.readouterr().out
 
 
 def test_main_current_show_run_rejects_context_claim_mismatch(tmp_path, monkeypatch, capsys):
@@ -491,11 +463,11 @@ def test_main_current_show_run_rejects_context_claim_mismatch(tmp_path, monkeypa
 def test_main_verify_run_prints_report(tmp_path, capsys):
     _started_issue_root(tmp_path)
 
-    exit_code = main(["--root", str(tmp_path), "verify-run", "issue-001"])
+    exit_code = main(["--root", str(tmp_path), "verify-run", "sample/issue-001"])
 
     assert exit_code == 0
     output = capsys.readouterr().out
-    assert "# GoShipit Run Verification: issue-001" in output
+    assert "# GoShipit Run Verification: sample/issue-001" in output
     assert "Summary:" in output
 
 
@@ -503,11 +475,11 @@ def test_main_verify_run_json_prints_structured_findings(tmp_path, capsys):
     _started_issue_root(tmp_path)
     capsys.readouterr()
 
-    exit_code = main(["--root", str(tmp_path), "verify-run", "issue-001", "--json"])
+    exit_code = main(["--root", str(tmp_path), "verify-run", "sample/issue-001", "--json"])
 
     payload = json.loads(capsys.readouterr().out)
     assert exit_code == 0
-    assert payload["issue_id"] == "issue-001"
+    assert payload["issue_id"] == "sample/issue-001"
     assert payload["summary"]["errors"] == 0
     assert "findings" in payload
     assert any(item["code"] == "run.exists" for item in payload["findings"]["ok"])
@@ -527,18 +499,19 @@ def test_main_status_prints_workspace_summary(tmp_path, capsys):
     assert "Repos: 1" in out
     assert "Execution: 1" in out
     assert "Managed Worktrees: 1" in out
-    assert "- issue-001 sample Change README" in out
+    assert "- sample/issue-001 Change README" in out
     assert "Phase: investigate" in out
     assert "Claimed By: test-thread" in out
     assert "Claim ID: claim-issue-001-" in out
     assert "Worktree: worktrees/sample/issue-001" in out
-    assert "go-ship-it show-run issue-001 --logs" in out
-    assert "go-ship-it show-run issue-001 --handoff" in out
-    assert "go-ship-it append-note issue-001 --section \"Investigation\"" in out
-    assert "go-ship-it set-phase issue-001 propose" in out
-    assert "go-ship-it run-check issue-001 --check test" in out
-    assert "go-ship-it verify-run issue-001 --strict" in out
-    assert "go-ship-it cleanup-issue issue-001 --destination archive --note \"<note>\" --remove-worktree" in out
+    assert "go-ship-it show-run sample/issue-001" in out
+    assert "go-ship-it show-run sample/issue-001 --trace" in out
+    assert "go-ship-it show-run sample/issue-001 --handoff" in out
+    assert "go-ship-it append-note sample/issue-001 --section \"Investigation\"" in out
+    assert "go-ship-it set-phase sample/issue-001 propose" in out
+    assert "go-ship-it run-check sample/issue-001 --check test" in out
+    assert "go-ship-it verify-run sample/issue-001 --strict" in out
+    assert "go-ship-it cleanup-issue sample/issue-001 --destination archive --note \"<note>\" --remove-worktree" in out
     assert "- sample/issue-001" in out
 
 
@@ -553,51 +526,52 @@ def test_main_status_json_prints_structured_workspace(tmp_path, capsys):
     assert payload["summary"]["repos"] == 1
     assert payload["summary"]["execution"] == 1
     assert payload["active"][0]["issue_id"] == "issue-001"
+    assert payload["active"][0]["issue_ref"] == "sample/issue-001"
     assert payload["active"][0]["phase"] == "investigate"
-    assert "go-ship-it set-phase issue-001 propose --note \"<investigation summary>\"" in payload["active"][0]["next_commands"]
+    assert "go-ship-it set-phase sample/issue-001 propose --note \"<investigation summary>\"" in payload["active"][0]["next_commands"]
 
 
 def test_main_status_guides_proposal_phase_to_implementation(tmp_path, capsys):
     root = _started_issue_root(tmp_path)
-    set_phase(root, "issue-001", "propose", note="Ready to propose.")
+    set_phase(root, "sample/issue-001", "propose", note="Ready to propose.")
 
     exit_code = main(["--root", str(root), "status"])
 
     assert exit_code == 0
     out = capsys.readouterr().out
     assert "Phase: propose" in out
-    assert "go-ship-it append-note issue-001 --section \"Proposal\"" in out
-    assert "go-ship-it set-phase issue-001 implement --note \"<proposal accepted>\"" in out
+    assert "go-ship-it append-note sample/issue-001 --section \"Proposal\"" in out
+    assert "go-ship-it set-phase sample/issue-001 implement --note \"<proposal accepted>\"" in out
 
 
 def test_main_status_guides_implementation_phase_to_test(tmp_path, capsys):
     root = _started_issue_root(tmp_path, test_command="python -c 'print(\"ok\")'")
-    set_phase(root, "issue-001", "implement", note="Implementation started.")
+    set_phase(root, "sample/issue-001", "implement", note="Implementation started.")
 
     exit_code = main(["--root", str(root), "status"])
 
     assert exit_code == 0
     out = capsys.readouterr().out
     assert "Phase: implement" in out
-    assert "go-ship-it append-note issue-001 --section \"Implementation\"" in out
-    assert "go-ship-it set-phase issue-001 test --note \"<ready for checks>\"" in out
-    assert "go-ship-it run-check issue-001 --check test" in out
+    assert "go-ship-it append-note sample/issue-001 --section \"Implementation\"" in out
+    assert "go-ship-it set-phase sample/issue-001 test --note \"<ready for checks>\"" in out
+    assert "go-ship-it run-check sample/issue-001 --check test" in out
 
 
 def test_main_status_guides_test_phase_to_readiness_sequence(tmp_path, capsys):
     root = _started_issue_root(tmp_path, test_command="python -c 'print(\"ok\")'")
-    set_phase(root, "issue-001", "test", note="Ready for checks.")
+    set_phase(root, "sample/issue-001", "test", note="Ready for checks.")
 
     exit_code = main(["--root", str(root), "status"])
 
     assert exit_code == 0
     out = capsys.readouterr().out
     assert "Phase: test" in out
-    assert "go-ship-it run-check issue-001 --check test" in out
-    assert "go-ship-it handoff issue-001 --write" in out
-    assert "go-ship-it export-run issue-001 --output docs/dogfood/issue-001-evidence.md" in out
-    assert "go-ship-it verify-run issue-001 --strict" in out
-    assert "go-ship-it cleanup-issue issue-001 --destination archive --note \"<note>\" --remove-worktree" in out
+    assert "go-ship-it run-check sample/issue-001 --check test" in out
+    assert "go-ship-it handoff sample/issue-001 --write" in out
+    assert "go-ship-it export-run sample/issue-001 --output docs/dogfood/sample-issue-001-evidence.md" in out
+    assert "go-ship-it verify-run sample/issue-001 --strict" in out
+    assert "go-ship-it cleanup-issue sample/issue-001 --destination archive --note \"<note>\" --remove-worktree" in out
 
 
 def test_main_status_guides_empty_control_root(tmp_path, capsys):
@@ -640,8 +614,8 @@ def test_main_status_lists_todo_issues_with_start_hint(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "Todo: 1" in out
     assert "## Todo Issues" in out
-    assert "- issue-001 sample Change README" in out
-    assert "go-ship-it start-issue issue-001" in out
+    assert "- sample/issue-001 Change README" in out
+    assert "go-ship-it start-issue sample/issue-001" in out
 
 
 def test_main_status_from_worktree_uses_current_control_root(tmp_path, monkeypatch, capsys):
@@ -653,10 +627,10 @@ def test_main_status_from_worktree_uses_current_control_root(tmp_path, monkeypat
     assert exit_code == 0
     out = capsys.readouterr().out
     assert f"Control Root: {root.resolve()}" in out
-    assert "Current Issue: issue-001" in out
+    assert "Current Issue: sample/issue-001" in out
     assert "Current Worktree: worktrees/sample/issue-001" in out
     assert "Current Run Branch: go-ship-it/issue-001" in out
-    assert "- issue-001 sample Change README" in out
+    assert "- sample/issue-001 Change README" in out
 
 
 def test_main_status_omits_unconfigured_check_hint(tmp_path, capsys):
@@ -666,11 +640,12 @@ def test_main_status_omits_unconfigured_check_hint(tmp_path, capsys):
 
     assert exit_code == 0
     out = capsys.readouterr().out
-    assert "go-ship-it show-run issue-001 --logs" in out
-    assert "go-ship-it show-run issue-001 --handoff" in out
-    assert "go-ship-it run-check issue-001 --check test" not in out
-    assert "go-ship-it verify-run issue-001 --strict" in out
-    assert "go-ship-it cleanup-issue issue-001 --destination archive --note \"<note>\" --remove-worktree" in out
+    assert "go-ship-it show-run sample/issue-001" in out
+    assert "go-ship-it show-run sample/issue-001 --trace" in out
+    assert "go-ship-it show-run sample/issue-001 --handoff" in out
+    assert "go-ship-it run-check sample/issue-001 --check test" not in out
+    assert "go-ship-it verify-run sample/issue-001 --strict" in out
+    assert "go-ship-it cleanup-issue sample/issue-001 --destination archive --note \"<note>\" --remove-worktree" in out
 
 
 def test_main_status_rejects_uninitialized_root(tmp_path, capsys):
@@ -686,15 +661,15 @@ def test_main_status_rejects_uninitialized_root(tmp_path, capsys):
 def test_main_export_run_relative_output_uses_root(tmp_path):
     _started_issue_root(tmp_path)
 
-    exit_code = main(["--root", str(tmp_path), "export-run", "issue-001", "--output", "docs/dogfood/issue-001.md"])
+    exit_code = main(["--root", str(tmp_path), "export-run", "sample/issue-001", "--output", "docs/dogfood/issue-001.md"])
 
     output = tmp_path / "docs" / "dogfood" / "issue-001.md"
     assert exit_code == 0
     assert output.exists()
-    assert "# GoShipit Run Evidence: issue-001" in output.read_text()
+    assert "# GoShipit Run Evidence: sample/issue-001" in output.read_text()
 
 
-def test_main_append_note_records_journal_entry(tmp_path):
+def test_main_append_note_records_note_entry(tmp_path):
     _started_issue_root(tmp_path)
 
     exit_code = main(
@@ -702,7 +677,7 @@ def test_main_append_note_records_journal_entry(tmp_path):
             "--root",
             str(tmp_path),
             "append-note",
-            "issue-001",
+            "sample/issue-001",
             "--section",
             "Investigation",
             "--note",
@@ -713,38 +688,15 @@ def test_main_append_note_records_journal_entry(tmp_path):
     )
 
     assert exit_code == 0
-    journal = (tmp_path / "state" / "runs" / "issue-001" / "journal.md").read_text()
-    assert "## Investigation" in journal
-    assert "Read README" in journal
-    assert "Phase: investigate" in journal
+    notes = (
+        tmp_path / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001" / "notes.md"
+    ).read_text()
+    assert "## Investigation" in notes
+    assert "Read README" in notes
+    assert "Phase: investigate" in notes
 
 
-def test_main_append_log_records_run_comment(tmp_path, capsys):
-    _started_issue_root(tmp_path)
-
-    exit_code = main(
-        [
-            "--root",
-            str(tmp_path),
-            "append-log",
-            "issue-001",
-            "--note",
-            "Agent recovered with --root.",
-            "--author",
-            "codex",
-            "--source",
-            "transcript:/tmp/session.jsonl",
-        ]
-    )
-
-    output = capsys.readouterr().out
-    run_log = tmp_path / "state" / "runs" / "issue-001" / "run-log.md"
-    assert exit_code == 0
-    assert str(run_log) in output
-    assert "Agent recovered with --root." in run_log.read_text()
-
-
-def test_main_append_note_current_records_journal_entry(tmp_path, monkeypatch):
+def test_main_append_note_current_records_note_entry(tmp_path, monkeypatch):
     root = _started_issue_root(tmp_path)
     monkeypatch.chdir(root / "worktrees" / "sample" / "issue-001")
 
@@ -761,21 +713,9 @@ def test_main_append_note_current_records_journal_entry(tmp_path, monkeypatch):
         ]
     )
 
-    journal = root / "state" / "runs" / "issue-001" / "journal.md"
+    notes = root / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001" / "notes.md"
     assert exit_code == 0
-    assert "Read README from locked session." in journal.read_text()
-
-
-def test_main_show_run_logs_prints_run_log(tmp_path, capsys):
-    root = _started_issue_root(tmp_path)
-    append_run_log(root, "issue-001", note="Agent recovered with --root.", author="codex", sources=[])
-
-    exit_code = main(["--root", str(tmp_path), "show-run", "issue-001", "--logs"])
-
-    assert exit_code == 0
-    output = capsys.readouterr().out
-    assert "## Run Log" in output
-    assert "Agent recovered with --root." in output
+    assert "Read README from locked session." in notes.read_text()
 
 
 def test_main_set_phase_updates_active_issue(tmp_path):
@@ -786,7 +726,7 @@ def test_main_set_phase_updates_active_issue(tmp_path):
             "--root",
             str(tmp_path),
             "set-phase",
-            "issue-001",
+            "sample/issue-001",
             "propose",
             "--note",
             "Ready to propose",
@@ -795,11 +735,13 @@ def test_main_set_phase_updates_active_issue(tmp_path):
 
     assert exit_code == 0
     metadata, _body = parse_frontmatter(
-        (tmp_path / "state" / "issues" / "execution" / "issue-001.md").read_text()
+        (tmp_path / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001" / "issue.md").read_text()
     )
     assert metadata["phase"] == "propose"
-    journal = (tmp_path / "state" / "runs" / "issue-001" / "journal.md").read_text()
-    assert "Ready to propose" in journal
+    notes = (
+        tmp_path / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001" / "notes.md"
+    ).read_text()
+    assert "Ready to propose" in notes
 
 
 def test_main_set_phase_current_updates_active_issue(tmp_path, monkeypatch):
@@ -810,7 +752,7 @@ def test_main_set_phase_current_updates_active_issue(tmp_path, monkeypatch):
 
     assert exit_code == 0
     metadata, _body = parse_frontmatter(
-        (root / "state" / "issues" / "execution" / "issue-001.md").read_text()
+        (root / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001" / "issue.md").read_text()
     )
     assert metadata["phase"] == "propose"
 
@@ -834,7 +776,7 @@ def _started_issue_root(tmp_path: Path, *, test_command: str | None = None) -> P
         context="Use the test repo.",
         acceptance_criteria=["README changes."],
     )
-    start_issue(tmp_path, "issue-001", claimed_by="test-thread")
+    start_issue(tmp_path, "sample/issue-001", claimed_by="test-thread")
     return tmp_path
 
 

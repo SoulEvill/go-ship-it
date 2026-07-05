@@ -8,7 +8,7 @@ GoShipit is a local-first control repo for agent-assisted software work.
 todo -> execution -> archive
 ```
 
-Detailed phase progress is tracked as metadata and journal evidence:
+Detailed phase progress is tracked as metadata and authored notes:
 
 ```text
 setup -> investigate -> propose -> implement -> test -> cleanup
@@ -48,14 +48,14 @@ The first-run command surface is intentionally small:
 ```sh
 go-ship-it init --repo-id my-repo --repo-path /path/to/repo --test-command "uv run pytest"
 go-ship-it add-issue --repo my-repo --title "Fix parser" --problem "Parser drops quoted values."
-go-ship-it start-issue issue-001
+go-ship-it start-issue my-repo/issue-001
 go-ship-it status
-go-ship-it show-run issue-001 --handoff
-go-ship-it run-check issue-001 --check test
-go-ship-it handoff issue-001 --write
-go-ship-it export-run issue-001 --output docs/dogfood/issue-001-evidence.md
-go-ship-it verify-run issue-001 --strict
-go-ship-it cleanup-issue issue-001 --destination archive --note "Done." --remove-worktree
+go-ship-it show-run my-repo/issue-001 --handoff
+go-ship-it run-check my-repo/issue-001 --check test
+go-ship-it handoff my-repo/issue-001 --write
+go-ship-it export-run my-repo/issue-001 --output docs/dogfood/my-repo-issue-001-evidence.md
+go-ship-it verify-run my-repo/issue-001 --strict
+go-ship-it cleanup-issue my-repo/issue-001 --destination archive --note "Done." --remove-worktree
 ```
 
 Use `status` as the command center. It shows the control root, package root, current branch, active issues, worktrees, and useful next commands.
@@ -66,9 +66,20 @@ Each registered repo gets its own visible folder:
 state/repos/<repo>/
   repo.yaml
   context.md
+  issues/
+    todo/<issue-id>/issue.md
+    execution/<issue-id>/
+      issue.md
+      run.yaml
+      notes.md
+      handoff.md
+      logs/
+        events.jsonl
+        commands/*.yaml
+    archive/<issue-id>/issue.md
 ```
 
-`repo.yaml` is the machine-readable config. `context.md` is the repo-level background file for conventions, commands, and gotchas that should apply across issues.
+`repo.yaml` is the machine-readable config. `context.md` is the repo-level background file for conventions, commands, and gotchas that should apply across issues. Issue ids are repo-local, so explicit issue references use `<repo>/<issue-id>`.
 
 `start-issue` creates a deterministic claim id and writes `.go-ship-it/context.yaml` inside the managed worktree so parallel sessions can anchor themselves to the right issue/run. From inside that worktree, run-bound commands can omit the issue id; `--current` is the explicit form when you want to make that intent visible:
 
@@ -81,30 +92,30 @@ go-ship-it run-check --current --check test
 go-ship-it handoff --write
 ```
 
-The context file is only a pointer. GoShipit verifies it against `state/runs/<issue-id>/run.yaml` before writing evidence, which prevents a stale or copied worktree context from silently targeting the wrong run. `handoff --write` creates `state/runs/<issue-id>/handoff.md` when the user wants a future session to resume with enough context.
+The context file is only a pointer. GoShipit verifies it against `state/repos/<repo>/issues/execution/<issue-id>/run.yaml` before writing notes or command records, which prevents a stale or copied worktree context from silently targeting the wrong run. `handoff --write` creates `state/repos/<repo>/issues/execution/<issue-id>/handoff.md` when the user wants a future session to resume with enough context.
 
 ## What Gets Created
 
 When a first issue moves from todo to execution, GoShipit creates visible local artifacts:
 
 ```text
-state/issues/todo/<issue-id>.md              # todo issue before start
-state/issues/execution/<issue-id>.md         # active issue after start
-state/runs/<issue-id>/run.yaml               # claim, branch, worktree, phase, export metadata
-state/runs/<issue-id>/journal.md             # investigation, proposal, implementation, review notes
-state/runs/<issue-id>/run-log.md             # lightweight trace comments
-state/runs/<issue-id>/commands/*.yaml        # recorded setup/test/lint command evidence
-state/runs/<issue-id>/handoff.md             # explicit resume context after handoff --write
-worktrees/<repo>/<issue-id>/.go-ship-it/context.yaml  # worktree pointer back to the run
+state/repos/<repo>/issues/todo/<issue-id>/issue.md
+state/repos/<repo>/issues/execution/<issue-id>/issue.md
+state/repos/<repo>/issues/execution/<issue-id>/run.yaml
+state/repos/<repo>/issues/execution/<issue-id>/notes.md
+state/repos/<repo>/issues/execution/<issue-id>/handoff.md
+state/repos/<repo>/issues/execution/<issue-id>/logs/events.jsonl
+state/repos/<repo>/issues/execution/<issue-id>/logs/commands/*.yaml
+worktrees/<repo>/<issue-id>/.go-ship-it/context.yaml
 ```
 
 Before cleanup, run the readiness gate:
 
 ```sh
 go-ship-it status
-go-ship-it handoff <issue-id> --write
-go-ship-it export-run <issue-id> --output docs/dogfood/<issue-id>-evidence.md
-go-ship-it verify-run <issue-id> --strict
+go-ship-it handoff <repo>/<issue-id> --write
+go-ship-it export-run <repo>/<issue-id> --output docs/dogfood/<repo>-<issue-id>-evidence.md
+go-ship-it verify-run <repo>/<issue-id> --strict
 ```
 
 `verify-run --strict` fails on warnings, including missing acceptance criteria evidence or missing handoff context. Agents can use structured output when they should not scrape Markdown:
@@ -112,19 +123,10 @@ go-ship-it verify-run <issue-id> --strict
 ```sh
 go-ship-it status --json
 go-ship-it doctor --json
-go-ship-it verify-run <issue-id> --json
+go-ship-it verify-run <repo>/<issue-id> --json
 ```
 
-## Run Comments
-
-Use run logs for lightweight process observations and raw-data pointers:
-
-```sh
-go-ship-it append-log issue-001 --note "Agent recovered with --root." --source transcript:/path/to/session.jsonl
-go-ship-it show-run issue-001 --logs
-```
-
-Run logs are comments, not a fixed lesson taxonomy.
+`notes.md` is for human or agent-authored investigation, proposal, implementation, and review notes. `logs/` is for program-generated records only. GoShipit product feedback should be added as a normal issue under the `go-ship-it` repo and linked back to the source repo/issue/run where it was observed.
 
 ## Agent Tool Setup
 

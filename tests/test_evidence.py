@@ -8,41 +8,43 @@ from go_ship_it.frontmatter import parse_frontmatter
 from go_ship_it.state import append_note, add_issue, register_repo, set_phase, start_issue
 
 
-def test_append_note_creates_journal_for_active_issue(tmp_path):
+def test_append_note_creates_notes_for_active_issue(tmp_path):
     root = _started_issue_root(tmp_path)
 
-    journal = append_note(root, "issue-001", section="Investigation", note="Read README.")
+    notes = append_note(root, "sample/issue-001", section="Investigation", note="Read README.")
 
-    assert journal == root / "state" / "runs" / "issue-001" / "journal.md"
-    text = journal.read_text()
+    assert notes == root / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001" / "notes.md"
+    text = notes.read_text()
     assert "## Investigation" in text
     assert "Read README." in text
     assert "Timestamp:" in text
 
 
-def test_set_phase_updates_issue_run_and_journal(tmp_path):
+def test_set_phase_updates_issue_run_and_notes(tmp_path):
     root = _started_issue_root(tmp_path)
 
-    issue_file = set_phase(root, "issue-001", "propose", note="Investigation complete.")
+    issue_file = set_phase(root, "sample/issue-001", "propose", note="Investigation complete.")
 
     metadata, _body = parse_frontmatter(issue_file.read_text())
     assert metadata["phase"] == "propose"
     assert isinstance(metadata["last_activity_at"], str)
 
-    run = yaml.safe_load((root / "state" / "runs" / "issue-001" / "run.yaml").read_text())
+    run = yaml.safe_load(
+        (root / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001" / "run.yaml").read_text()
+    )
     assert run["phase"] == "propose"
     assert isinstance(run["last_activity_at"], str)
 
-    journal = (root / "state" / "runs" / "issue-001" / "journal.md").read_text()
-    assert "## Phase: propose" in journal
-    assert "Investigation complete." in journal
+    notes = (root / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001" / "notes.md").read_text()
+    assert "## Phase: propose" in notes
+    assert "Investigation complete." in notes
 
 
 def test_set_phase_rejects_invalid_phase(tmp_path):
     root = _started_issue_root(tmp_path)
 
     with pytest.raises(ValueError, match="phase"):
-        set_phase(root, "issue-001", "banana", note="Nope.")
+        set_phase(root, "sample/issue-001", "banana", note="Nope.")
 
 
 def _started_issue_root(tmp_path: Path) -> Path:
@@ -64,7 +66,7 @@ def _started_issue_root(tmp_path: Path) -> Path:
         context="Use the test repo.",
         acceptance_criteria=["README changes."],
     )
-    start_issue(tmp_path, "issue-001", claimed_by="test-thread")
+    start_issue(tmp_path, "sample/issue-001", claimed_by="test-thread")
     return tmp_path
 
 

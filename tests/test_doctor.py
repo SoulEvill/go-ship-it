@@ -53,9 +53,11 @@ def test_doctor_accepts_repo_with_only_test_command(tmp_path):
 def test_doctor_errors_for_duplicate_issue_ids(tmp_path):
     root = _root_with_repo(tmp_path)
     add_issue(root, repo_id="sample", title="One", problem="P", context="", acceptance_criteria=["A"])
-    duplicate = root / "state" / "issues" / "archive" / "issue-001.md"
+    duplicate = root / "state" / "repos" / "sample" / "issues" / "archive" / "issue-001" / "issue.md"
     duplicate.parent.mkdir(parents=True, exist_ok=True)
-    duplicate.write_text((root / "state" / "issues" / "todo" / "issue-001.md").read_text())
+    duplicate.write_text(
+        (root / "state" / "repos" / "sample" / "issues" / "todo" / "issue-001" / "issue.md").read_text()
+    )
 
     report = run_doctor(root)
 
@@ -65,8 +67,8 @@ def test_doctor_errors_for_duplicate_issue_ids(tmp_path):
 def test_doctor_errors_when_execution_issue_has_no_run(tmp_path):
     root = _root_with_repo(tmp_path)
     add_issue(root, repo_id="sample", title="One", problem="P", context="", acceptance_criteria=["A"])
-    start_issue(root, "issue-001", claimed_by="test")
-    run_file = root / "state" / "runs" / "issue-001" / "run.yaml"
+    start_issue(root, "sample/issue-001", claimed_by="test")
+    run_file = root / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001" / "run.yaml"
     run_file.unlink()
 
     report = run_doctor(root)

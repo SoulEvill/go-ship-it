@@ -18,14 +18,17 @@ from go_ship_it.state import (
 from go_ship_it.verify import verify_run
 
 
+ISSUE_REF = "sample/issue-001"
+
+
 def test_verify_run_warns_when_export_precedes_cleanup(tmp_path):
     root = _started_issue_root(tmp_path)
-    _write_required_notes(root, "issue-001")
-    run_check(root, "issue-001", check="test")
-    export_run(root, "issue-001", output=tmp_path / "docs" / "dogfood" / "before-cleanup.md")
-    cleanup_issue(root, "issue-001", destination="archive", note="Done.", remove_worktree=False)
+    _write_required_notes(root, ISSUE_REF)
+    run_check(root, ISSUE_REF, check="test")
+    export_run(root, ISSUE_REF, output=tmp_path / "docs" / "dogfood" / "before-cleanup.md")
+    cleanup_issue(root, ISSUE_REF, destination="archive", note="Done.", remove_worktree=False)
 
-    report = verify_run(root, "issue-001")
+    report = verify_run(root, ISSUE_REF)
 
     assert not report.errors
     assert any(item.code == "run.export_stale" for item in report.warnings)
@@ -34,18 +37,18 @@ def test_verify_run_warns_when_export_precedes_cleanup(tmp_path):
 
 def test_verify_run_warns_when_legacy_export_lacks_metadata_after_cleanup(tmp_path):
     root = _started_issue_root(tmp_path)
-    _write_required_notes(root, "issue-001")
-    run_check(root, "issue-001", check="test")
-    cleanup_issue(root, "issue-001", destination="archive", note="Done.", remove_worktree=False)
+    _write_required_notes(root, ISSUE_REF)
+    run_check(root, ISSUE_REF, check="test")
+    cleanup_issue(root, ISSUE_REF, destination="archive", note="Done.", remove_worktree=False)
     legacy_export = root / "docs" / "dogfood" / "legacy-export.md"
     legacy_export.parent.mkdir(parents=True)
     legacy_export.write_text(
-        "# GoShipit Run Evidence: issue-001\n\n"
-        "Source: `state/issues/execution/issue-001.md`\n\n"
+        "# GoShipit Run Evidence: sample/issue-001\n\n"
+        "Source: `state/repos/sample/issues/execution/issue-001/issue.md`\n\n"
         "```yaml\nphase: test\n```\n"
     )
 
-    report = verify_run(root, "issue-001")
+    report = verify_run(root, ISSUE_REF)
 
     assert not report.errors
     assert any(item.code == "run.export_stale" for item in report.warnings)
@@ -53,12 +56,12 @@ def test_verify_run_warns_when_legacy_export_lacks_metadata_after_cleanup(tmp_pa
 
 def test_verify_run_accepts_export_after_cleanup(tmp_path):
     root = _started_issue_root(tmp_path)
-    _write_required_notes(root, "issue-001")
-    run_check(root, "issue-001", check="test")
-    cleanup_issue(root, "issue-001", destination="archive", note="Done.", remove_worktree=False)
-    export_run(root, "issue-001", output=tmp_path / "docs" / "dogfood" / "after-cleanup.md")
+    _write_required_notes(root, ISSUE_REF)
+    run_check(root, ISSUE_REF, check="test")
+    cleanup_issue(root, ISSUE_REF, destination="archive", note="Done.", remove_worktree=False)
+    export_run(root, ISSUE_REF, output=tmp_path / "docs" / "dogfood" / "after-cleanup.md")
 
-    report = verify_run(root, "issue-001")
+    report = verify_run(root, ISSUE_REF)
 
     assert not report.errors
     assert not any(item.code == "run.export_stale" for item in report.warnings)
@@ -67,38 +70,38 @@ def test_verify_run_accepts_export_after_cleanup(tmp_path):
 
 def test_verify_run_errors_on_failed_command(tmp_path):
     root = _started_issue_root(tmp_path, test_command="python -c 'import sys; sys.exit(7)'")
-    _write_required_notes(root, "issue-001")
+    _write_required_notes(root, ISSUE_REF)
     with pytest.raises(CheckFailedError):
-        run_check(root, "issue-001", check="test")
+        run_check(root, ISSUE_REF, check="test")
 
-    report = verify_run(root, "issue-001")
+    report = verify_run(root, ISSUE_REF)
 
     assert any(item.code == "command.failed" for item in report.errors)
 
 
 def test_verify_run_warns_when_acceptance_criteria_lack_evidence(tmp_path):
     root = _started_issue_root(tmp_path)
-    _write_required_notes(root, "issue-001")
-    run_check(root, "issue-001", check="test")
+    _write_required_notes(root, ISSUE_REF)
+    run_check(root, ISSUE_REF, check="test")
 
-    report = verify_run(root, "issue-001")
+    report = verify_run(root, ISSUE_REF)
 
     assert any(item.code == "acceptance.criteria_missing_evidence" for item in report.warnings)
 
 
 def test_verify_run_accepts_acceptance_criteria_with_evidence(tmp_path):
     root = _started_issue_root(tmp_path)
-    _write_required_notes(root, "issue-001")
+    _write_required_notes(root, ISSUE_REF)
     append_note(
         root,
-        "issue-001",
+        ISSUE_REF,
         section="Review",
         phase="test",
         note="Acceptance evidence: README changes. Verified by the test check.",
     )
-    run_check(root, "issue-001", check="test")
+    run_check(root, ISSUE_REF, check="test")
 
-    report = verify_run(root, "issue-001")
+    report = verify_run(root, ISSUE_REF)
 
     assert not any(item.code == "acceptance.criteria_missing_evidence" for item in report.warnings)
     assert any(item.code == "acceptance.criteria_covered" for item in report.ok)
@@ -106,21 +109,21 @@ def test_verify_run_accepts_acceptance_criteria_with_evidence(tmp_path):
 
 def test_verify_run_warns_when_active_run_handoff_is_missing(tmp_path):
     root = _started_issue_root(tmp_path)
-    _write_required_notes(root, "issue-001")
-    run_check(root, "issue-001", check="test")
+    _write_required_notes(root, ISSUE_REF)
+    run_check(root, ISSUE_REF, check="test")
 
-    report = verify_run(root, "issue-001")
+    report = verify_run(root, ISSUE_REF)
 
     assert any(item.code == "handoff.missing" for item in report.warnings)
 
 
 def test_verify_run_accepts_active_run_handoff(tmp_path):
     root = _started_issue_root(tmp_path)
-    _write_required_notes(root, "issue-001")
-    run_check(root, "issue-001", check="test")
-    write_handoff(root, "issue-001")
+    _write_required_notes(root, ISSUE_REF)
+    run_check(root, ISSUE_REF, check="test")
+    write_handoff(root, ISSUE_REF)
 
-    report = verify_run(root, "issue-001")
+    report = verify_run(root, ISSUE_REF)
 
     assert not any(item.code == "handoff.missing" for item in report.warnings)
     assert any(item.code == "handoff.present" for item in report.ok)
@@ -156,7 +159,7 @@ def _started_issue_root(tmp_path: Path, *, test_command: str = "python -c 'print
         context="Use the test repo.",
         acceptance_criteria=["README changes."],
     )
-    start_issue(tmp_path, "issue-001", claimed_by="test-thread")
+    start_issue(tmp_path, ISSUE_REF, claimed_by="test-thread")
     return tmp_path
 
 

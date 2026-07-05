@@ -18,7 +18,7 @@ Start from the GoShipit control root:
 ```sh
 go-ship-it status
 go-ship-it list-issues
-go-ship-it show-issue <issue-id>
+go-ship-it show-issue <repo>/<issue-id>
 ```
 
 If root or package setup is uncertain, also run:
@@ -34,9 +34,9 @@ Read `references/state-lifecycle.md` for state movement rules.
 ```sh
 go-ship-it init --repo-id <repo> --repo-path <path> --test-command <cmd>
 go-ship-it add-issue --repo <repo> --title <title> --problem <problem> --context <context> --acceptance <criterion>
-go-ship-it start-issue <issue-id> --claimed-by <thread-label>
-go-ship-it cleanup-issue <issue-id> --destination todo --note <note> --remove-worktree
-go-ship-it cleanup-issue <issue-id> --destination archive --note <note> --remove-worktree
+go-ship-it start-issue <repo>/<issue-id> --claimed-by <thread-label>
+go-ship-it cleanup-issue <repo>/<issue-id> --destination todo --note <note> --remove-worktree
+go-ship-it cleanup-issue <repo>/<issue-id> --destination archive --note <note> --remove-worktree
 ```
 
 `--claimed-by` is optional. When omitted, GoShipit creates a stable local actor label from the agent/tool environment, user, host, control root, and current working directory.
@@ -51,9 +51,19 @@ Repo registration writes a folder, not a single flat registry file:
 state/repos/<repo>/
   repo.yaml
   context.md
+  issues/
+    todo/<issue-id>/issue.md
+    execution/<issue-id>/
+      issue.md
+      run.yaml
+      notes.md
+      logs/
+        events.jsonl
+        commands/*.yaml
+    archive/<issue-id>/issue.md
 ```
 
-Use `repo.yaml` for machine config and `context.md` for repo-wide background that should be available to future issues.
+Use `repo.yaml` for machine config and `context.md` for repo-wide background that should be available to future issues. Issue ids are repo-local, so explicit issue references use `<repo>/<issue-id>`.
 
 ## State Boundaries
 

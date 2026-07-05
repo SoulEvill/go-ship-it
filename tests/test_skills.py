@@ -42,7 +42,6 @@ SKILL_COMMANDS = {
         "go-ship-it set-phase",
         "go-ship-it append-note",
         "go-ship-it run-check",
-        "go-ship-it append-log",
         "go-ship-it handoff",
     ),
 }
@@ -145,7 +144,7 @@ def test_command_surface_mentions_json_and_strict_readiness():
 
     assert "go-ship-it status --json" in text
     assert "go-ship-it doctor --json" in text
-    assert "go-ship-it verify-run <issue-id> --strict" in text
+    assert "go-ship-it verify-run <repo>/<issue-id> --strict" in text
 
 
 def test_first_issue_docs_explain_what_gets_created():
@@ -155,7 +154,7 @@ def test_first_issue_docs_explain_what_gets_created():
 
     for text in (readme, user_e2e):
         assert "What Gets Created" in text
-        assert "state/runs/<issue-id>/run.yaml" in text
+        assert "state/repos/<repo>/issues/execution/<issue-id>/run.yaml" in text
         assert ".go-ship-it/context.yaml" in text
 
 
