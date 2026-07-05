@@ -6,6 +6,7 @@ import pytest
 
 from go_ship_it.frontmatter import parse_frontmatter
 from go_ship_it.state import (
+    CheckFailedError,
     GoShipitError,
     add_issue,
     cleanup_issue,
@@ -56,6 +57,8 @@ def test_register_repo_writes_simple_registry_file(tmp_path):
         "setup_command: uv sync\n"
         "test_command: uv run pytest\n"
         "lint_command: null\n"
+        "worktree_setup:\n"
+        "  command: null\n"
         "pull_request:\n"
         "  provider: github\n"
         "  remote: origin\n"
@@ -342,6 +345,62 @@ def test_start_issue_claims_issue_and_creates_worktree(tmp_path):
     assert context["claimed_by"] == "test-thread"
     assert context["claim_id"] == run.claim_id
     assert ".go-ship-it/" in _git_output(run.worktree, "status", "--ignored", "--short")
+
+
+def test_start_issue_runs_worktree_setup_command(tmp_path):
+    target = _create_git_repo(tmp_path / "target")
+    register_repo(
+        tmp_path,
+        repo_id="sample",
+        path=target,
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+        worktree_setup_command='python -c \'from pathlib import Path; Path("local.env").write_text("ok")\'',
+    )
+    _add_sample_issue(tmp_path)
+
+    run = start_issue(tmp_path, "sample/issue-001", claimed_by="test-thread")
+
+    assert (run.worktree / "local.env").read_text() == "ok"
+    run_data = yaml.safe_load(run.run_file.read_text())
+    assert run_data["phase"] == "investigate"
+    command_records = sorted((run.run_file.parent / "logs" / "commands").glob("*-worktree-setup.yaml"))
+    assert len(command_records) == 1
+    record = yaml.safe_load(command_records[0].read_text())
+    assert record["check"] == "worktree_setup"
+    assert record["exit_code"] == 0
+    notes = (run.run_file.parent / "notes.md").read_text()
+    assert "## Worktree Setup" in notes
+
+
+def test_start_issue_preserves_active_run_when_worktree_setup_fails(tmp_path):
+    target = _create_git_repo(tmp_path / "target")
+    register_repo(
+        tmp_path,
+        repo_id="sample",
+        path=target,
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+        worktree_setup_command='python -c \'import sys; print("setup failed"); sys.exit(7)\'',
+    )
+    _add_sample_issue(tmp_path)
+
+    with pytest.raises(CheckFailedError) as exc:
+        start_issue(tmp_path, "sample/issue-001", claimed_by="test-thread")
+
+    assert exc.value.check == "worktree_setup"
+    execution_dir = tmp_path / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001"
+    assert (execution_dir / "issue.md").exists()
+    assert (tmp_path / "worktrees" / "sample" / "issue-001").exists()
+    run_data = yaml.safe_load((execution_dir / "run.yaml").read_text())
+    assert run_data["phase"] == "setup"
+    command_records = sorted((execution_dir / "logs" / "commands").glob("*-worktree-setup.yaml"))
+    assert len(command_records) == 1
+    assert yaml.safe_load(command_records[0].read_text())["exit_code"] == 7
 
 
 def test_resolve_current_run_uses_worktree_context_and_run_claim(tmp_path):

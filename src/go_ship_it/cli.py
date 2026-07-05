@@ -72,6 +72,7 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("--setup-command", default=None)
     init.add_argument("--test-command", default=None)
     init.add_argument("--lint-command", default=None)
+    init.add_argument("--worktree-setup-command", default=None)
     init.add_argument(
         "--feedback-repo-source",
         default=None,
@@ -91,6 +92,7 @@ def build_parser() -> argparse.ArgumentParser:
     register.add_argument("--setup-command", default=None)
     register.add_argument("--test-command", default=None)
     register.add_argument("--lint-command", default=None)
+    register.add_argument("--worktree-setup-command", default=None)
 
     show_repo = subparsers.add_parser("show-repo", help="Print a registered repo configuration.")
     show_repo.add_argument("repo_id")
@@ -103,12 +105,14 @@ def build_parser() -> argparse.ArgumentParser:
     update_repo.add_argument("--setup-command", default=None)
     update_repo.add_argument("--test-command", default=None)
     update_repo.add_argument("--lint-command", default=None)
+    update_repo.add_argument("--worktree-setup-command", default=None)
     update_repo.add_argument("--pr-provider", default=None)
     update_repo.add_argument("--pr-remote", default=None)
     update_repo.add_argument("--pr-auto-publish", action=argparse.BooleanOptionalAction, default=None)
     update_repo.add_argument("--clear-setup-command", action="store_true")
     update_repo.add_argument("--clear-test-command", action="store_true")
     update_repo.add_argument("--clear-lint-command", action="store_true")
+    update_repo.add_argument("--clear-worktree-setup-command", action="store_true")
 
     issue = subparsers.add_parser("add-issue", help="Create a todo issue.")
     issue.add_argument("--repo", required=True)
@@ -230,6 +234,12 @@ def _repo_updates(args: argparse.Namespace) -> tuple[dict[str, object], set[str]
     }
     if pr_updates:
         updates["pull_request"] = pr_updates
+    if args.worktree_setup_command is not None and args.clear_worktree_setup_command:
+        raise ValueError("Cannot set and clear --worktree-setup-command")
+    if args.worktree_setup_command is not None:
+        updates["worktree_setup"] = {"command": args.worktree_setup_command}
+    elif args.clear_worktree_setup_command:
+        updates["worktree_setup"] = {"command": None}
     clears = {
         field
         for field, flag in {
@@ -756,6 +766,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     setup_command=args.setup_command,
                     test_command=args.test_command,
                     lint_command=args.lint_command,
+                    worktree_setup_command=args.worktree_setup_command,
                 )
                 print(f"Registered repo: {repo_file}")
             if args.feedback_repo_source is not None:
@@ -776,6 +787,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 setup_command=args.setup_command,
                 test_command=args.test_command,
                 lint_command=args.lint_command,
+                worktree_setup_command=args.worktree_setup_command,
             )
             print(repo_file)
             return 0

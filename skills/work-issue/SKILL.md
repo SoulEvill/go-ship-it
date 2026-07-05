@@ -28,6 +28,8 @@ If working from inside the target worktree, inspect `.go-ship-it/context.yaml` w
 
 Inside that managed worktree, run-bound commands can omit the issue ref. Use `--current` when you want the command to be explicit. GoShipit verifies `.go-ship-it/context.yaml` against `state/repos/<repo>/issues/execution/<issue-id>/run.yaml` before writing notes or command records.
 
+If `start-issue` reports a failed worktree setup command, stop and inspect the recorded command evidence before editing. The issue remains active in setup phase so the setup failure can be fixed or the work returned to todo.
+
 ```sh
 go-ship-it status
 go-ship-it show-run

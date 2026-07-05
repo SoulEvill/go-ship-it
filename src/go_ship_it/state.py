@@ -28,11 +28,15 @@ OPTIONAL_COMMAND_FIELDS = {"setup_command", "test_command", "lint_command"}
 REQUIRED_REPO_FIELDS = {"id", "path", "default_branch", "worktree_root"}
 REPO_SOURCE_TYPES = {"local", "git_url"}
 PULL_REQUEST_FIELDS = {"provider", "remote", "auto_publish"}
-UPDATABLE_REPO_FIELDS = REQUIRED_REPO_FIELDS | OPTIONAL_COMMAND_FIELDS | {"pull_request"}
+WORKTREE_SETUP_FIELDS = {"command"}
+UPDATABLE_REPO_FIELDS = REQUIRED_REPO_FIELDS | OPTIONAL_COMMAND_FIELDS | {"pull_request", "worktree_setup"}
 DEFAULT_PULL_REQUEST_CONFIG = {
     "provider": "github",
     "remote": "origin",
     "auto_publish": False,
+}
+DEFAULT_WORKTREE_SETUP_CONFIG = {
+    "command": None,
 }
 
 
@@ -169,6 +173,7 @@ def register_repo(
     setup_command: str | None,
     test_command: str | None,
     lint_command: str | None,
+    worktree_setup_command: str | None = None,
 ) -> Path:
     ensure_layout(root)
     safe_repo_id = _safe_id(repo_id)
@@ -190,6 +195,7 @@ def register_repo(
         "setup_command": setup_command,
         "test_command": test_command,
         "lint_command": lint_command,
+        "worktree_setup": {"command": worktree_setup_command},
         "pull_request": dict(DEFAULT_PULL_REQUEST_CONFIG),
     }
     repo_file.write_text(_render_mapping(values))
@@ -212,6 +218,7 @@ def register_feedback_repo(
         setup_command=None,
         test_command=test_command,
         lint_command=None,
+        worktree_setup_command=None,
     )
     context_file = _repo_dir(root, "go-ship-it") / "context.md"
     generic_template = _repo_context_template("go-ship-it")
@@ -381,6 +388,9 @@ def update_repo_config(
         if key == "pull_request":
             config[key] = _merged_pull_request_config(config.get(key), value)
             continue
+        if key == "worktree_setup":
+            config[key] = _merged_worktree_setup_config(config.get(key), value)
+            continue
         if key in REQUIRED_REPO_FIELDS and (not isinstance(value, str) or not value.strip()):
             raise ValueError(f"{key} must not be empty")
         config[key] = value
@@ -398,6 +408,18 @@ def update_repo_config(
 
 def pull_request_config(repo: dict[str, object]) -> dict[str, object]:
     return _merged_pull_request_config(repo.get("pull_request"), {})
+
+
+def worktree_setup_config(repo: dict[str, object]) -> dict[str, object]:
+    return _merged_worktree_setup_config(repo.get("worktree_setup"), {})
+
+
+def _configured_worktree_setup_command(repo: dict[str, object]) -> str | None:
+    config = worktree_setup_config(repo)
+    command = config.get("command")
+    if isinstance(command, str) and command.strip():
+        return command.strip()
+    return None
 
 
 def _merged_pull_request_config(existing: object, updates: object) -> dict[str, object]:
@@ -432,6 +454,37 @@ def _validate_pull_request_config(config: dict[str, object]) -> None:
             raise ValueError(f"pull_request.{field} must not be empty")
     if config.get("auto_publish") not in {True, False}:
         raise ValueError("pull_request.auto_publish must be true or false")
+
+
+def _merged_worktree_setup_config(existing: object, updates: object) -> dict[str, object]:
+    if existing is None:
+        current: dict[str, object] = {}
+    elif isinstance(existing, dict):
+        current = dict(existing)
+    else:
+        raise ValueError("worktree_setup must be a mapping")
+    if updates is None:
+        incoming: dict[str, object] = {}
+    elif isinstance(updates, dict):
+        incoming = dict(updates)
+    else:
+        raise ValueError("worktree_setup update must be a mapping")
+
+    unknown = (set(current) | set(incoming)) - WORKTREE_SETUP_FIELDS
+    if unknown:
+        raise ValueError(f"Unknown worktree_setup fields: {', '.join(sorted(unknown))}")
+
+    merged = dict(DEFAULT_WORKTREE_SETUP_CONFIG)
+    merged.update(current)
+    merged.update(incoming)
+    _validate_worktree_setup_config(merged)
+    return merged
+
+
+def _validate_worktree_setup_config(config: dict[str, object]) -> None:
+    command = config.get("command")
+    if command is not None and (not isinstance(command, str) or not command.strip()):
+        raise ValueError("worktree_setup.command must be a non-empty string or null")
 
 
 def add_issue(
@@ -496,9 +549,13 @@ def start_issue(root: Path, issue_ref: str, *, claimed_by: str | None = None) ->
     target_repo: Path | None = None
     branch: str | None = None
     worktree: Path | None = None
+    repo: dict[str, object] | None = None
+    started_run: StartedRun | None = None
+    setup_command: str | None = None
     try:
         metadata, body = parse_frontmatter(execution_file.read_text())
         repo = _read_repo(root, repo_id)
+        setup_command = _configured_worktree_setup_command(repo)
         target_repo = _resolve_repo_path(root, repo.get("path"))
         _ensure_git_repo(target_repo)
 
@@ -514,7 +571,8 @@ def start_issue(root: Path, issue_ref: str, *, claimed_by: str | None = None) ->
         worktree_created = True
 
         timestamp = _now_iso()
-        metadata["phase"] = "investigate"
+        initial_phase = "setup" if setup_command is not None else "investigate"
+        metadata["phase"] = initial_phase
         metadata["branch"] = branch
         metadata["worktree"] = worktree_relative.as_posix()
         metadata["claimed_by"] = resolved_claimed_by
@@ -533,7 +591,7 @@ def start_issue(root: Path, issue_ref: str, *, claimed_by: str | None = None) ->
                     "worktree": worktree_relative.as_posix(),
                     "claimed_by": resolved_claimed_by,
                     "claim_id": claim_id,
-                    "phase": "investigate",
+                    "phase": initial_phase,
                     "started_at": timestamp,
                     "last_activity_at": timestamp,
                 }
@@ -558,7 +616,7 @@ def start_issue(root: Path, issue_ref: str, *, claimed_by: str | None = None) ->
             claimed_by=resolved_claimed_by,
             claim_id=claim_id,
         )
-        return StartedRun(
+        started_run = StartedRun(
             issue_id=safe_issue_id,
             repo_id=repo_id,
             issue_ref=_issue_ref(repo_id, safe_issue_id),
@@ -579,6 +637,22 @@ def start_issue(root: Path, issue_ref: str, *, claimed_by: str | None = None) ->
         if execution_dir.exists() and not todo_dir.exists():
             execution_dir.rename(todo_dir)
         raise
+    if started_run is None or worktree is None:
+        raise GoShipitError(f"failed to start issue {_issue_ref(repo_id, safe_issue_id)}")
+    if setup_command is not None:
+        record_file, exit_code = _run_logged_command(
+            run_dir,
+            worktree,
+            check="worktree_setup",
+            command=setup_command,
+            section="Worktree Setup",
+            phase="setup",
+            event_kind="worktree_setup.ran",
+        )
+        if exit_code != 0:
+            raise CheckFailedError("worktree_setup", exit_code, record_file)
+        _write_active_phase(execution_file, run_dir / "run.yaml", "investigate")
+    return started_run
 
 
 def default_claimed_by(root: Path) -> str:
@@ -715,6 +789,31 @@ def run_check(root: Path, issue_ref: str, *, check: str) -> Path:
     if not worktree.is_dir():
         raise FileNotFoundError(f"Worktree not found: {worktree}")
 
+    record_file, exit_code = _run_logged_command(
+        run_dir,
+        worktree,
+        check=safe_check,
+        command=command,
+        section=f"Check: {safe_check}",
+        phase="test",
+        event_kind=f"check.{safe_check}",
+    )
+
+    if exit_code != 0:
+        raise CheckFailedError(safe_check, exit_code, record_file)
+    return record_file
+
+
+def _run_logged_command(
+    run_dir: Path,
+    worktree: Path,
+    *,
+    check: str,
+    command: str,
+    section: str,
+    phase: str,
+    event_kind: str,
+) -> tuple[Path, int]:
     started_at = _now_iso()
     result = subprocess.run(
         command,
@@ -728,9 +827,9 @@ def run_check(root: Path, issue_ref: str, *, check: str) -> Path:
 
     commands_dir = _logs_dir(run_dir) / "commands"
     commands_dir.mkdir(parents=True, exist_ok=True)
-    record_file = commands_dir / f"{_timestamp_slug(started_at)}-{safe_check}.yaml"
+    record_file = commands_dir / f"{_timestamp_slug(started_at)}-{check.replace('_', '-')}.yaml"
     record = {
-        "check": safe_check,
+        "check": check,
         "command": command,
         "cwd": str(worktree),
         "exit_code": result.returncode,
@@ -743,21 +842,18 @@ def run_check(root: Path, issue_ref: str, *, check: str) -> Path:
 
     record_label = record_file.relative_to(run_dir).as_posix()
     note = f"Command: `{command}`\n\nExit code: {result.returncode}\n\nLog: `{record_label}`"
-    _append_note_to_notes(run_dir / "notes.md", section=f"Check: {safe_check}", note=note, phase="test")
+    _append_note_to_notes(run_dir / "notes.md", section=section, note=note, phase=phase)
     _append_event(
         run_dir,
-        f"check.{safe_check}",
+        event_kind,
         f"exit={result.returncode} command={command}",
         timestamp=started_at,
-        check=safe_check,
+        check=check,
         command=command,
         exit_code=result.returncode,
         record_file=record_label,
     )
-
-    if result.returncode != 0:
-        raise CheckFailedError(safe_check, result.returncode, record_file)
-    return record_file
+    return record_file, result.returncode
 
 
 def cleanup_issue(
@@ -1587,6 +1683,27 @@ def _write_run_cleanup(
     if branch is not None:
         run["closed_branch"] = branch
     run_file.write_text(_render_mapping(run))
+
+
+def _write_active_phase(issue_file: Path, run_file: Path, phase: str) -> None:
+    safe_phase = _validate_phase(phase)
+    timestamp = _now_iso()
+    metadata, body = parse_frontmatter(issue_file.read_text())
+    metadata["phase"] = safe_phase
+    metadata["last_activity_at"] = timestamp
+    issue_file.write_text(render_frontmatter(metadata, body))
+
+    run = _load_run(run_file)
+    run["phase"] = safe_phase
+    run["last_activity_at"] = timestamp
+    run_file.write_text(_render_mapping(run))
+    _append_event(
+        run_file.parent,
+        "phase.changed",
+        f"phase={safe_phase}",
+        timestamp=timestamp,
+        phase=safe_phase,
+    )
 
 
 def _remove_empty_directory(path: Path) -> None:

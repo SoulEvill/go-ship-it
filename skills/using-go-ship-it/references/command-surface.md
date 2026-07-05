@@ -18,6 +18,7 @@ The CLI is plumbing for skills and humans. The normal path is:
 
 ```sh
 go-ship-it init --repo-id <id> --repo-source <local-path-or-git-url> [--test-command <cmd>]
+go-ship-it update-repo <id> --worktree-setup-command <cmd>
 go-ship-it add-issue --repo <id> --title <title> --problem <problem>
 go-ship-it start-issue <repo>/<issue-id>
 go-ship-it status
@@ -95,6 +96,8 @@ go-ship-it handoff --write
 Current-run detection reads `.go-ship-it/context.yaml` and verifies it against the run metadata before writing state.
 
 Repo sources may be local paths or Git URLs. URL sources are cloned into `worktrees/<repo>/_source`; active issue worktrees are siblings such as `worktrees/<repo>/issue-001`. Do not edit `_source` during issue work.
+
+Optional worktree setup lives in `state/repos/<repo>/repo.yaml` under `worktree_setup.command`. It runs from each new issue worktree after `start-issue` creates it and records command evidence under that issue's `logs/commands/` folder.
 
 Repo-level PR config lives in `state/repos/<repo>/repo.yaml`:
 

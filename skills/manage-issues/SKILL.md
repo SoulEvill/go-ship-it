@@ -35,6 +35,7 @@ Read `references/state-lifecycle.md` for state movement rules.
 
 ```sh
 go-ship-it init --repo-id <repo> --repo-source <local-path-or-git-url> --test-command <cmd>
+go-ship-it update-repo <repo> --worktree-setup-command <cmd>
 go-ship-it add-issue --repo <repo> --title <title> --problem <problem> --context <context> --acceptance <criterion>
 go-ship-it start-issue <repo>/<issue-id> --claimed-by <thread-label>
 go-ship-it cleanup-issue <repo>/<issue-id> --destination todo --note <note> --remove-worktree
@@ -90,6 +91,8 @@ Use `repo.yaml` for machine config and `context.md` for repo-wide background tha
 
 Repo sources may be local paths or Git URLs. URL sources are cloned into `worktrees/<repo>/_source`; active issue worktrees are siblings such as `worktrees/<repo>/issue-001`. Do not edit `_source` during issue work.
 
+If every issue worktree needs local files or bootstrap work, configure one repo-level `worktree_setup.command` with `update-repo --worktree-setup-command`. This command runs from each new issue worktree after creation. Use it for repeatable setup such as copying ignored local config, creating generated files, or running dependency bootstrap. If it fails, stop and show the user the recorded command evidence path.
+
 ## State Boundaries
 
 State changes must go through the CLI. Do not move issue files manually except for explicit repair work after `doctor` identifies the problem.
@@ -107,7 +110,7 @@ Target repo writes are not allowed, except Git worktree creation/removal perform
 
 ## Human Gates
 
-Ask the user when repo id, target repo source, issue title, acceptance criteria, cleanup destination, or worktree removal is unclear.
+Ask the user when repo id, target repo source, whether worktrees need local setup, issue title, acceptance criteria, cleanup destination, or worktree removal is unclear.
 
 If `start-issue` reports an issue is already active, show the existing run details and ask whether the user wants to continue that active run.
 

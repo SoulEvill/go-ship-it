@@ -206,12 +206,15 @@ def test_parser_has_repo_config_commands():
             "parawave",
             "--test-command",
             "env -u VIRTUAL_ENV uv run --extra dev pytest -q",
+            "--worktree-setup-command",
+            "scripts/setup-worktree.sh",
             "--clear-lint-command",
         ]
     )
     assert update.command == "update-repo"
     assert update.repo_id == "parawave"
     assert update.test_command == "env -u VIRTUAL_ENV uv run --extra dev pytest -q"
+    assert update.worktree_setup_command == "scripts/setup-worktree.sh"
     assert update.clear_lint_command is True
 
 
@@ -305,6 +308,8 @@ def test_main_show_repo_prints_yaml(tmp_path, capsys):
         "setup_command: uv sync\n"
         "test_command: uv run pytest\n"
         "lint_command: null\n"
+        "worktree_setup:\n"
+        "  command: null\n"
         "pull_request:\n"
         "  provider: github\n"
         "  remote: origin\n"
@@ -366,6 +371,47 @@ def test_main_update_repo_changes_pull_request_config(tmp_path):
     text = (tmp_path / "state" / "repos" / "sample" / "repo.yaml").read_text()
     assert "remote: upstream" in text
     assert "auto_publish: true" in text
+
+
+def test_main_update_repo_changes_and_clears_worktree_setup_command(tmp_path):
+    register_repo(
+        tmp_path,
+        repo_id="sample",
+        path=Path("../sample"),
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+    )
+
+    exit_code = main(
+        [
+            "--root",
+            str(tmp_path),
+            "update-repo",
+            "sample",
+            "--worktree-setup-command",
+            "scripts/setup-worktree.sh",
+        ]
+    )
+
+    assert exit_code == 0
+    text = (tmp_path / "state" / "repos" / "sample" / "repo.yaml").read_text()
+    assert "worktree_setup:\n  command: scripts/setup-worktree.sh\n" in text
+
+    exit_code = main(
+        [
+            "--root",
+            str(tmp_path),
+            "update-repo",
+            "sample",
+            "--clear-worktree-setup-command",
+        ]
+    )
+
+    assert exit_code == 0
+    text = (tmp_path / "state" / "repos" / "sample" / "repo.yaml").read_text()
+    assert "worktree_setup:\n  command: null\n" in text
 
 
 def test_main_update_repo_rejects_command_and_clear_conflict(tmp_path, capsys):

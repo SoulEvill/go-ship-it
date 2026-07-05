@@ -101,23 +101,24 @@ GoShipit contributors can use `scripts/dev/run-parawave-e2e.sh` inside this deve
 Use `skills/manage-issues/SKILL.md` for steps 1-3 and 11-12. Use `skills/work-issue/SKILL.md` for steps 4-10.
 
 1. Initialize and register the target repo with `go-ship-it init --repo-id <repo> --repo-source <local-path-or-git-url>`, or inspect an existing target with `go-ship-it show-repo <repo>`.
-2. Add an issue with `go-ship-it add-issue`.
-3. Start it with `go-ship-it start-issue <repo>/<issue-id>`.
-4. Inspect it with `go-ship-it show-issue <repo>/<issue-id>`.
-5. Inspect the run with `go-ship-it show-run <repo>/<issue-id>`.
-6. Confirm the worktree `.go-ship-it/context.yaml` matches the issue id and claim id.
-7. From inside the managed worktree, use current-run detection for run-bound commands, for example `go-ship-it show-run` or the explicit `go-ship-it show-run --current`.
-8. Record investigation evidence with `set-phase` and `append-note`.
-9. Record proposal evidence before implementation.
-10. Implement only inside the worktree shown by `show-issue`.
-11. Run configured checks with `go-ship-it run-check --current --check test` from the worktree, or `go-ship-it run-check <repo>/<issue-id> --check test` from the control root.
-12. Create an explicit resume snapshot with `go-ship-it handoff --write` from the worktree, or `go-ship-it handoff <repo>/<issue-id> --write` from the control root, when another session should continue.
-13. Export issue-local evidence with `go-ship-it export-run`.
-14. Run `go-ship-it verify-run <repo>/<issue-id> --strict` and resolve or explicitly report every warning before cleanup.
-15. Prepare a local PR preview with `go-ship-it prepare-pr <repo>/<issue-id> --branch <team-branch-name>`. The managed local branch is internal; this PR branch is chosen per issue and recorded in the run for later publish/rerun commands.
-16. Publish only after approval, or when `pull_request.auto_publish: true` is set for the repo. Publishing uses `go-ship-it publish-pr <repo>/<issue-id>`.
-17. Cleanup to `archive` with `--remove-worktree` for completed work, or return to `todo` with `--remove-worktree` when work should be retried later.
-18. Run `go-ship-it doctor` again.
+2. If every issue worktree needs local files or bootstrap work, configure `go-ship-it update-repo <repo> --worktree-setup-command "<command>"`. The command runs from each new issue worktree and records evidence under that issue's logs.
+3. Add an issue with `go-ship-it add-issue`.
+4. Start it with `go-ship-it start-issue <repo>/<issue-id>`.
+5. Inspect it with `go-ship-it show-issue <repo>/<issue-id>`.
+6. Inspect the run with `go-ship-it show-run <repo>/<issue-id>`.
+7. Confirm the worktree `.go-ship-it/context.yaml` matches the issue id and claim id.
+8. From inside the managed worktree, use current-run detection for run-bound commands, for example `go-ship-it show-run` or the explicit `go-ship-it show-run --current`.
+9. Record investigation evidence with `set-phase` and `append-note`.
+10. Record proposal evidence before implementation.
+11. Implement only inside the worktree shown by `show-issue`.
+12. Run configured checks with `go-ship-it run-check --current --check test` from the worktree, or `go-ship-it run-check <repo>/<issue-id> --check test` from the control root.
+13. Create an explicit resume snapshot with `go-ship-it handoff --write` from the worktree, or `go-ship-it handoff <repo>/<issue-id> --write` from the control root, when another session should continue.
+14. Export issue-local evidence with `go-ship-it export-run`.
+15. Run `go-ship-it verify-run <repo>/<issue-id> --strict` and resolve or explicitly report every warning before cleanup.
+16. Prepare a local PR preview with `go-ship-it prepare-pr <repo>/<issue-id> --branch <team-branch-name>`. The managed local branch is internal; this PR branch is chosen per issue and recorded in the run for later publish/rerun commands.
+17. Publish only after approval, or when `pull_request.auto_publish: true` is set for the repo. Publishing uses `go-ship-it publish-pr <repo>/<issue-id>`.
+18. Cleanup to `archive` with `--remove-worktree` for completed work, or return to `todo` with `--remove-worktree` when work should be retried later.
+19. Run `go-ship-it doctor` again.
 
 For agent-driven checks, prefer structured output:
 

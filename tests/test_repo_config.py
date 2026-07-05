@@ -27,6 +27,7 @@ def test_read_repo_config_returns_registered_yaml(tmp_path):
     assert config["setup_command"] == "uv sync"
     assert config["test_command"] == "uv run pytest"
     assert config["lint_command"] is None
+    assert config["worktree_setup"] == {"command": None}
     assert config["pull_request"] == {
         "provider": "github",
         "remote": "origin",
@@ -101,6 +102,43 @@ def test_update_repo_config_merges_pull_request_config(tmp_path):
         "remote": "upstream",
         "auto_publish": True,
     }
+
+
+def test_update_repo_config_updates_worktree_setup_command(tmp_path):
+    register_repo(
+        tmp_path,
+        repo_id="sample",
+        path=Path("../sample"),
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+    )
+
+    update_repo_config(
+        tmp_path,
+        "sample",
+        updates={"worktree_setup": {"command": "scripts/setup-worktree.sh"}},
+        clears=set(),
+    )
+
+    data = read_repo_config(tmp_path, "sample")
+    assert data["worktree_setup"] == {"command": "scripts/setup-worktree.sh"}
+
+
+def test_update_repo_config_rejects_unknown_worktree_setup_field(tmp_path):
+    register_repo(
+        tmp_path,
+        repo_id="sample",
+        path=Path("../sample"),
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+    )
+
+    with pytest.raises(ValueError, match="Unknown worktree_setup fields"):
+        update_repo_config(tmp_path, "sample", updates={"worktree_setup": {"copy": []}}, clears=set())
 
 
 def test_update_repo_config_rejects_unknown_pull_request_field(tmp_path):

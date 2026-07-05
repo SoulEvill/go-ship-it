@@ -121,6 +121,14 @@ worktrees/<repo>/<issue-id>
 
 The `_source` checkout is the canonical local clone GoShipit uses to create isolated issue worktrees. Target repo edits still belong only inside the active issue worktree, not `_source`.
 
+Some repos need local files or generated setup that Git worktrees do not copy, such as `.env`, private config, local fixtures, or dependency bootstrapping. Configure one optional script to run after every issue worktree is created:
+
+```sh
+go-ship-it update-repo my-repo --worktree-setup-command "state/repos/my-repo/setup/setup-worktree.sh"
+```
+
+The command runs from the new issue worktree. GoShipit records stdout, stderr, and exit code under that issue's `logs/commands/` folder. If the command fails, the issue remains active in setup phase so the failure can be inspected.
+
 Repo PR behavior also lives in `repo.yaml`:
 
 ```yaml
