@@ -788,14 +788,17 @@ def cleanup_issue(
     return target_file
 
 
-def export_run(root: Path, issue_ref: str, *, output: Path) -> Path:
+def export_run(root: Path, issue_ref: str, *, output: Path | None = None) -> Path:
     repo_id, issue_id = _parse_issue_ref(issue_ref)
     issue_file = _find_issue_file(root, repo_id, issue_id)
     run_dir = _repo_run_dir(root, repo_id, issue_id)
     if issue_file is None and not run_dir.exists():
         raise FileNotFoundError(f"No issue or run evidence found for {_issue_ref(repo_id, issue_id)}")
 
-    output = output if output.is_absolute() else root / output
+    if output is None:
+        output = run_dir / "evidence.md"
+    else:
+        output = output if output.is_absolute() else root / output
     output.parent.mkdir(parents=True, exist_ok=True)
     run_file = run_dir / "run.yaml"
     exported_at = _record_export_metadata(root, issue_file, run_file, output)

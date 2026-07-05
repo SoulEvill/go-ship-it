@@ -188,7 +188,7 @@ def build_parser() -> argparse.ArgumentParser:
     export = subparsers.add_parser("export-run", help="Export run evidence to Markdown.")
     export.add_argument("issue_id", nargs="?")
     export.add_argument("--current", action="store_true", help="Use the managed worktree's current run context.")
-    export.add_argument("--output", required=True)
+    export.add_argument("--output", default=None, help="Defaults to evidence.md inside the issue folder.")
     return parser
 
 
@@ -680,7 +680,7 @@ def _active_issue_next_commands(root: Path, item: object) -> list[str]:
         commands.extend(
             [
                 f"go-ship-it handoff {ref} --write",
-                f"go-ship-it export-run {ref} --output docs/dogfood/{item.repo}-{item.issue_id}-evidence.md",
+                f"go-ship-it export-run {ref}",
             ]
         )
     commands.extend(
@@ -892,7 +892,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         if args.command == "export-run":
             target_root, issue_id = _resolve_issue_target(root, args)
-            output_path = Path(args.output)
+            output_path = Path(args.output) if args.output is not None else None
             output = export_run(target_root, issue_id, output=output_path)
             print(output)
             return 0

@@ -34,6 +34,8 @@ go-ship-it status
 go-ship-it doctor
 ```
 
+If `go-ship-it` is not on PATH in a clone-based development checkout, retry with `uv run go-ship-it` from the control root.
+
 Read `skills/using-go-ship-it/SKILL.md` first, then use `skills/manage-issues/SKILL.md` for issue state changes or `skills/work-issue/SKILL.md` for active-run work. Do not edit target repositories outside the active issue worktree.
 EOF
 
@@ -49,6 +51,8 @@ Use `skills/manage-issues/SKILL.md` for initializing/registering repos, adding t
 Use `skills/work-issue/SKILL.md` for investigation, proposal, implementation, testing, review, and run evidence.
 
 Use `go-ship-it status` for orientation and `go-ship-it doctor` before cleanup or user e2e handoff.
+
+If `go-ship-it` is not on PATH in a clone-based development checkout, retry with `uv run go-ship-it` from the control root.
 
 State changes should go through the GoShipit CLI. Target repo edits should happen only inside the active issue worktree.
 EOF

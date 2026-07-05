@@ -183,18 +183,7 @@ def _check_cleanup_and_exports(
     latest_export = exports[-1] if isinstance(exports, list) and exports and isinstance(exports[-1], dict) else None
     closed_at = run.get("closed_at")
     if latest_export is None:
-        legacy_exports = _legacy_export_paths(root, issue_id)
-        if legacy_exports:
-            paths = ", ".join(path.relative_to(root).as_posix() for path in legacy_exports)
-            findings.append(
-                _warning(
-                    "run.export_stale",
-                    "export/latest",
-                    f"Legacy export lacks cleanup metadata; re-run export-run after cleanup: {paths}",
-                )
-            )
-        else:
-            findings.append(_warning("run.export_missing", "export/latest", "No export metadata found"))
+        findings.append(_warning("run.export_missing", "export/latest", "No export metadata found"))
     elif _export_is_stale(latest_export, closed_at):
         findings.append(_warning("run.export_stale", "export/latest", "Latest export was written before cleanup"))
     else:
@@ -215,22 +204,6 @@ def _export_is_stale(export: dict[object, object], closed_at: object) -> bool:
         return True
     exported_at = export.get("exported_at")
     return isinstance(closed_at, str) and isinstance(exported_at, str) and exported_at < closed_at
-
-
-def _legacy_export_paths(root: Path, issue_id: str) -> list[Path]:
-    dogfood_dir = root / "docs" / "dogfood"
-    if not dogfood_dir.is_dir():
-        return []
-    header = f"# GoShipit Run Evidence: {issue_id}"
-    matches: list[Path] = []
-    for path in sorted(dogfood_dir.glob("*.md")):
-        try:
-            text = path.read_text()
-        except OSError:
-            continue
-        if header in text:
-            matches.append(path)
-    return matches
 
 
 def _report(findings: list[VerificationFinding]) -> VerificationReport:

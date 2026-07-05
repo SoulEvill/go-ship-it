@@ -20,6 +20,8 @@ go-ship-it show-issue <repo>/<issue-id>
 go-ship-it show-run <repo>/<issue-id>
 ```
 
+Use the resolved GoShipit command from `using-go-ship-it`. In this development checkout that is usually `uv run go-ship-it`; in an installed package it is usually `go-ship-it`.
+
 Confirm the active worktree path. Target repo edits belong only inside that worktree.
 
 If working from inside the target worktree, inspect `.go-ship-it/context.yaml` when present. The context file records the issue id, control root, run dir, claim label, and claim id for this run.
@@ -91,11 +93,11 @@ Readiness before cleanup:
 
 ```sh
 go-ship-it handoff <repo>/<issue-id> --write
-go-ship-it export-run <repo>/<issue-id> --output docs/dogfood/<repo>-<issue-id>-evidence.md
+go-ship-it export-run <repo>/<issue-id>
 go-ship-it verify-run <repo>/<issue-id> --strict
 # inside the managed worktree:
 go-ship-it handoff --write
-go-ship-it export-run --current --output docs/dogfood/<repo>-<issue-id>-evidence.md
+go-ship-it export-run --current
 go-ship-it verify-run --current --strict
 ```
 

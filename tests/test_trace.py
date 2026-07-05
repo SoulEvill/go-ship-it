@@ -20,7 +20,7 @@ def test_run_timeline_orders_generated_issue_note_command_cleanup_and_export_eve
     append_note(root, "sample/issue-001", section="Proposal", phase="propose", note="Use the small fix.")
     run_check(root, "sample/issue-001", check="test")
     cleanup_issue(root, "sample/issue-001", destination="archive", note="Done.", remove_worktree=False)
-    export_run(root, "sample/issue-001", output=tmp_path / "docs" / "dogfood" / "issue-001.md")
+    export_run(root, "sample/issue-001")
 
     events = run_timeline(root, "sample/issue-001")
     kinds = [event.kind for event in events]

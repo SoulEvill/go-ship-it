@@ -157,10 +157,13 @@ def test_parser_has_evidence_commands():
     assert check.issue_id == "sample/issue-001"
     assert check.check == "test"
 
-    export = parser.parse_args(["export-run", "sample/issue-001", "--output", "docs/dogfood/sample-issue-001-evidence.md"])
+    export = parser.parse_args(["export-run", "sample/issue-001"])
     assert export.command == "export-run"
     assert export.issue_id == "sample/issue-001"
-    assert export.output == "docs/dogfood/sample-issue-001-evidence.md"
+    assert export.output is None
+
+    export_with_output = parser.parse_args(["export-run", "sample/issue-001", "--output", "exports/issue-001.md"])
+    assert export_with_output.output == "exports/issue-001.md"
 
 
 def test_parser_has_repo_config_commands():
@@ -607,7 +610,8 @@ def test_main_status_guides_test_phase_to_readiness_sequence(tmp_path, capsys):
     assert "Phase: test" in out
     assert "go-ship-it run-check sample/issue-001 --check test" in out
     assert "go-ship-it handoff sample/issue-001 --write" in out
-    assert "go-ship-it export-run sample/issue-001 --output docs/dogfood/sample-issue-001-evidence.md" in out
+    assert "go-ship-it export-run sample/issue-001" in out
+    assert "docs/dogfood" not in out
     assert "go-ship-it verify-run sample/issue-001 --strict" in out
     assert "go-ship-it cleanup-issue sample/issue-001 --destination archive --note \"<note>\" --remove-worktree" in out
 
@@ -699,9 +703,20 @@ def test_main_status_rejects_uninitialized_root(tmp_path, capsys):
 def test_main_export_run_relative_output_uses_root(tmp_path):
     _started_issue_root(tmp_path)
 
-    exit_code = main(["--root", str(tmp_path), "export-run", "sample/issue-001", "--output", "docs/dogfood/issue-001.md"])
+    exit_code = main(["--root", str(tmp_path), "export-run", "sample/issue-001", "--output", "exports/issue-001.md"])
 
-    output = tmp_path / "docs" / "dogfood" / "issue-001.md"
+    output = tmp_path / "exports" / "issue-001.md"
+    assert exit_code == 0
+    assert output.exists()
+    assert "# GoShipit Run Evidence: sample/issue-001" in output.read_text()
+
+
+def test_main_export_run_defaults_to_issue_folder(tmp_path):
+    _started_issue_root(tmp_path)
+
+    exit_code = main(["--root", str(tmp_path), "export-run", "sample/issue-001"])
+
+    output = tmp_path / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001" / "evidence.md"
     assert exit_code == 0
     assert output.exists()
     assert "# GoShipit Run Evidence: sample/issue-001" in output.read_text()

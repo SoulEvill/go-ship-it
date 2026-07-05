@@ -21,6 +21,8 @@ go-ship-it list-issues
 go-ship-it show-issue <repo>/<issue-id>
 ```
 
+Use the resolved GoShipit command from `using-go-ship-it`. In this development checkout that is usually `uv run go-ship-it`; in an installed package it is usually `go-ship-it`.
+
 If root or package setup is uncertain, also run:
 
 ```sh
@@ -109,4 +111,4 @@ If `start-issue` reports an issue is already active, show the existing run detai
 
 ## Failure Behavior
 
-Report the CLI error and stop. Do not edit target repo files or manually patch state as a shortcut.
+If bare `go-ship-it` is not found, retry with the resolved development command before reporting failure. For other errors, report the CLI error and stop. Do not edit target repo files or manually patch state as a shortcut.

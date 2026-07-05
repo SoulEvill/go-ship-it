@@ -24,10 +24,12 @@ go-ship-it status
 go-ship-it show-run <repo>/<issue-id> --handoff
 go-ship-it run-check <repo>/<issue-id> --check test
 go-ship-it handoff <repo>/<issue-id> --write
-go-ship-it export-run <repo>/<issue-id> --output docs/dogfood/<repo>-<issue-id>-evidence.md
+go-ship-it export-run <repo>/<issue-id>
 go-ship-it verify-run <repo>/<issue-id> --strict
 go-ship-it cleanup-issue <repo>/<issue-id> --destination archive --note <note> --remove-worktree
 ```
+
+`export-run` defaults to `evidence.md` inside the issue folder. Use `--output` only when the user explicitly wants a copy somewhere else.
 
 For GoShipit dogfood or self-improvement, setup can also register `go-ship-it` as the product-feedback repo:
 
@@ -67,6 +69,7 @@ state/repos/<repo>/
       run.yaml
       notes.md
       handoff.md
+      evidence.md
       logs/
         events.jsonl
         commands/*.yaml

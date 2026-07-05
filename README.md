@@ -41,6 +41,8 @@ go-ship-it status
 
 Agent sessions should run lifecycle commands from the GoShipit control root, or pass `--root <control-root>` explicitly. The control root contains `state/` and `worktrees/`. The package root contains skills and hooks. Target repo edits belong only inside the active issue worktree.
 
+In a clone-based development checkout, use `uv run go-ship-it ...` when the CLI has not been installed on PATH. In an installed package, use `go-ship-it ...`.
+
 ## Normal Path
 
 The first-run command surface is intentionally small:
@@ -53,10 +55,12 @@ go-ship-it status
 go-ship-it show-run my-repo/issue-001 --handoff
 go-ship-it run-check my-repo/issue-001 --check test
 go-ship-it handoff my-repo/issue-001 --write
-go-ship-it export-run my-repo/issue-001 --output docs/dogfood/my-repo-issue-001-evidence.md
+go-ship-it export-run my-repo/issue-001
 go-ship-it verify-run my-repo/issue-001 --strict
 go-ship-it cleanup-issue my-repo/issue-001 --destination archive --note "Done." --remove-worktree
 ```
+
+`export-run` writes `evidence.md` inside the issue folder by default. `docs/dogfood/` is only for committed GoShipit maintainer dogfood reports, not normal user runs.
 
 When the control root is being used to improve GoShipit itself, setup can also register the GoShipit repo as the product-feedback target:
 
@@ -96,6 +100,7 @@ state/repos/<repo>/
       run.yaml
       notes.md
       handoff.md
+      evidence.md
       logs/
         events.jsonl
         commands/*.yaml
@@ -119,7 +124,7 @@ The context file is only a pointer. GoShipit verifies it against `state/repos/<r
 
 ## What Gets Created
 
-When a first issue moves from todo to execution, GoShipit creates visible local artifacts:
+Across a first issue flow, GoShipit creates visible local artifacts:
 
 ```text
 state/repos/<repo>/issues/todo/<issue-id>/issue.md
@@ -127,17 +132,20 @@ state/repos/<repo>/issues/execution/<issue-id>/issue.md
 state/repos/<repo>/issues/execution/<issue-id>/run.yaml
 state/repos/<repo>/issues/execution/<issue-id>/notes.md
 state/repos/<repo>/issues/execution/<issue-id>/handoff.md
+state/repos/<repo>/issues/execution/<issue-id>/evidence.md
 state/repos/<repo>/issues/execution/<issue-id>/logs/events.jsonl
 state/repos/<repo>/issues/execution/<issue-id>/logs/commands/*.yaml
 worktrees/<repo>/<issue-id>/.go-ship-it/context.yaml
 ```
+
+`evidence.md` appears after `export-run`; `handoff.md` appears after `handoff --write`.
 
 Before cleanup, run the readiness gate:
 
 ```sh
 go-ship-it status
 go-ship-it handoff <repo>/<issue-id> --write
-go-ship-it export-run <repo>/<issue-id> --output docs/dogfood/<repo>-<issue-id>-evidence.md
+go-ship-it export-run <repo>/<issue-id>
 go-ship-it verify-run <repo>/<issue-id> --strict
 ```
 

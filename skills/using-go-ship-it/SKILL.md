@@ -25,6 +25,18 @@ go-ship-it package-root
 
 For the package, CLI, and maintainer surfaces, read `references/command-surface.md`.
 
+## Command Resolution
+
+Resolve the GoShipit command before running lifecycle commands:
+
+- If `go-ship-it` is on PATH, use `go-ship-it`.
+- If this is a clone-based development checkout and `pyproject.toml` is present, use `uv run go-ship-it`.
+- If a local virtualenv exists, `.venv/bin/go-ship-it` is also acceptable.
+
+If bare `go-ship-it` fails with "command not found", retry from the control root with `uv run go-ship-it` before reporting a setup problem.
+
+Examples below use `go-ship-it` for readability. In this GoShipit development repo, prefer `uv run go-ship-it` unless the package has been installed on PATH.
+
 ## Orientation
 
 Before changing state, run these from the GoShipit control repo root:
@@ -92,6 +104,16 @@ State changes should go through the GoShipit CLI.
 Do not move issue files manually unless the user explicitly asks for repair work and `doctor` output shows why repair is needed.
 
 Do not edit target repositories from the control repo checkout. Target edits belong inside the active issue worktree.
+
+## User Communication
+
+Use the CLI as plumbing. When talking to the user, summarize the next action in plain language first. Show exact commands only when the user asks, when a command failed, or when the command is the safest way to disambiguate what will happen.
+
+Good user-facing phrasing:
+
+- "ParaWave is registered and has no active issues. Next I can create the first todo or update repo context."
+- "This issue is active in an isolated worktree. I will inspect the run, then read the target repo context before editing."
+- "The run is ready for review. I can write the handoff and export the issue-local evidence snapshot before cleanup."
 
 ## Skill Routing
 

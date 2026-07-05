@@ -25,7 +25,7 @@ def test_verify_run_warns_when_export_precedes_cleanup(tmp_path):
     root = _started_issue_root(tmp_path)
     _write_required_notes(root, ISSUE_REF)
     run_check(root, ISSUE_REF, check="test")
-    export_run(root, ISSUE_REF, output=tmp_path / "docs" / "dogfood" / "before-cleanup.md")
+    export_run(root, ISSUE_REF, output=tmp_path / "exports" / "before-cleanup.md")
     cleanup_issue(root, ISSUE_REF, destination="archive", note="Done.", remove_worktree=False)
 
     report = verify_run(root, ISSUE_REF)
@@ -35,31 +35,12 @@ def test_verify_run_warns_when_export_precedes_cleanup(tmp_path):
     assert any(item.code == "worktree.preserved_after_archive" for item in report.warnings)
 
 
-def test_verify_run_warns_when_legacy_export_lacks_metadata_after_cleanup(tmp_path):
-    root = _started_issue_root(tmp_path)
-    _write_required_notes(root, ISSUE_REF)
-    run_check(root, ISSUE_REF, check="test")
-    cleanup_issue(root, ISSUE_REF, destination="archive", note="Done.", remove_worktree=False)
-    legacy_export = root / "docs" / "dogfood" / "legacy-export.md"
-    legacy_export.parent.mkdir(parents=True)
-    legacy_export.write_text(
-        "# GoShipit Run Evidence: sample/issue-001\n\n"
-        "Source: `state/repos/sample/issues/execution/issue-001/issue.md`\n\n"
-        "```yaml\nphase: test\n```\n"
-    )
-
-    report = verify_run(root, ISSUE_REF)
-
-    assert not report.errors
-    assert any(item.code == "run.export_stale" for item in report.warnings)
-
-
 def test_verify_run_accepts_export_after_cleanup(tmp_path):
     root = _started_issue_root(tmp_path)
     _write_required_notes(root, ISSUE_REF)
     run_check(root, ISSUE_REF, check="test")
     cleanup_issue(root, ISSUE_REF, destination="archive", note="Done.", remove_worktree=False)
-    export_run(root, ISSUE_REF, output=tmp_path / "docs" / "dogfood" / "after-cleanup.md")
+    export_run(root, ISSUE_REF)
 
     report = verify_run(root, ISSUE_REF)
 
