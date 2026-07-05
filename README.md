@@ -74,7 +74,7 @@ That creates `state/repos/go-ship-it/` with product-feedback context so GoShipit
 For contributor dogfood against the sibling ParaWave repo, use the helper instead:
 
 ```sh
-scripts/dev/setup-parawave-dogfood.sh
+scripts/setup/parawave.sh
 ```
 
 It registers `state/repos/parawave/` as the target repo and `state/repos/go-ship-it/` as the feedback repo.

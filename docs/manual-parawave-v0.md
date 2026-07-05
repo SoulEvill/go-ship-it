@@ -5,7 +5,7 @@ Run these commands from the `go-ship-it` repo.
 ## 0. Register Parawave
 
 ```sh
-scripts/dev/setup-parawave-dogfood.sh
+scripts/setup/parawave.sh
 ```
 
 Expected:

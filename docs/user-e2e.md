@@ -21,7 +21,7 @@ go-ship-it init \
 For GoShipit contributors dogfooding with ParaWave in this workspace, setup should register `parawave` as the target repo:
 
 ```sh
-scripts/dev/setup-parawave-dogfood.sh
+scripts/setup/parawave.sh
 ```
 
 That helper runs `go-ship-it init` with `--repo-id parawave`, `--repo-path ../parawave`, ParaWave's test command, and the local `go-ship-it` feedback repo. Set `PARAWAVE_PATH=/path/to/parawave` when the ParaWave clone is not a sibling of this repo.

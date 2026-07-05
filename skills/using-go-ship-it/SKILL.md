@@ -113,7 +113,7 @@ In this development workspace, `parawave` may be registered as a dogfood target 
 If ParaWave is not registered yet in this development workspace, set it up as the dogfood target:
 
 ```sh
-scripts/dev/setup-parawave-dogfood.sh
+scripts/setup/parawave.sh
 ```
 
 Equivalent explicit setup:

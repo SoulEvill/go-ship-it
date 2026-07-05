@@ -40,7 +40,7 @@ go-ship-it init \
   --feedback-test-command "uv run pytest -q"
 ```
 
-In the GoShipit development workspace, use `scripts/dev/setup-parawave-dogfood.sh` to register `parawave` as the dogfood target repo and `go-ship-it` as the feedback repo.
+In the GoShipit development workspace, use `scripts/setup/parawave.sh` to register `parawave` as the dogfood target repo and `go-ship-it` as the feedback repo.
 
 Advanced commands such as `show-run`, `handoff`, `append-note`, `set-phase`, `verify-run`, `export-run`, `doctor`, and `package-root` support the lifecycle but do not need separate skills.
 

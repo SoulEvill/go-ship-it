@@ -55,7 +55,7 @@ This creates `state/repos/go-ship-it/` with GoShipit product-feedback context. U
 In the GoShipit development workspace, ParaWave is the contributor dogfood target. Prefer the helper:
 
 ```sh
-scripts/dev/setup-parawave-dogfood.sh
+scripts/setup/parawave.sh
 ```
 
 It registers `parawave` as the target repo and `go-ship-it` as the feedback repo.
