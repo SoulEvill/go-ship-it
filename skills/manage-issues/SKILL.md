@@ -39,6 +39,19 @@ go-ship-it cleanup-issue <repo>/<issue-id> --destination todo --note <note> --re
 go-ship-it cleanup-issue <repo>/<issue-id> --destination archive --note <note> --remove-worktree
 ```
 
+When the user is dogfooding or improving GoShipit itself, initialize the control root with a feedback repo target too:
+
+```sh
+go-ship-it init \
+  --repo-id <target-repo> \
+  --repo-path <target-path> \
+  --test-command <target-test-command> \
+  --feedback-repo-path <go-ship-it-repo-path> \
+  --feedback-test-command "uv run pytest -q"
+```
+
+This creates `state/repos/go-ship-it/` with GoShipit product-feedback context. Use it for issues about GoShipit behavior, setup friction, confusing lifecycle UX, or agent/package integration gaps.
+
 `--claimed-by` is optional. When omitted, GoShipit creates a stable local actor label from the agent/tool environment, user, host, control root, and current working directory.
 
 `start-issue` prints the worktree, run file, claim label, deterministic claim id, and context file. If the issue is already active, it returns the existing active run details instead of creating another worktree.

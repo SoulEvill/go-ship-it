@@ -82,12 +82,50 @@ def test_main_init_can_register_first_repo(tmp_path):
     assert "test_command: python -c 'print(\"ok\")'\n" in text
 
 
+def test_main_init_can_register_go_ship_it_feedback_repo(tmp_path):
+    target = _create_git_repo(tmp_path / "target")
+    feedback = _create_git_repo(tmp_path / "go-ship-it")
+
+    exit_code = main(
+        [
+            "--root",
+            str(tmp_path / "control"),
+            "init",
+            "--repo-id",
+            "sample",
+            "--repo-path",
+            str(target),
+            "--test-command",
+            "python -c 'print(\"ok\")'",
+            "--feedback-repo-path",
+            str(feedback),
+            "--feedback-test-command",
+            "uv run pytest -q",
+        ]
+    )
+
+    feedback_file = tmp_path / "control" / "state" / "repos" / "go-ship-it" / "repo.yaml"
+    assert exit_code == 0
+    assert feedback_file.exists()
+    assert "id: go-ship-it\n" in feedback_file.read_text()
+    context = (tmp_path / "control" / "state" / "repos" / "go-ship-it" / "context.md").read_text()
+    assert "Use this registered repo for GoShipit product feedback" in context
+
+
 def test_main_init_rejects_partial_repo_registration(tmp_path, capsys):
     exit_code = main(["--root", str(tmp_path), "init", "--repo-id", "sample"])
 
     captured = capsys.readouterr()
     assert exit_code == 1
     assert "--repo-id and --repo-path must be provided together" in captured.err
+
+
+def test_main_init_rejects_feedback_test_without_feedback_repo(tmp_path, capsys):
+    exit_code = main(["--root", str(tmp_path), "init", "--feedback-test-command", "uv run pytest -q"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "--feedback-test-command requires --feedback-repo-path" in captured.err
 
 
 def test_register_repo_cli_preserves_relative_paths(tmp_path):

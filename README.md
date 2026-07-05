@@ -58,6 +58,19 @@ go-ship-it verify-run my-repo/issue-001 --strict
 go-ship-it cleanup-issue my-repo/issue-001 --destination archive --note "Done." --remove-worktree
 ```
 
+When the control root is being used to improve GoShipit itself, setup can also register the GoShipit repo as the product-feedback target:
+
+```sh
+go-ship-it init \
+  --repo-id my-repo \
+  --repo-path /path/to/my-repo \
+  --test-command "uv run pytest" \
+  --feedback-repo-path /path/to/go-ship-it \
+  --feedback-test-command "uv run pytest -q"
+```
+
+That creates `state/repos/go-ship-it/` with product-feedback context so GoShipit friction from target-repo work can become normal `go-ship-it/<issue-id>` issues.
+
 Use `status` as the command center. It shows the control root, package root, current branch, active issues, worktrees, and useful next commands.
 
 Each registered repo gets its own visible folder:

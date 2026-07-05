@@ -29,6 +29,17 @@ go-ship-it verify-run <repo>/<issue-id> --strict
 go-ship-it cleanup-issue <repo>/<issue-id> --destination archive --note <note> --remove-worktree
 ```
 
+For GoShipit dogfood or self-improvement, setup can also register `go-ship-it` as the product-feedback repo:
+
+```sh
+go-ship-it init \
+  --repo-id <target-repo> \
+  --repo-path <target-path> \
+  --test-command <target-test-command> \
+  --feedback-repo-path <go-ship-it-repo-path> \
+  --feedback-test-command "uv run pytest -q"
+```
+
 Advanced commands such as `show-run`, `handoff`, `append-note`, `set-phase`, `verify-run`, `export-run`, `doctor`, and `package-root` support the lifecycle but do not need separate skills.
 
 When an agent needs structured output instead of Markdown, use:

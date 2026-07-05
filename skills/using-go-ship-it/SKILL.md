@@ -110,6 +110,17 @@ Remote integrations are optional future extensions. Keep local lifecycle evidenc
 
 In this development workspace, `parawave` may be registered as a dogfood target repo. Treat `state/repos/parawave/repo.yaml` and `state/repos/parawave/context.md` as the source of truth before starting ParaWave work. Do not present ParaWave as a default target repo for external users.
 
+Setup can create the GoShipit feedback target at the same time as the first target repo:
+
+```sh
+go-ship-it init \
+  --repo-id <target-repo> \
+  --repo-path <target-path> \
+  --test-command <target-test-command> \
+  --feedback-repo-path <go-ship-it-repo-path> \
+  --feedback-test-command "uv run pytest -q"
+```
+
 When GoShipit itself is being improved, use the registered `go-ship-it` repo. If the user reports GoShipit friction, confusing behavior, install problems, bad command output, or lifecycle UX issues while working any target repo, create or offer to create a normal todo issue under `go-ship-it`. Link it back to the source repo, source issue, active run path, and a concise note about what happened.
 
 Do not create a separate feedback, learning, or observation folder for GoShipit product issues. Use the same repo-centric issue lifecycle so the feedback can be investigated, implemented, tested, archived, and exported like any other issue.

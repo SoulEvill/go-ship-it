@@ -12,6 +12,7 @@ from go_ship_it.state import (
     ensure_layout,
     next_issue_id,
     read_repo_config,
+    register_feedback_repo,
     register_repo,
     render_handoff,
     resolve_current_run,
@@ -61,6 +62,26 @@ def test_register_repo_writes_simple_registry_file(tmp_path):
     assert (tmp_path / "state" / "repos" / "sample" / "issues" / "execution").is_dir()
     assert (tmp_path / "state" / "repos" / "sample" / "issues" / "archive").is_dir()
     assert not (tmp_path / "state" / "repos" / "sample" / "runs").exists()
+
+
+def test_register_feedback_repo_writes_product_context(tmp_path):
+    target = tmp_path / "go-ship-it"
+    target.mkdir()
+
+    repo_file = register_feedback_repo(
+        tmp_path,
+        path=target,
+        test_command="uv run pytest -q",
+    )
+
+    assert repo_file == tmp_path / "state" / "repos" / "go-ship-it" / "repo.yaml"
+    text = repo_file.read_text()
+    assert "id: go-ship-it\n" in text
+    assert f"path: {target}\n" in text
+    assert "test_command: uv run pytest -q\n" in text
+    context = (tmp_path / "state" / "repos" / "go-ship-it" / "context.md").read_text()
+    assert "Use this registered repo for GoShipit product feedback" in context
+    assert "Do not add a separate feedback, learning, or observation subsystem" in context
 
 
 def test_read_repo_config_rejects_flat_registry_file(tmp_path):

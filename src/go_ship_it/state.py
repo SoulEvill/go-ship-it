@@ -187,6 +187,29 @@ def register_repo(
     return repo_file
 
 
+def register_feedback_repo(
+    root: Path,
+    *,
+    path: Path,
+    test_command: str | None,
+) -> Path:
+    repo_file = register_repo(
+        root,
+        repo_id="go-ship-it",
+        path=path,
+        default_branch="main",
+        setup_command=None,
+        test_command=test_command,
+        lint_command=None,
+    )
+    context_file = _repo_dir(root, "go-ship-it") / "context.md"
+    generic_template = _repo_context_template("go-ship-it")
+    feedback_template = _feedback_context_template()
+    if not context_file.exists() or context_file.read_text() == generic_template:
+        context_file.write_text(feedback_template)
+    return repo_file
+
+
 def read_repo_config(root: Path, repo_id: str) -> dict[str, object]:
     return _read_repo(root, repo_id)
 
@@ -1306,6 +1329,29 @@ def _repo_context_template(repo_id: str) -> str:
         "Record common setup, test, lint, and release commands here.\n\n"
         "## Gotchas\n\n"
         "Capture repo-specific traps, constraints, or conventions as they are learned.\n\n"
+        "## Notes\n\n"
+    )
+
+
+def _feedback_context_template() -> str:
+    return (
+        "# GoShipit Context\n\n"
+        "## Overview\n\n"
+        "GoShipit is the local-first control workspace and agent harness. It owns the CLI, packaged skills, "
+        "plugin metadata, lifecycle docs, diagnostics, and tests.\n\n"
+        "Use this registered repo for GoShipit product feedback and harness improvements. When a run against "
+        "another target repo exposes a GoShipit problem, file a normal todo issue here and link back to the "
+        "source repo, source issue, active run path, and relevant command output or note.\n\n"
+        "## Commands\n\n"
+        "- Fast test suite: `uv run pytest -q`\n"
+        "- Release readiness: `just release-check`\n"
+        "- CLI orientation: `uv run go-ship-it status && uv run go-ship-it doctor`\n\n"
+        "## Gotchas\n\n"
+        "- State is repo-centric: `state/repos/<repo>/issues/{todo,execution,archive}`.\n"
+        "- Generated run records live under an issue's `logs/` folder.\n"
+        "- Human or agent-authored run narrative belongs in `notes.md` and `handoff.md`.\n"
+        "- Do not add a separate feedback, learning, or observation subsystem until repeated runs prove the "
+        "lifecycle itself is too limiting.\n\n"
         "## Notes\n\n"
     )
 

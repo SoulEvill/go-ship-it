@@ -22,6 +22,7 @@ from go_ship_it.state import (
     export_run,
     list_issues,
     read_repo_config,
+    register_feedback_repo,
     register_repo,
     render_handoff,
     resolve_current_run,
@@ -70,6 +71,16 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("--setup-command", default=None)
     init.add_argument("--test-command", default=None)
     init.add_argument("--lint-command", default=None)
+    init.add_argument(
+        "--feedback-repo-path",
+        default=None,
+        help="Optional GoShipit repo path to register as the go-ship-it product feedback target.",
+    )
+    init.add_argument(
+        "--feedback-test-command",
+        default=None,
+        help="Optional test command for the go-ship-it feedback repo.",
+    )
     subparsers.add_parser("package-root", help="Print the bundled GoShipit agent package root.")
 
     register = subparsers.add_parser("register-repo", help="Register a target repository.")
@@ -705,6 +716,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             has_repo_path = args.repo_path is not None
             if has_repo_id != has_repo_path:
                 raise ValueError("--repo-id and --repo-path must be provided together")
+            if args.feedback_test_command is not None and args.feedback_repo_path is None:
+                raise ValueError("--feedback-test-command requires --feedback-repo-path")
             if has_repo_id and has_repo_path:
                 repo_file = register_repo(
                     root,
@@ -716,6 +729,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                     lint_command=args.lint_command,
                 )
                 print(f"Registered repo: {repo_file}")
+            if args.feedback_repo_path is not None:
+                feedback_file = register_feedback_repo(
+                    root,
+                    path=Path(args.feedback_repo_path),
+                    test_command=args.feedback_test_command,
+                )
+                print(f"Registered GoShipit feedback repo: {feedback_file}")
             return 0
 
         if args.command == "register-repo":

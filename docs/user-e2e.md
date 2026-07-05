@@ -18,6 +18,19 @@ go-ship-it init \
   --test-command "uv run pytest"
 ```
 
+If this control root is also dogfooding or improving GoShipit itself, register the GoShipit repo during setup too:
+
+```sh
+go-ship-it init \
+  --repo-id my-repo \
+  --repo-path /path/to/my-repo \
+  --test-command "uv run pytest" \
+  --feedback-repo-path /path/to/go-ship-it \
+  --feedback-test-command "uv run pytest -q"
+```
+
+This creates `state/repos/go-ship-it/` as the place for GoShipit product feedback discovered during target-repo work.
+
 This creates the repo folder:
 
 ```text
