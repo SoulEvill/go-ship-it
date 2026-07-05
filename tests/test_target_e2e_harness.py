@@ -9,6 +9,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 HARNESS_PATH = ROOT / "scripts" / "run-target-e2e.py"
+PARAWAVE_SETUP_PATH = ROOT / "scripts" / "dev" / "setup-parawave-dogfood.sh"
 
 
 def load_harness():
@@ -42,6 +43,15 @@ def test_parser_requires_explicit_target_arguments():
     assert args.setup_command == "python -c 'print(\"setup\")'"
     assert args.test_command == "python -c 'print(\"test\")'"
     assert args.default_branch == "main"
+
+
+def test_parawave_dogfood_setup_helper_registers_parawave_target():
+    assert PARAWAVE_SETUP_PATH.exists()
+    assert PARAWAVE_SETUP_PATH.stat().st_mode & 0o111
+    text = PARAWAVE_SETUP_PATH.read_text()
+    assert "--repo-id parawave" in text
+    assert 'PARAWAVE_PATH="${PARAWAVE_PATH:-$ROOT/../parawave}"' in text
+    assert "--feedback-repo-path" in text
 
 
 @pytest.mark.parametrize("flag", ["--setup-command", "--test-command"])

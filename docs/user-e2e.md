@@ -18,18 +18,26 @@ go-ship-it init \
   --test-command "uv run pytest"
 ```
 
-If this control root is also dogfooding or improving GoShipit itself, register the GoShipit repo during setup too:
+For GoShipit contributors dogfooding with ParaWave in this workspace, setup should register `parawave` as the target repo:
+
+```sh
+scripts/dev/setup-parawave-dogfood.sh
+```
+
+That helper runs `go-ship-it init` with `--repo-id parawave`, `--repo-path ../parawave`, ParaWave's test command, and the local `go-ship-it` feedback repo. Set `PARAWAVE_PATH=/path/to/parawave` when the ParaWave clone is not a sibling of this repo.
+
+Equivalent explicit command:
 
 ```sh
 go-ship-it init \
-  --repo-id my-repo \
-  --repo-path /path/to/my-repo \
-  --test-command "uv run pytest" \
+  --repo-id parawave \
+  --repo-path /path/to/parawave \
+  --test-command "uv run --extra dev --extra sqlite pytest tests/ -v --tb=short" \
   --feedback-repo-path /path/to/go-ship-it \
   --feedback-test-command "uv run pytest -q"
 ```
 
-This creates `state/repos/go-ship-it/` as the place for GoShipit product feedback discovered during target-repo work.
+This creates `state/repos/parawave/` as the target repo and `state/repos/go-ship-it/` as the place for GoShipit product feedback discovered during ParaWave work.
 
 This creates the repo folder:
 

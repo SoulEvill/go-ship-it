@@ -2,6 +2,18 @@
 
 Run these commands from the `go-ship-it` repo.
 
+## 0. Register Parawave
+
+```sh
+scripts/dev/setup-parawave-dogfood.sh
+```
+
+Expected:
+
+- `state/repos/parawave/repo.yaml` points to the ParaWave clone.
+- `state/repos/parawave/context.md` exists for ParaWave repo-level notes.
+- `state/repos/go-ship-it/context.md` exists for GoShipit product feedback found during dogfood runs.
+
 ## 1. Verify package tests
 
 ```sh

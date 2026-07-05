@@ -52,6 +52,14 @@ go-ship-it init \
 
 This creates `state/repos/go-ship-it/` with GoShipit product-feedback context. Use it for issues about GoShipit behavior, setup friction, confusing lifecycle UX, or agent/package integration gaps.
 
+In the GoShipit development workspace, ParaWave is the contributor dogfood target. Prefer the helper:
+
+```sh
+scripts/dev/setup-parawave-dogfood.sh
+```
+
+It registers `parawave` as the target repo and `go-ship-it` as the feedback repo.
+
 `--claimed-by` is optional. When omitted, GoShipit creates a stable local actor label from the agent/tool environment, user, host, control root, and current working directory.
 
 `start-issue` prints the worktree, run file, claim label, deterministic claim id, and context file. If the issue is already active, it returns the existing active run details instead of creating another worktree.

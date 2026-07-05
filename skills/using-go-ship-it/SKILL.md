@@ -110,13 +110,19 @@ Remote integrations are optional future extensions. Keep local lifecycle evidenc
 
 In this development workspace, `parawave` may be registered as a dogfood target repo. Treat `state/repos/parawave/repo.yaml` and `state/repos/parawave/context.md` as the source of truth before starting ParaWave work. Do not present ParaWave as a default target repo for external users.
 
-Setup can create the GoShipit feedback target at the same time as the first target repo:
+If ParaWave is not registered yet in this development workspace, set it up as the dogfood target:
+
+```sh
+scripts/dev/setup-parawave-dogfood.sh
+```
+
+Equivalent explicit setup:
 
 ```sh
 go-ship-it init \
-  --repo-id <target-repo> \
-  --repo-path <target-path> \
-  --test-command <target-test-command> \
+  --repo-id parawave \
+  --repo-path <parawave-repo-path> \
+  --test-command "uv run --extra dev --extra sqlite pytest tests/ -v --tb=short" \
   --feedback-repo-path <go-ship-it-repo-path> \
   --feedback-test-command "uv run pytest -q"
 ```

@@ -71,6 +71,14 @@ go-ship-it init \
 
 That creates `state/repos/go-ship-it/` with product-feedback context so GoShipit friction from target-repo work can become normal `go-ship-it/<issue-id>` issues.
 
+For contributor dogfood against the sibling ParaWave repo, use the helper instead:
+
+```sh
+scripts/dev/setup-parawave-dogfood.sh
+```
+
+It registers `state/repos/parawave/` as the target repo and `state/repos/go-ship-it/` as the feedback repo.
+
 Use `status` as the command center. It shows the control root, package root, current branch, active issues, worktrees, and useful next commands.
 
 Each registered repo gets its own visible folder:
