@@ -17,6 +17,7 @@ from go_ship_it.state import (
     show_issue,
     show_run,
 )
+from go_ship_it.verify import verify_run
 
 
 @dataclass(frozen=True)
@@ -160,6 +161,15 @@ def publish_pull_request(
     _validate_branch_name(worktree, pr_branch)
     _require_clean_worktree(worktree)
     _require_commits_ahead(worktree, base)
+
+    report = verify_run(root, run.issue_ref)
+    blockers = [*report.errors, *report.warnings]
+    if blockers:
+        sample = "; ".join(f"{item.code}: {item.message}" for item in blockers[:5])
+        raise GoShipitError(
+            f"Cannot publish: verify-run found {report.error_count} errors and "
+            f"{report.warning_count} warnings. Fix the evidence and rerun. First findings: {sample}"
+        )
 
     _run_command(["git", "-C", str(worktree), "push", remote, f"{local_branch}:{pr_branch}"])
     gh = _run_command(

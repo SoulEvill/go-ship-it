@@ -9,8 +9,10 @@ from go_ship_it.pull_request import prepare_pull_request, publish_pull_request
 from go_ship_it.state import (
     GoShipitError,
     add_issue,
+    append_note,
     register_repo,
     run_check,
+    set_phase,
     start_issue,
     update_repo_config,
     write_handoff,
@@ -89,6 +91,7 @@ def test_publish_pull_request_pushes_pr_branch_and_records_url(tmp_path, monkeyp
     (worktree / "README.md").write_text("# Sample\n\nMore detail.\n")
     _run_git(worktree, "add", "README.md")
     _run_git(worktree, "commit", "-m", "update readme")
+    _write_verify_clean_notes(root, "sample/issue-001")
     prepare_pull_request(root, "sample/issue-001", branch="feature/readme")
     original_run_command = pr_module._run_command
     calls: list[list[str]] = []
@@ -124,6 +127,7 @@ def test_publish_pull_request_allows_repo_auto_publish_without_approval(tmp_path
     (worktree / "README.md").write_text("# Sample\n\nMore detail.\n")
     _run_git(worktree, "add", "README.md")
     _run_git(worktree, "commit", "-m", "update readme")
+    _write_verify_clean_notes(root, "sample/issue-001")
     prepare_pull_request(root, "sample/issue-001", branch="feature/readme")
     original_run_command = pr_module._run_command
 
@@ -157,6 +161,36 @@ def test_publish_refuses_when_provider_is_none(tmp_path):
 
     with pytest.raises(GoShipitError, match="no publish target"):
         publish_pull_request(root, "sample/issue-001", approved=True)
+
+
+def test_publish_blocks_when_verify_run_has_findings(tmp_path):
+    root = _started_issue_root(tmp_path)  # no notes/acceptance evidence => verify-run has warnings
+    worktree = root / "worktrees" / "sample" / "issue-001"
+    (worktree / "README.md").write_text("# Sample\n\nMore detail.\n")
+    _run_git(worktree, "add", "README.md")
+    _run_git(worktree, "commit", "-m", "update readme")
+    prepare_pull_request(root, "sample/issue-001", branch="feature/sample")
+
+    with pytest.raises(GoShipitError, match="Cannot publish: verify-run"):
+        publish_pull_request(root, "sample/issue-001", approved=True)
+
+
+def _write_verify_clean_notes(root: Path, issue_ref: str) -> None:
+    """Write the four required note sections plus acceptance evidence so verify-run is clean."""
+    set_phase(root, issue_ref, "investigate", note="Investigating.")
+    append_note(root, issue_ref, section="Investigation", phase="investigate", note="Read context.")
+    set_phase(root, issue_ref, "propose", note="Proposal ready.")
+    append_note(root, issue_ref, section="Proposal", phase="propose", note="Use small fix.")
+    set_phase(root, issue_ref, "implement", note="Implementation ready.")
+    append_note(root, issue_ref, section="Implementation", phase="implement", note="Changed files.")
+    set_phase(root, issue_ref, "review", note="Testing.")
+    append_note(
+        root,
+        issue_ref,
+        section="Review",
+        phase="review",
+        note="Acceptance evidence: README changes. Verified by the test check.",
+    )
 
 
 def _started_issue_root(tmp_path: Path) -> Path:
