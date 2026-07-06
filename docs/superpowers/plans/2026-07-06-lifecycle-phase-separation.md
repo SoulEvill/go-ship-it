@@ -1149,7 +1149,6 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - Create: `skills/close-out/SKILL.md`
 - Create: `skills/close-out/references/phases/write-pr.md`, `skills/close-out/references/phases/publish.md`, `skills/close-out/references/phases/archive.md`
 - Create: `skills/work-issue/references/phases/investigate.md`, `propose.md`, `implement.md`, `review.md`
-- Create: `.agents/skills/close-out` (symlink, same shape as the existing three — check `ls -la .agents/skills/` and replicate)
 - Create: `tests/test_phase_docs.py`
 - Modify: `skills/work-issue/SKILL.md` (remove PR/publish/archive guidance; new review-phase commands; point to phase docs and to close-out)
 - Modify: `skills/using-go-ship-it/SKILL.md` (Skill Routing: 3 operational skills)
@@ -1422,13 +1421,9 @@ Both tracks cross the same close-out gates: prepare-pr (local, reversible), publ
 (human-approved; blocked while verify-run has findings), archive (terminal; requires --confirm).
 ```
 
-- [ ] **Step 6: Create the `.agents` shim**
+- [ ] **Step 6: No `.agents` step**
 
-```bash
-ls -la .agents/skills/
-```
-
-Replicate whatever form the three existing entries have (symlink to `../../skills/close-out`) for `close-out`.
+The `.agents/` scaffold is local-only and git-ignored (ef9cf2a); its existence tests were removed (see the fix commit after Task 1). Do not create anything under `.agents/` in the repo.
 
 - [ ] **Step 7: Full suite, then commit**
 
