@@ -123,8 +123,9 @@ Good user-facing phrasing:
 
 Keep the agent-facing skill surface small:
 
-- `manage-issues` when initializing a control root, registering a repo, creating a todo, starting work, checking status, or cleaning up an active issue.
-- `work-issue` when investigating, proposing, implementing, testing, reviewing, or recording run evidence inside an active issue.
+- `manage-issues` when initializing a control root, registering a repo, creating a todo, starting work, checking status, or returning an active issue to todo.
+- `work-issue` when investigating, proposing, implementing, or reviewing inside an active issue.
+- `close-out` when shipping a reviewed issue: prepare the local PR, publish it, archive the issue.
 
 ## Product Boundary
 

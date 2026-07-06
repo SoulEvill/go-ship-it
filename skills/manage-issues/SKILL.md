@@ -44,8 +44,10 @@ go-ship-it update-repo <repo> --worktree-setup-command <cmd>
 go-ship-it add-issue --repo <repo> --title <title> --problem <problem> --context <context> --acceptance <criterion>
 go-ship-it start-issue <repo>/<issue-id> --claimed-by <thread-label>
 go-ship-it cleanup-issue <repo>/<issue-id> --destination todo --note <note> --remove-worktree
-go-ship-it cleanup-issue <repo>/<issue-id> --destination archive --note <note> --remove-worktree
+go-ship-it cleanup-issue <repo>/<issue-id> --destination archive --confirm --note <note> --remove-worktree
 ```
+
+Archiving a finished issue is part of the close-out skill's three-gate flow; use cleanup-issue --destination todo here only for returning unfinished work.
 
 When the user is using the control root to improve GoShipit itself, register a feedback repo target too:
 

@@ -7,6 +7,7 @@ SKILLS = {
     "using-go-ship-it",
     "manage-issues",
     "work-issue",
+    "close-out",
 }
 
 DEPRECATED_SKILLS = {
@@ -22,13 +23,25 @@ DEPRECATED_SKILLS = {
 SKILL_REFERENCES = {
     "using-go-ship-it": ("references/command-surface.md",),
     "manage-issues": ("references/state-lifecycle.md",),
-    "work-issue": ("references/workflow-notes-template.md",),
+    "work-issue": (
+        "references/workflow-notes-template.md",
+        "references/phases/investigate.md",
+        "references/phases/propose.md",
+        "references/phases/implement.md",
+        "references/phases/review.md",
+    ),
+    "close-out": (
+        "references/phases/write-pr.md",
+        "references/phases/publish.md",
+        "references/phases/archive.md",
+    ),
 }
 
 ORIENTATION_COMMANDS = {
     "using-go-ship-it": ("go-ship-it status", "go-ship-it doctor"),
     "manage-issues": ("go-ship-it status", "go-ship-it list-issues", "go-ship-it show-issue"),
     "work-issue": ("go-ship-it show-issue", "go-ship-it show-run"),
+    "close-out": ("go-ship-it show-run", "go-ship-it verify-run"),
 }
 
 SKILL_COMMANDS = {
@@ -43,7 +56,11 @@ SKILL_COMMANDS = {
         "go-ship-it append-note",
         "go-ship-it run-check",
         "go-ship-it handoff",
+    ),
+    "close-out": (
         "go-ship-it prepare-pr",
+        "go-ship-it publish-pr",
+        "go-ship-it cleanup-issue",
     ),
 }
 
@@ -108,12 +125,13 @@ def test_skills_include_orientation_commands():
             assert command in text, f"{skill} should mention {command}"
 
 
-def test_bootstrap_skill_routes_to_two_operational_skills():
+def test_bootstrap_skill_routes_to_three_operational_skills():
     root = Path(__file__).resolve().parents[1]
     text = (root / "skills" / "using-go-ship-it" / "SKILL.md").read_text()
 
     assert "`manage-issues`" in text
     assert "`work-issue`" in text
+    assert "`close-out`" in text
     for deprecated in DEPRECATED_SKILLS:
         assert f"`{deprecated}`" not in text
 
