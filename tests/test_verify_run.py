@@ -77,7 +77,7 @@ def test_verify_run_accepts_acceptance_criteria_with_evidence(tmp_path):
         root,
         ISSUE_REF,
         section="Review",
-        phase="test",
+        phase="review",
         note="Acceptance evidence: README changes. Verified by the test check.",
     )
     run_check(root, ISSUE_REF, check="test")
@@ -117,8 +117,8 @@ def _write_required_notes(root: Path, issue_id: str) -> None:
     append_note(root, issue_id, section="Proposal", phase="propose", note="Use small fix.")
     set_phase(root, issue_id, "implement", note="Implementation ready.")
     append_note(root, issue_id, section="Implementation", phase="implement", note="Changed files.")
-    set_phase(root, issue_id, "test", note="Testing.")
-    append_note(root, issue_id, section="Review", phase="test", note="Ready.")
+    set_phase(root, issue_id, "review", note="Testing.")
+    append_note(root, issue_id, section="Review", phase="review", note="Ready.")
 
 
 def _started_issue_root(tmp_path: Path, *, test_command: str = "python -c 'print(\"ok\")'") -> Path:

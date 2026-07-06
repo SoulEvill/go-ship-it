@@ -767,16 +767,16 @@ def _active_issue_next_commands(root: Path, item: object) -> list[str]:
         commands.extend(
             [
                 f"go-ship-it append-note {ref} --section \"Implementation\" --for-phase implement --note \"<changed files and decisions>\"",
-                f"go-ship-it set-phase {ref} test --note \"<ready for checks>\"",
+                f"go-ship-it set-phase {ref} review --note \"<ready for checks>\"",
             ]
         )
-    elif phase == "test":
-        commands.append(f"go-ship-it append-note {ref} --section \"Review\" --for-phase test --note \"<readiness review>\"")
+    elif phase == "review":
+        commands.append(f"go-ship-it append-note {ref} --section \"Review\" --for-phase review --note \"<readiness review>\"")
 
     checks = _configured_checks(root, item.repo)
     for check in checks:
         commands.append(f"go-ship-it run-check {ref} --check {check}")
-    if phase == "test":
+    if phase == "review":
         commands.extend(
             [
                 f"go-ship-it handoff {ref} --write",

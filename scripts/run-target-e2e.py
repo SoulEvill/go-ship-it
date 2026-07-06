@@ -321,8 +321,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         checked(
             records,
-            "set phase test",
-            phase_argv(paths, issue_ref, "test", "Marker implementation committed; ready for configured checks."),
+            "set phase review",
+            phase_argv(paths, issue_ref, "review", "Marker implementation committed; ready for configured checks."),
             cwd=ROOT,
         )
         checked(records, "run setup check", go_ship_it_argv(paths, "run-check", issue_ref, "--check", "setup"), cwd=ROOT)
@@ -337,7 +337,7 @@ def main(argv: list[str] | None = None) -> int:
                 "--section",
                 "Review",
                 "--for-phase",
-                "test",
+                "review",
                 "--note",
                 "Configured setup and test checks passed in the disposable target clone.",
             ),

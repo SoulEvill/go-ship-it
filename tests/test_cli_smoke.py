@@ -734,7 +734,7 @@ def test_main_status_guides_proposal_phase_to_implementation(tmp_path, capsys):
     assert "go-ship-it set-phase sample/issue-001 implement --note \"<proposal accepted>\"" in out
 
 
-def test_main_status_guides_implementation_phase_to_test(tmp_path, capsys):
+def test_main_status_guides_implementation_phase_to_review(tmp_path, capsys):
     root = _started_issue_root(tmp_path, test_command="python -c 'print(\"ok\")'")
     set_phase(root, "sample/issue-001", "implement", note="Implementation started.")
 
@@ -744,19 +744,19 @@ def test_main_status_guides_implementation_phase_to_test(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "Phase: implement" in out
     assert "go-ship-it append-note sample/issue-001 --section \"Implementation\"" in out
-    assert "go-ship-it set-phase sample/issue-001 test --note \"<ready for checks>\"" in out
+    assert "go-ship-it set-phase sample/issue-001 review --note \"<ready for checks>\"" in out
     assert "go-ship-it run-check sample/issue-001 --check test" in out
 
 
-def test_main_status_guides_test_phase_to_readiness_sequence(tmp_path, capsys):
+def test_main_status_guides_review_phase_to_readiness_sequence(tmp_path, capsys):
     root = _started_issue_root(tmp_path, test_command="python -c 'print(\"ok\")'")
-    set_phase(root, "sample/issue-001", "test", note="Ready for checks.")
+    set_phase(root, "sample/issue-001", "review", note="Ready for checks.")
 
     exit_code = main(["--root", str(root), "status"])
 
     assert exit_code == 0
     out = capsys.readouterr().out
-    assert "Phase: test" in out
+    assert "Phase: review" in out
     assert "go-ship-it run-check sample/issue-001 --check test" in out
     assert "go-ship-it handoff sample/issue-001 --write" in out
     assert "go-ship-it export-run sample/issue-001" in out

@@ -653,7 +653,7 @@ def test_cleanup_archive_moves_issue_to_archive_and_preserves_worktree(tmp_path)
     assert not (root / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001").exists()
     metadata, body = parse_frontmatter(result.read_text())
     assert "status" not in metadata
-    assert metadata["phase"] == "cleanup"
+    assert metadata["phase"] == "archived"
     assert "Closed after review." in body
     assert not (root / "state" / "repos" / "sample" / "issues" / "archive" / "issue-001" / "claim.lock").exists()
 

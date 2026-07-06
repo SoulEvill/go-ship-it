@@ -23,7 +23,16 @@ STATE_DIRS = (
 )
 
 ISSUE_STATES = ("todo", "execution", "archive")
-ALLOWED_PHASES = {"setup", "investigate", "propose", "implement", "test", "cleanup"}
+PHASES = (
+    "setup",
+    "investigate",
+    "propose",
+    "implement",
+    "review",
+    "prepare-pr",
+    "publish",
+    "archived",
+)
 OPTIONAL_COMMAND_FIELDS = {"setup_command", "test_command", "lint_command"}
 REQUIRED_REPO_FIELDS = {"id", "path", "default_branch", "worktree_root"}
 REPO_SOURCE_TYPES = {"local", "git_url"}
@@ -800,13 +809,16 @@ def run_check(root: Path, issue_ref: str, *, check: str) -> Path:
     if not worktree.is_dir():
         raise FileNotFoundError(f"Worktree not found: {worktree}")
 
+    run_file = run_dir / "run.yaml"
+    current_phase = _validate_phase(str(_load_run(run_file).get("phase") or ""))
+
     record_file, exit_code = _run_logged_command(
         run_dir,
         worktree,
         check=safe_check,
         command=command,
         section=f"Check: {safe_check}",
-        phase="test",
+        phase=current_phase,
         event_kind=f"check.{safe_check}",
     )
 
@@ -916,7 +928,7 @@ def cleanup_issue(
         metadata["last_activity_at"] = timestamp
         target_dir = _repo_issue_dir(root, repo_id, "todo", issue_id)
     else:
-        metadata["phase"] = "cleanup"
+        metadata["phase"] = "archived"
         metadata["last_activity_at"] = timestamp
         target_dir = _repo_issue_dir(root, repo_id, "archive", issue_id)
         body = f"{body.rstrip()}\n\n## Final Note\n\n{note.strip()}\n"
@@ -1730,7 +1742,7 @@ def _write_run_cleanup(
     timestamp: str,
 ) -> None:
     run = _parse_mapping(run_file.read_text()) if run_file.exists() else {}
-    run["phase"] = "cleanup"
+    run["phase"] = "archived" if destination == "archive" else "setup"
     run["cleanup_destination"] = destination
     run["cleanup_note"] = note.strip()
     run["closed_at"] = timestamp
@@ -1776,9 +1788,8 @@ def _required_string(mapping: dict[str, object], key: str) -> str:
 
 def _validate_phase(phase: str) -> str:
     safe_phase = phase.strip().lower()
-    if safe_phase not in ALLOWED_PHASES:
-        allowed = ", ".join(sorted(ALLOWED_PHASES))
-        raise ValueError(f"phase must be one of: {allowed}")
+    if safe_phase not in PHASES:
+        raise ValueError(f"phase must be one of: {', '.join(PHASES)}")
     return safe_phase
 
 

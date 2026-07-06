@@ -200,7 +200,7 @@ def _check_cleanup_and_exports(
 
 
 def _export_is_stale(export: dict[object, object], closed_at: object) -> bool:
-    if export.get("issue_status") != "archive" or export.get("run_phase") != "cleanup":
+    if export.get("issue_status") != "archive" or export.get("run_phase") != "archived":
         return True
     exported_at = export.get("exported_at")
     return isinstance(closed_at, str) and isinstance(exported_at, str) and exported_at < closed_at

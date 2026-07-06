@@ -96,7 +96,7 @@ def test_export_run_records_export_metadata(tmp_path):
     export = run["exports"][0]
     assert export["path"] == output.relative_to(root).as_posix()
     assert export["issue_status"] == "archive"
-    assert export["run_phase"] == "cleanup"
+    assert export["run_phase"] == "archived"
     assert isinstance(export["exported_at"], str)
 
 

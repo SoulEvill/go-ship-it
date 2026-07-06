@@ -47,6 +47,32 @@ def test_set_phase_rejects_invalid_phase(tmp_path):
         set_phase(root, "sample/issue-001", "banana", note="Nope.")
 
 
+def test_phase_enum_accepts_all_lifecycle_phases(tmp_path):
+    root = _started_issue_root(tmp_path)
+    from go_ship_it.state import PHASES
+
+    assert PHASES == (
+        "setup",
+        "investigate",
+        "propose",
+        "implement",
+        "review",
+        "prepare-pr",
+        "publish",
+        "archived",
+    )
+    for phase in ("review", "prepare-pr", "publish"):
+        issue_file = set_phase(root, "sample/issue-001", phase, note=f"Entering {phase}.")
+        assert issue_file.exists()
+
+
+def test_phase_enum_rejects_retired_phase_names(tmp_path):
+    root = _started_issue_root(tmp_path)
+    for retired in ("test", "cleanup"):
+        with pytest.raises(ValueError, match="phase must be one of"):
+            set_phase(root, "sample/issue-001", retired, note="Nope.")
+
+
 def _started_issue_root(tmp_path: Path) -> Path:
     target = _create_git_repo(tmp_path / "target")
     register_repo(
