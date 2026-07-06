@@ -17,6 +17,7 @@ from go_ship_it.pull_request import prepare_pull_request, publish_pull_request
 from go_ship_it.state import (
     CheckFailedError,
     GoShipitError,
+    INNER_LOOPS,
     add_issue,
     append_note,
     cleanup_issue,
@@ -161,6 +162,11 @@ def build_parser() -> argparse.ArgumentParser:
     phase.add_argument("phase", nargs="?")
     phase.add_argument("--current", action="store_true", help="Use the managed worktree's current run context.")
     phase.add_argument("--note", required=True)
+    phase.add_argument("--inner-loop", dest="inner_loop", choices=list(INNER_LOOPS), default=None,
+                       help="Record the implement inner loop (default tdd; 'none' requires --inner-loop-reason).")
+    phase.add_argument("--inner-loop-reason", dest="inner_loop_reason", default=None)
+    phase.add_argument("--review-pipeline", dest="review_pipeline", default=None,
+                       help="Record the review pipeline: self, clean-room, or plugin:<name>.")
 
     track_cmd = subparsers.add_parser("set-track", help="Promote an issue's track (quick -> standard).")
     track_cmd.add_argument("issue_id", nargs="?")
@@ -912,7 +918,15 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         if args.command == "set-phase":
             target_root, issue_id, phase = _resolve_positional_target(root, args, "phase")
-            issue_file = set_phase(target_root, issue_id, phase, note=args.note)
+            issue_file = set_phase(
+                target_root,
+                issue_id,
+                phase,
+                note=args.note,
+                inner_loop=args.inner_loop,
+                inner_loop_reason=args.inner_loop_reason,
+                review_pipeline=args.review_pipeline,
+            )
             print(issue_file)
             return 0
 

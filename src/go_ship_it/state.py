@@ -35,6 +35,7 @@ PHASES = (
 )
 TRACKS = ("standard", "quick")
 INNER_LOOPS = ("tdd", "debug", "spike", "none")
+REVIEW_PIPELINES = ("self", "clean-room")
 OPTIONAL_COMMAND_FIELDS = {"setup_command", "test_command", "lint_command"}
 REQUIRED_REPO_FIELDS = {"id", "path", "default_branch", "worktree_root"}
 REPO_SOURCE_TYPES = {"local", "git_url"}
@@ -773,9 +774,34 @@ def append_note(root: Path, issue_ref: str, *, section: str, note: str, phase: s
     return notes
 
 
-def set_phase(root: Path, issue_ref: str, phase: str, *, note: str) -> Path:
+def set_phase(
+    root: Path,
+    issue_ref: str,
+    phase: str,
+    *,
+    note: str,
+    inner_loop: str | None = None,
+    inner_loop_reason: str | None = None,
+    review_pipeline: str | None = None,
+) -> Path:
     repo_id, issue_id = _parse_issue_ref(issue_ref)
     safe_phase = _validate_phase(phase)
+    if safe_phase != "implement" and (inner_loop is not None or inner_loop_reason is not None):
+        raise ValueError("--inner-loop/--inner-loop-reason only apply when entering the implement phase")
+    if safe_phase != "review" and review_pipeline is not None:
+        raise ValueError("--review-pipeline only applies when entering the review phase")
+
+    axis_values: dict[str, object] = {}
+    if safe_phase == "implement":
+        loop = _validate_inner_loop(inner_loop or "tdd")
+        if loop == "none" and not (inner_loop_reason and inner_loop_reason.strip()):
+            raise ValueError("inner_loop 'none' requires --inner-loop-reason recording why no test loop is used")
+        axis_values["inner_loop"] = loop
+        if inner_loop_reason and inner_loop_reason.strip():
+            axis_values["inner_loop_reason"] = inner_loop_reason.strip()
+    if safe_phase == "review":
+        axis_values["review_pipeline"] = _validate_review_pipeline(review_pipeline or "self")
+
     issue_file = _active_issue_file(root, repo_id, issue_id)
     run_dir = _run_dir(root, repo_id, issue_id)
     run_file = run_dir / "run.yaml"
@@ -783,11 +809,13 @@ def set_phase(root: Path, issue_ref: str, phase: str, *, note: str) -> Path:
     metadata, body = parse_frontmatter(issue_file.read_text())
     timestamp = _now_iso()
     metadata["phase"] = safe_phase
+    metadata.update(axis_values)
     metadata["last_activity_at"] = timestamp
     issue_file.write_text(render_frontmatter(metadata, body))
 
     run = _load_run(run_file)
     run["phase"] = safe_phase
+    run.update(axis_values)
     run["last_activity_at"] = timestamp
     run_file.write_text(_render_mapping(run))
 
@@ -799,6 +827,7 @@ def set_phase(root: Path, issue_ref: str, phase: str, *, note: str) -> Path:
         timestamp=timestamp,
         phase=safe_phase,
         note_timestamp=note_timestamp,
+        **axis_values,
     )
     return issue_file
 
@@ -1848,6 +1877,23 @@ def _validate_track(track: str) -> str:
     if safe_track not in TRACKS:
         raise ValueError(f"track must be one of: {', '.join(TRACKS)}")
     return safe_track
+
+
+def _validate_inner_loop(value: str) -> str:
+    safe_value = value.strip().lower()
+    if safe_value not in INNER_LOOPS:
+        raise ValueError(f"inner_loop must be one of: {', '.join(INNER_LOOPS)}")
+    return safe_value
+
+
+def _validate_review_pipeline(value: str) -> str:
+    safe_value = value.strip()
+    if safe_value in REVIEW_PIPELINES:
+        return safe_value
+    if safe_value.startswith("plugin:") and len(safe_value) > len("plugin:"):
+        return safe_value
+    allowed = ", ".join((*REVIEW_PIPELINES, "plugin:<name>"))
+    raise ValueError(f"review_pipeline must be one of: {allowed}")
 
 
 def _timestamp_slug(timestamp: str) -> str:
