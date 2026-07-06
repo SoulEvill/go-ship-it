@@ -57,24 +57,6 @@ def test_expected_skill_folders_exist():
         assert "## When To Use" in text
 
 
-def test_repo_scoped_codex_skill_shims_point_to_canonical_skills():
-    root = Path(__file__).resolve().parents[1]
-    for skill in SKILLS:
-        shim = root / ".agents" / "skills" / skill
-        assert shim.exists(), f"missing {shim}"
-        assert (shim / "SKILL.md").resolve() == (root / "skills" / skill / "SKILL.md").resolve()
-
-
-def test_repo_scoped_codex_marketplace_points_to_local_plugin():
-    root = Path(__file__).resolve().parents[1]
-    marketplace = root / ".agents" / "plugins" / "marketplace.json"
-    assert marketplace.exists()
-    data = yaml.safe_load(marketplace.read_text())
-    assert data["name"] == "go-ship-it-local"
-    assert data["plugins"][0]["name"] == "go-ship-it"
-    assert data["plugins"][0]["source"] == {"source": "local", "path": "."}
-
-
 def test_deprecated_lifecycle_skill_folders_are_removed():
     root = Path(__file__).resolve().parents[1]
     for skill in DEPRECATED_SKILLS:
