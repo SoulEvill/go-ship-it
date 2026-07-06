@@ -9,12 +9,15 @@ This is the surface coding agents should see first:
 - `using-go-ship-it`: orient to package root, control root, state, and worktree boundaries.
 - `manage-issues`: initialize/register, add todos, start issues, inspect status, and clean up active issues.
 - `work-issue`: investigate, propose, implement, review, and record run evidence.
+- `close-out`: ship a reviewed issue — prepare the local PR, publish it, archive the issue.
 
 Avoid adding a new skill when the behavior is only a new CLI verb or a new reference note.
 
 ## CLI Surface
 
-The CLI is plumbing for skills and humans. The normal path is:
+The CLI is plumbing for skills and humans. Phase is a strict enum: `setup -> investigate -> propose -> implement -> review -> prepare-pr -> publish -> archived`. Track is `standard` (full enum, four note sections) or `quick` (starts at `implement`, two note sections); set it at start or promote it later with `start-issue --quick` / `set-track`.
+
+The normal path is:
 
 ```sh
 go-ship-it init
@@ -22,21 +25,27 @@ go-ship-it register-repo <id> <local-path-or-git-url> [--test-command <cmd>]
 go-ship-it update-repo <id> --worktree-setup-command <cmd>
 go-ship-it add-issue --repo <id> --title <title> --problem <problem>
 go-ship-it start-issue <repo>/<issue-id>
+go-ship-it start-issue <repo>/<issue-id> --quick
+go-ship-it set-track <repo>/<issue-id> standard --note <note>
 go-ship-it status
 go-ship-it show-run <repo>/<issue-id> --handoff
+go-ship-it set-phase <repo>/<issue-id> implement --inner-loop tdd --note <note>
+go-ship-it set-phase <repo>/<issue-id> review --review-pipeline plugin:<name> --note <note>
 go-ship-it run-check <repo>/<issue-id> --check test
 go-ship-it handoff <repo>/<issue-id> --write
 go-ship-it export-run <repo>/<issue-id>
 go-ship-it verify-run <repo>/<issue-id> --strict
 go-ship-it prepare-pr <repo>/<issue-id> --branch <team-branch-name>
-go-ship-it cleanup-issue <repo>/<issue-id> --destination archive --note <note> --remove-worktree
+go-ship-it cleanup-issue <repo>/<issue-id> --destination archive --confirm --note <note> --remove-worktree
 ```
+
+`start-issue --quick` is shorthand for `--track quick`; `set-track` promotes a `quick` issue to `standard` mid-flight (only forward, never demoted). `set-phase --inner-loop` records the implement loop (`tdd`, `debug`, `spike`, or `none`; `none` requires `--inner-loop-reason`); `set-phase --review-pipeline` records how review was run (`self`, `clean-room`, or `plugin:<name>`).
 
 `export-run` defaults to `evidence.md` inside the issue folder. Use `--output` only when the user explicitly wants a copy somewhere else.
 
-`prepare-pr` is local-only and writes `pr.md` inside the issue folder. `publish-pr` pushes the local work branch to the recorded PR branch and runs `gh pr create`; when repo auto-publish is disabled, use `publish-pr --approved` only after the user approves publishing.
+`prepare-pr` is local-only and writes `pr.md` inside the issue folder. `publish-pr` pushes the local work branch to the recorded PR branch and runs `gh pr create`; when repo auto-publish is disabled, use `publish-pr --approved` only after the user approves publishing. Independent of `--approved`/`auto_publish`, `publish-pr` also refuses to run while `verify-run` reports any error or warning — that gate is absolute, with no override flag. Repos with `pull_request.provider: none` skip publish entirely; the reviewed local `pr.md` is their final gate before archive.
 
-`cleanup-issue --remove-worktree` refuses to delete a dirty managed worktree by default. Preserve the worktree, commit/prepare PR first, or use `--discard-worktree-changes` only when the user explicitly chooses to discard local target work.
+`cleanup-issue --remove-worktree` refuses to delete a dirty managed worktree by default. Preserve the worktree, commit/prepare PR first, or use `--discard-worktree-changes` only when the user explicitly chooses to discard local target work. `cleanup-issue --destination archive` also requires `--confirm`, acknowledging that archive is terminal (no reopen/unarchive).
 
 When the control root is being used to improve GoShipit itself, setup can also register `go-ship-it` as the product-feedback repo:
 
@@ -48,7 +57,7 @@ go-ship-it register-repo go-ship-it <go-ship-it-repo-path-or-git-url> --feedback
 
 If the user explicitly asks to set up ParaWave in the GoShipit development workspace, use `scripts/setup/parawave.sh`. It registers `parawave` as a normal target repo and `go-ship-it` as the feedback repo.
 
-Advanced commands such as `show-run`, `handoff`, `append-note`, `set-phase`, `verify-run`, `export-run`, `doctor`, and `package-root` support the lifecycle but do not need separate skills.
+Advanced commands such as `show-run`, `handoff`, `append-note`, `set-phase`, `set-track`, `verify-run`, `export-run`, `doctor`, and `package-root` support the lifecycle but do not need separate skills.
 
 When an agent needs structured output instead of Markdown, use:
 

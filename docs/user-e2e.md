@@ -96,12 +96,12 @@ GoShipit contributors can use `scripts/dev/run-parawave-e2e.sh` inside this deve
 
 ## Issue Flow
 
-Use `skills/manage-issues/SKILL.md` for steps 1-3 and 11-12. Use `skills/work-issue/SKILL.md` for steps 4-10.
+Use `skills/manage-issues/SKILL.md` for steps 1-4 (and the return-to-todo path in step 19). Use `skills/work-issue/SKILL.md` for steps 5-16. Use `skills/close-out/SKILL.md` for steps 17-19 (the prepare-pr/publish/archive path).
 
 1. Initialize the control root with `go-ship-it init`, then register the target repo with `go-ship-it register-repo <repo> <local-path-or-git-url>`, or inspect an existing target with `go-ship-it show-repo <repo>`.
 2. If every issue worktree needs local files or bootstrap work, configure `go-ship-it update-repo <repo> --worktree-setup-command "<command>"`. This automatic bootstrap command runs from each new issue worktree and records evidence under that issue's logs. Manual validation checks still use `run-check --check setup|test|lint`.
 3. Add an issue with `go-ship-it add-issue`.
-4. Start it with `go-ship-it start-issue <repo>/<issue-id>`.
+4. Start it with `go-ship-it start-issue <repo>/<issue-id>` (or `--quick` for a small fix that should skip straight to `implement`; promote it later with `go-ship-it set-track <repo>/<issue-id> standard --note "<why the issue grew>"` if it grows).
 5. Inspect it with `go-ship-it show-issue <repo>/<issue-id>`.
 6. Inspect the run with `go-ship-it show-run <repo>/<issue-id>`.
 7. Confirm the worktree `.go-ship-it/context.yaml` matches the issue id and claim id.
@@ -115,8 +115,8 @@ Use `skills/manage-issues/SKILL.md` for steps 1-3 and 11-12. Use `skills/work-is
 15. Ask an independent checker/sub-agent to review the issue problem, acceptance criteria, diff, notes, and command evidence. Record its verdict and caveats in the Review note.
 16. Run `go-ship-it verify-run <repo>/<issue-id> --strict` and resolve or explicitly report every warning before cleanup.
 17. Prepare a local PR preview with `go-ship-it prepare-pr <repo>/<issue-id> --branch <team-branch-name>`. The managed local branch is internal; this PR branch is chosen per issue and recorded in the run for later publish/rerun commands.
-18. Publish with `go-ship-it publish-pr <repo>/<issue-id> --approved` only after approval, or omit `--approved` when `pull_request.auto_publish: true` is set for the repo.
-19. Cleanup to `archive` with `--remove-worktree` for completed work, or return to `todo` with `--remove-worktree` when work should be retried later. If the managed worktree has uncommitted target changes, cleanup refuses to remove it by default. Commit/prepare the PR, preserve the worktree for review, or use `--discard-worktree-changes` only when intentionally throwing local work away.
+18. Publish with `go-ship-it publish-pr <repo>/<issue-id> --approved` only after approval, or omit `--approved` when `pull_request.auto_publish: true` is set for the repo. Either way, `publish-pr` also refuses to run while `verify-run` reports any error or warning — that gate is absolute and has no override; fix the evidence and rerun instead. Repos with `pull_request.provider: none` skip this step; the reviewed local `pr.md` is their final gate.
+19. Cleanup to `archive` with `--confirm --remove-worktree` for completed work (archiving is terminal, so `--confirm` is required), or return to `todo` with `--remove-worktree` when work should be retried later. If the managed worktree has uncommitted target changes, cleanup refuses to remove it by default. Commit/prepare the PR, preserve the worktree for review, or use `--discard-worktree-changes` only when intentionally throwing local work away.
 20. Run `go-ship-it doctor` again.
 
 For agent-driven checks, prefer structured output:

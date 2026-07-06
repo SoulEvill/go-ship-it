@@ -41,11 +41,12 @@ go-ship-it package-root
 
 GoShipit skills are distributed as one package, not as independent skill installs.
 
-The package exposes three agent-facing skills:
+The package exposes four agent-facing skills:
 
 - `using-go-ship-it`: session orientation and root/worktree boundaries.
 - `manage-issues`: repo setup, issue creation, start/status, and cleanup.
-- `work-issue`: investigation, proposal, implementation, test/review, and evidence capture.
+- `work-issue`: investigation, proposal, implementation, and review, plus evidence capture.
+- `close-out`: shipping a reviewed issue — prepare the local PR, publish it, archive the issue.
 
 The package contains:
 
@@ -104,7 +105,7 @@ go-ship-it --root <control-root> status
 go-ship-it --root <control-root> doctor
 ```
 
-The control root should contain `state/` and `worktrees/`. The package root should contain `skills/using-go-ship-it/SKILL.md`, `skills/manage-issues/SKILL.md`, `skills/work-issue/SKILL.md`, plugin manifests, and hooks.
+The control root should contain `state/` and `worktrees/`. The package root should contain `skills/using-go-ship-it/SKILL.md`, `skills/manage-issues/SKILL.md`, `skills/work-issue/SKILL.md`, `skills/close-out/SKILL.md`, plugin manifests, and hooks.
 
 If a session is accidentally in a target repo or target worktree, `go-ship-it status` should fail instead of showing an empty-looking workspace.
 
@@ -179,7 +180,7 @@ scripts/validate-packaged-install.py --wheel dist/go_ship_it-0.1.0-py3-none-any.
 
 This creates a temporary fresh room, installs the wheel into a new virtual environment, runs `go-ship-it package-root`, initializes a temporary control root, registers a disposable target repo, and runs `go-ship-it doctor`, then checks whether Claude Code and Cursor Agent can load the installed package root when those CLIs are available.
 
-It also drives a disposable first-issue flow: create a target git repo, register it, add and start an issue, inspect `status --json`, record evidence, run the configured test check, write handoff, export evidence, run `verify-run --strict`, archive with `--remove-worktree`, and run final `doctor`.
+It also drives a disposable first-issue flow: create a target git repo, register it, add and start an issue, inspect `status --json`, record evidence, run the configured test check, write handoff, export evidence, run `verify-run --strict`, archive with `--confirm --remove-worktree`, and run final `doctor`.
 
 ## Agent CLI Validation
 

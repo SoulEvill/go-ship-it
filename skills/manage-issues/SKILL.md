@@ -9,7 +9,7 @@ description: Use when initializing GoShipit, registering a target repo, creating
 
 Use for lifecycle state changes around issues: initialize, register, add, start, status, and cleanup.
 
-Use `work-issue` after an issue is active and the task is investigation, proposal, implementation, testing, review, or evidence writing.
+Use `work-issue` after an issue is active and the task is investigation, proposal, implementation, review, or evidence writing.
 
 ## Orientation
 

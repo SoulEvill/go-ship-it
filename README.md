@@ -8,11 +8,15 @@ GoShipit is a local-first control repo for agent-assisted software work.
 todo -> execution -> archive
 ```
 
-Detailed phase progress is tracked as metadata and authored notes:
+Inside `execution`, detailed phase progress follows a strict enum, tracked as run metadata and authored notes:
 
 ```text
-setup -> investigate -> propose -> implement -> test -> cleanup
+setup -> investigate -> propose -> implement -> review -> prepare-pr -> publish -> archived
 ```
+
+Every issue also has a `track`. `standard` walks the full enum with Investigation, Proposal, Implementation, and Review notes. `quick` (`start-issue --quick`) starts directly at `implement` with only Implementation and Review notes, and can be promoted mid-flight with `set-track <repo>/<issue-id> standard` if the fix grows beyond a quick change.
+
+Shipping a reviewed issue is three separate gates, crossed in order and never bundled: `prepare-pr` (reversible, local PR preview), `publish` (irreversible: pushes and opens a PR, blocked while `verify-run` reports any finding), and `archive` (terminal: `cleanup-issue --destination archive` requires `--confirm`).
 
 ## Development
 
@@ -54,6 +58,7 @@ go-ship-it register-repo my-repo /path/to/repo --test-command "uv run pytest"
 go-ship-it register-repo my-repo https://github.com/org/repo.git --test-command "uv run pytest"
 go-ship-it add-issue --repo my-repo --title "Fix parser" --problem "Parser drops quoted values."
 go-ship-it start-issue my-repo/issue-001
+# or, for a small fix that skips investigate/propose: go-ship-it start-issue my-repo/issue-001 --quick
 go-ship-it status
 go-ship-it show-run my-repo/issue-001 --handoff
 go-ship-it run-check my-repo/issue-001 --check test
@@ -61,8 +66,10 @@ go-ship-it handoff my-repo/issue-001 --write
 go-ship-it export-run my-repo/issue-001
 go-ship-it verify-run my-repo/issue-001 --strict
 go-ship-it prepare-pr my-repo/issue-001 --branch feature/fix-parser
-go-ship-it cleanup-issue my-repo/issue-001 --destination archive --note "Done." --remove-worktree
+go-ship-it cleanup-issue my-repo/issue-001 --destination archive --confirm --note "Done." --remove-worktree
 ```
+
+A `quick`-track issue that grows beyond a small fix can be promoted to the full lifecycle: `go-ship-it set-track my-repo/issue-001 standard --note "<why the issue grew>"`.
 
 `export-run` writes `evidence.md` inside the issue folder by default. `docs/dogfood/` is only for committed GoShipit maintainer run reports, not normal user runs.
 
@@ -186,7 +193,7 @@ go-ship-it verify-run <repo>/<issue-id> --strict
 go-ship-it prepare-pr <repo>/<issue-id> --branch <team-branch-name>
 ```
 
-`prepare-pr` is local-only. It writes `pr.md` for review and records the issue-level PR branch in `run.yaml`. `publish-pr` is the native GitHub path: it pushes the local work branch to the recorded PR branch, then runs `gh pr create --body-file pr.md`. When `pull_request.auto_publish` is false, `publish-pr` requires `--approved`.
+`prepare-pr` is local-only. It writes `pr.md` for review and records the issue-level PR branch in `run.yaml`. `publish-pr` is the native GitHub path: it pushes the local work branch to the recorded PR branch, then runs `gh pr create --body-file pr.md`. When `pull_request.auto_publish` is false, `publish-pr` requires `--approved`. Either way, `publish-pr` additionally refuses to run while `verify-run` reports any error or warning — this check is absolute and has no override flag; fix the evidence and rerun instead. Repos with `pull_request.provider: none` never publish: the reviewed local `pr.md` from `prepare-pr` is their final gate before archive.
 
 Before cleanup, agents should use a native sub-agent/reviewer/checker when available to judge whether the issue problem and acceptance criteria are actually satisfied by the diff, notes, and command evidence. Record that verdict in the Review note.
 
@@ -213,7 +220,8 @@ The agent-facing skill surface is intentionally small:
 
 - `using-go-ship-it`: orient to package root, control root, state, and worktree boundaries.
 - `manage-issues`: initialize/register, add todos, start issues, inspect status, and clean up.
-- `work-issue`: investigate, propose, implement, test, review, and record run evidence.
+- `work-issue`: investigate, propose, implement, review, and record run evidence.
+- `close-out`: ship a reviewed issue through the three gates — prepare the local PR, publish it, archive the issue.
 
 The CLI has more commands because it is plumbing for these skills.
 
