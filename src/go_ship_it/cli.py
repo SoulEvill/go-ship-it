@@ -24,6 +24,7 @@ from go_ship_it.state import (
     ensure_layout,
     export_run,
     list_issues,
+    pull_request_config,
     read_repo_config,
     register_feedback_repo,
     register_repo,
@@ -56,9 +57,9 @@ def build_parser() -> argparse.ArgumentParser:
             "  start-issue <repo>/<issue-id>\n"
             "  status\n"
             "  run-check <repo>/<issue-id> --check test    # or run-check --current --check test from the worktree\n"
-            "  cleanup-issue <repo>/<issue-id> --destination archive --note <note> --remove-worktree\n\n"
+            "  cleanup-issue <repo>/<issue-id> --destination archive --confirm --note <note> --remove-worktree\n\n"
             "Advanced/support:\n"
-            "  show-issue, show-run, handoff, append-note, set-phase,\n"
+            "  show-issue, show-run, handoff, append-note, set-phase, set-track,\n"
             "  export-run, prepare-pr, publish-pr, verify-run, doctor, package-root, update-repo\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -768,8 +769,24 @@ def _active_issue_next_commands(root: Path, item: object) -> list[str]:
         f"go-ship-it show-run {ref} --trace",
         f"go-ship-it show-run {ref} --handoff",
     ]
+    track = "standard"
+    try:
+        track = str(show_run(root, ref).run.get("track") or "standard")
+    except (OSError, ValueError):
+        pass
+    provider = "github"
+    try:
+        provider = str(pull_request_config(read_repo_config(root, item.repo)).get("provider"))
+    except (OSError, ValueError):
+        pass
+
     phase = (item.phase or "").strip().casefold()
-    if phase in {"", "setup", "investigate"}:
+    if phase in {"", "setup"}:
+        if track == "quick":
+            commands.append(f"go-ship-it set-phase {ref} implement --note \"<quick-track start>\"")
+        else:
+            commands.append(f"go-ship-it set-phase {ref} investigate --note \"<investigation started>\"")
+    elif phase == "investigate":
         commands.extend(
             [
                 f"go-ship-it append-note {ref} --section \"Investigation\" --for-phase investigate --note \"<findings>\"",
@@ -779,23 +796,25 @@ def _active_issue_next_commands(root: Path, item: object) -> list[str]:
     elif phase == "propose":
         commands.extend(
             [
-                f"go-ship-it append-note {ref} --section \"Proposal\" --for-phase propose --note \"<proposal>\"",
-                f"go-ship-it set-phase {ref} implement --note \"<proposal accepted>\"",
+                f"go-ship-it append-note {ref} --section \"Proposal\" --for-phase propose --note \"<proposal and acceptance-level failing test>\"",
+                f"go-ship-it set-phase {ref} implement --inner-loop tdd --note \"<proposal accepted>\"",
             ]
         )
     elif phase == "implement":
         commands.extend(
             [
                 f"go-ship-it append-note {ref} --section \"Implementation\" --for-phase implement --note \"<changed files and decisions>\"",
-                f"go-ship-it set-phase {ref} review --note \"<ready for checks>\"",
+                f"go-ship-it set-phase {ref} review --note \"<ready for review>\"",
             ]
         )
     elif phase == "review":
-        commands.append(f"go-ship-it append-note {ref} --section \"Review\" --for-phase review --note \"<readiness review>\"")
+        commands.append(
+            f"go-ship-it append-note {ref} --section \"Review\" --for-phase review --note \"<review findings and readiness>\""
+        )
 
-    checks = _configured_checks(root, item.repo)
-    for check in checks:
+    for check in _configured_checks(root, item.repo):
         commands.append(f"go-ship-it run-check {ref} --check {check}")
+
     if phase == "review":
         commands.extend(
             [
@@ -804,12 +823,16 @@ def _active_issue_next_commands(root: Path, item: object) -> list[str]:
                 f"go-ship-it prepare-pr {ref} --branch <pr-branch>",
             ]
         )
-    commands.extend(
-        [
-            f"go-ship-it verify-run {ref} --strict",
-            f"go-ship-it cleanup-issue {ref} --destination archive --note \"<note>\" --remove-worktree",
-        ]
-    )
+    if phase == "prepare-pr" and provider != "none":
+        commands.append(f"go-ship-it publish-pr {ref} --approved")
+
+    commands.append(f"go-ship-it verify-run {ref} --strict")
+    if phase == "publish" or (phase == "prepare-pr" and provider == "none"):
+        commands.append(
+            f"go-ship-it cleanup-issue {ref} --destination archive --confirm --note \"<note>\" --remove-worktree"
+        )
+    if track == "quick":
+        commands.append(f"go-ship-it set-track {ref} standard --note \"<why the issue grew>\"")
     return commands
 
 

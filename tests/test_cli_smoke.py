@@ -7,7 +7,15 @@ import yaml
 from go_ship_it import __version__
 from go_ship_it.cli import build_parser, main
 from go_ship_it.frontmatter import parse_frontmatter
-from go_ship_it.state import add_issue, append_note, register_repo, run_check, set_phase, start_issue
+from go_ship_it.state import (
+    add_issue,
+    append_note,
+    register_repo,
+    run_check,
+    set_phase,
+    start_issue,
+    update_repo_config,
+)
 
 
 def test_version_is_defined():
@@ -704,7 +712,7 @@ def test_main_status_prints_workspace_summary(tmp_path, capsys):
     assert "go-ship-it set-phase sample/issue-001 propose" in out
     assert "go-ship-it run-check sample/issue-001 --check test" in out
     assert "go-ship-it verify-run sample/issue-001 --strict" in out
-    assert "go-ship-it cleanup-issue sample/issue-001 --destination archive --note \"<note>\" --remove-worktree" in out
+    assert "cleanup-issue" not in out
     assert "- sample/issue-001" in out
 
 
@@ -737,7 +745,7 @@ def test_main_status_guides_proposal_phase_to_implementation(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "Phase: propose" in out
     assert "go-ship-it append-note sample/issue-001 --section \"Proposal\"" in out
-    assert "go-ship-it set-phase sample/issue-001 implement --note \"<proposal accepted>\"" in out
+    assert "go-ship-it set-phase sample/issue-001 implement --inner-loop tdd --note \"<proposal accepted>\"" in out
 
 
 def test_main_status_guides_implementation_phase_to_review(tmp_path, capsys):
@@ -750,7 +758,7 @@ def test_main_status_guides_implementation_phase_to_review(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "Phase: implement" in out
     assert "go-ship-it append-note sample/issue-001 --section \"Implementation\"" in out
-    assert "go-ship-it set-phase sample/issue-001 review --note \"<ready for checks>\"" in out
+    assert "go-ship-it set-phase sample/issue-001 review --note \"<ready for review>\"" in out
     assert "go-ship-it run-check sample/issue-001 --check test" in out
 
 
@@ -769,7 +777,78 @@ def test_main_status_guides_review_phase_to_readiness_sequence(tmp_path, capsys)
     assert "go-ship-it prepare-pr sample/issue-001 --branch <pr-branch>" in out
     assert "docs/dogfood" not in out
     assert "go-ship-it verify-run sample/issue-001 --strict" in out
-    assert "go-ship-it cleanup-issue sample/issue-001 --destination archive --note \"<note>\" --remove-worktree" in out
+    assert "cleanup-issue" not in out
+
+
+def test_status_ladder_quick_track_setup_goes_straight_to_implement(tmp_path, capsys):
+    root = _started_issue_root(tmp_path, track="quick")
+    set_phase(root, "sample/issue-001", "setup", note="Back to setup.")
+
+    main(["--root", str(root), "status"])
+
+    out = capsys.readouterr().out
+    assert "go-ship-it set-phase sample/issue-001 implement" in out
+    assert "set-phase sample/issue-001 investigate" not in out
+
+
+def test_status_ladder_review_phase_offers_closeout_handoff(tmp_path, capsys):
+    root = _started_issue_root(tmp_path)
+    set_phase(root, "sample/issue-001", "review", note="Reviewing.")
+
+    main(["--root", str(root), "status"])
+
+    out = capsys.readouterr().out
+    assert "go-ship-it prepare-pr sample/issue-001 --branch <pr-branch>" in out
+    assert "go-ship-it handoff sample/issue-001 --write" in out
+    assert "cleanup-issue" not in out
+
+
+def test_status_ladder_prepare_pr_phase_offers_publish(tmp_path, capsys):
+    root = _started_issue_root(tmp_path)
+    set_phase(root, "sample/issue-001", "prepare-pr", note="PR drafted.")
+
+    main(["--root", str(root), "status"])
+
+    out = capsys.readouterr().out
+    assert "go-ship-it publish-pr sample/issue-001 --approved" in out
+    assert "cleanup-issue" not in out
+
+
+def test_status_ladder_publish_phase_offers_confirmed_archive(tmp_path, capsys):
+    root = _started_issue_root(tmp_path)
+    set_phase(root, "sample/issue-001", "publish", note="Published.")
+
+    main(["--root", str(root), "status"])
+
+    out = capsys.readouterr().out
+    assert (
+        "go-ship-it cleanup-issue sample/issue-001 --destination archive --confirm "
+        "--note \"<note>\" --remove-worktree"
+    ) in out
+
+
+def test_status_ladder_prepare_pr_phase_with_no_provider_offers_confirmed_archive_not_publish(tmp_path, capsys):
+    root = _started_issue_root(tmp_path)
+    update_repo_config(root, "sample", updates={"pull_request": {"provider": "none"}}, clears=set())
+    set_phase(root, "sample/issue-001", "prepare-pr", note="PR drafted.")
+
+    main(["--root", str(root), "status"])
+
+    out = capsys.readouterr().out
+    assert "publish-pr" not in out
+    assert (
+        "go-ship-it cleanup-issue sample/issue-001 --destination archive --confirm "
+        "--note \"<note>\" --remove-worktree"
+    ) in out
+
+
+def test_status_ladder_quick_track_offers_set_track_promotion_hint(tmp_path, capsys):
+    root = _started_issue_root(tmp_path, track="quick")
+
+    main(["--root", str(root), "status"])
+
+    out = capsys.readouterr().out
+    assert "go-ship-it set-track sample/issue-001 standard --note \"<why the issue grew>\"" in out
 
 
 def test_main_status_guides_empty_control_root(tmp_path, capsys):
@@ -845,7 +924,7 @@ def test_main_status_omits_unconfigured_check_hint(tmp_path, capsys):
     assert "go-ship-it show-run sample/issue-001 --handoff" in out
     assert "go-ship-it run-check sample/issue-001 --check test" not in out
     assert "go-ship-it verify-run sample/issue-001 --strict" in out
-    assert "go-ship-it cleanup-issue sample/issue-001 --destination archive --note \"<note>\" --remove-worktree" in out
+    assert "cleanup-issue" not in out
 
 
 def test_main_status_rejects_uninitialized_root(tmp_path, capsys):
@@ -968,7 +1047,7 @@ def test_main_set_phase_current_updates_active_issue(tmp_path, monkeypatch):
     assert metadata["phase"] == "propose"
 
 
-def _started_issue_root(tmp_path: Path, *, test_command: str | None = None) -> Path:
+def _started_issue_root(tmp_path: Path, *, test_command: str | None = None, track: str = "standard") -> Path:
     target = _create_git_repo(tmp_path / "target")
     register_repo(
         tmp_path,
@@ -987,7 +1066,7 @@ def _started_issue_root(tmp_path: Path, *, test_command: str | None = None) -> P
         context="Use the test repo.",
         acceptance_criteria=["README changes."],
     )
-    start_issue(tmp_path, "sample/issue-001", claimed_by="test-thread")
+    start_issue(tmp_path, "sample/issue-001", claimed_by="test-thread", track=track)
     return tmp_path
 
 
