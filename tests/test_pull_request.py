@@ -110,6 +110,7 @@ def test_publish_pull_request_pushes_pr_branch_and_records_url(tmp_path, monkeyp
         (root / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001" / "run.yaml").read_text()
     )
     assert run["pull_request"]["published_url"] == "https://github.com/example/repo/pull/1"
+    assert run["phase"] == "publish"
 
 
 def test_publish_pull_request_allows_repo_auto_publish_without_approval(tmp_path, monkeypatch):
@@ -136,6 +137,17 @@ def test_publish_pull_request_allows_repo_auto_publish_without_approval(tmp_path
     published = publish_pull_request(root, "sample/issue-001")
 
     assert published.url == "https://github.com/example/repo/pull/2"
+
+
+def test_prepare_pr_moves_active_issue_to_prepare_pr_phase(tmp_path):
+    root = _started_issue_root(tmp_path)
+
+    prepare_pull_request(root, "sample/issue-001", branch="feature/sample")
+
+    run = yaml.safe_load(
+        (root / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001" / "run.yaml").read_text()
+    )
+    assert run["phase"] == "prepare-pr"
 
 
 def _started_issue_root(tmp_path: Path) -> Path:

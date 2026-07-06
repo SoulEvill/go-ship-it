@@ -350,6 +350,7 @@ def _run_first_issue_flow(*, go_ship_it: Path, temp_root: Path, control_root: Pa
             "--note",
             "Packaged install smoke complete.",
             "--remove-worktree",
+            "--confirm",
         ],
         "flow.final_doctor": [str(go_ship_it), "--root", str(control_root), "doctor"],
     }

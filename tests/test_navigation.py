@@ -22,7 +22,7 @@ def test_list_issues_returns_all_states_in_order(tmp_path):
     add_issue(root, repo_id="sample", title="Archived issue", problem="P", context="", acceptance_criteria=["A"])
     start_issue(root, "sample/issue-002", claimed_by="test")
     start_issue(root, "sample/issue-003", claimed_by="test")
-    cleanup_issue(root, "sample/issue-003", destination="archive", note="Done.", remove_worktree=False)
+    cleanup_issue(root, "sample/issue-003", destination="archive", note="Done.", remove_worktree=False, confirm_archive=True)
 
     issues = list_issues(root)
 
@@ -66,7 +66,7 @@ def test_show_issue_finds_archived_issue(tmp_path):
         acceptance_criteria=["Done"],
     )
     start_issue(root, "sample/issue-001", claimed_by="test")
-    cleanup_issue(root, "sample/issue-001", destination="archive", note="Done.", remove_worktree=False)
+    cleanup_issue(root, "sample/issue-001", destination="archive", note="Done.", remove_worktree=False, confirm_archive=True)
 
     detail = show_issue(root, "sample/issue-001")
 
@@ -95,7 +95,7 @@ def test_workspace_status_counts_state(tmp_path):
     add_issue(root, repo_id="sample", title="Todo", problem="P", context="", acceptance_criteria=["A"])
     add_issue(root, repo_id="sample", title="Archive", problem="P", context="", acceptance_criteria=["A"])
     start_issue(root, "sample/issue-002", claimed_by="test")
-    cleanup_issue(root, "sample/issue-002", destination="archive", note="Done.", remove_worktree=False)
+    cleanup_issue(root, "sample/issue-002", destination="archive", note="Done.", remove_worktree=False, confirm_archive=True)
 
     status = workspace_status(root)
 

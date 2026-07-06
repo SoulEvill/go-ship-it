@@ -19,7 +19,7 @@ def test_run_timeline_orders_generated_issue_note_command_cleanup_and_export_eve
     set_phase(root, "sample/issue-001", "propose", note="Ready to propose.")
     append_note(root, "sample/issue-001", section="Proposal", phase="propose", note="Use the small fix.")
     run_check(root, "sample/issue-001", check="test")
-    cleanup_issue(root, "sample/issue-001", destination="archive", note="Done.", remove_worktree=False)
+    cleanup_issue(root, "sample/issue-001", destination="archive", note="Done.", remove_worktree=False, confirm_archive=True)
     export_run(root, "sample/issue-001")
 
     events = run_timeline(root, "sample/issue-001")

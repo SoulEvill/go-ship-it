@@ -20,7 +20,7 @@ def test_export_run_writes_archived_issue_evidence_snapshot(tmp_path):
     root = _started_issue_root(tmp_path, test_command="python -c 'print(\"ok\")'")
     append_note(root, "sample/issue-001", section="Investigation", note="Read README.", phase="investigate")
     run_check(root, "sample/issue-001", check="test")
-    cleanup_issue(root, "sample/issue-001", destination="archive", note="Done.", remove_worktree=False)
+    cleanup_issue(root, "sample/issue-001", destination="archive", note="Done.", remove_worktree=False, confirm_archive=True)
 
     output = export_run(root, "sample/issue-001")
 
@@ -45,7 +45,7 @@ def test_export_run_writes_archived_issue_evidence_snapshot(tmp_path):
 def test_export_run_removes_root_absolute_paths_from_snapshot(tmp_path):
     root = _started_issue_root(tmp_path, test_command="python -c 'print(\"ok\")'")
     run_check(root, "sample/issue-001", check="test")
-    cleanup_issue(root, "sample/issue-001", destination="archive", note="Done.", remove_worktree=False)
+    cleanup_issue(root, "sample/issue-001", destination="archive", note="Done.", remove_worktree=False, confirm_archive=True)
 
     output = export_run(root, "sample/issue-001", output=tmp_path / "issue-001-evidence.md")
 
@@ -85,7 +85,7 @@ def test_export_run_fails_for_missing_issue_and_run(tmp_path):
 def test_export_run_records_export_metadata(tmp_path):
     root = _started_issue_root(tmp_path, test_command="python -c 'print(\"ok\")'")
     run_check(root, "sample/issue-001", check="test")
-    cleanup_issue(root, "sample/issue-001", destination="archive", note="Done.", remove_worktree=False)
+    cleanup_issue(root, "sample/issue-001", destination="archive", note="Done.", remove_worktree=False, confirm_archive=True)
 
     output = export_run(root, "sample/issue-001", output=tmp_path / "docs" / "dogfood" / "issue-001-evidence.md")
 

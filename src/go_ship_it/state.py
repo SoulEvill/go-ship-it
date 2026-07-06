@@ -966,6 +966,7 @@ def cleanup_issue(
     note: str,
     remove_worktree: bool,
     discard_worktree_changes: bool = False,
+    confirm_archive: bool = False,
 ) -> Path:
     ensure_layout(root)
     repo_id, issue_id = _parse_issue_ref(issue_ref)
@@ -973,6 +974,11 @@ def cleanup_issue(
         raise ValueError("destination must be 'todo' or 'archive'")
     if destination == "todo" and not remove_worktree:
         raise ValueError("returning an issue to todo requires remove_worktree=True")
+    if destination == "archive" and not confirm_archive:
+        raise GoShipitError(
+            "Archiving is terminal: there is no reopen or unarchive. "
+            f"Re-run with --confirm to archive {issue_ref}."
+        )
 
     execution_dir = _repo_issue_dir(root, repo_id, "execution", issue_id)
     execution_file = execution_dir / "issue.md"

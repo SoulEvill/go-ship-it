@@ -26,7 +26,7 @@ def test_verify_run_warns_when_export_precedes_cleanup(tmp_path):
     _write_required_notes(root, ISSUE_REF)
     run_check(root, ISSUE_REF, check="test")
     export_run(root, ISSUE_REF, output=tmp_path / "exports" / "before-cleanup.md")
-    cleanup_issue(root, ISSUE_REF, destination="archive", note="Done.", remove_worktree=False)
+    cleanup_issue(root, ISSUE_REF, destination="archive", note="Done.", remove_worktree=False, confirm_archive=True)
 
     report = verify_run(root, ISSUE_REF)
 
@@ -39,7 +39,7 @@ def test_verify_run_accepts_export_after_cleanup(tmp_path):
     root = _started_issue_root(tmp_path)
     _write_required_notes(root, ISSUE_REF)
     run_check(root, ISSUE_REF, check="test")
-    cleanup_issue(root, ISSUE_REF, destination="archive", note="Done.", remove_worktree=False)
+    cleanup_issue(root, ISSUE_REF, destination="archive", note="Done.", remove_worktree=False, confirm_archive=True)
     export_run(root, ISSUE_REF)
 
     report = verify_run(root, ISSUE_REF)

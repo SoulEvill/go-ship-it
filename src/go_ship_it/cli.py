@@ -144,6 +144,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Allow --remove-worktree to delete uncommitted changes in the managed worktree.",
     )
+    cleanup.add_argument(
+        "--confirm",
+        action="store_true",
+        help="Acknowledge that archiving is terminal (required with --destination archive).",
+    )
 
     note = subparsers.add_parser("append-note", help="Append an authored note for an active issue.")
     note.add_argument("issue_id", nargs="?")
@@ -906,6 +911,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 note=args.note,
                 remove_worktree=args.remove_worktree,
                 discard_worktree_changes=args.discard_worktree_changes,
+                confirm_archive=args.confirm,
             )
             print(issue_file)
             return 0

@@ -704,7 +704,14 @@ def test_cleanup_archive_moves_issue_to_archive_and_preserves_worktree(tmp_path)
     root = _started_issue_root(tmp_path)
     active_worktree = root / "worktrees" / "sample" / "issue-001"
 
-    result = cleanup_issue(root, "sample/issue-001", destination="archive", note="Closed after review.", remove_worktree=False)
+    result = cleanup_issue(
+        root,
+        "sample/issue-001",
+        destination="archive",
+        note="Closed after review.",
+        remove_worktree=False,
+        confirm_archive=True,
+    )
 
     assert result == root / "state" / "repos" / "sample" / "issues" / "archive" / "issue-001" / "issue.md"
     assert result.exists()
@@ -721,7 +728,14 @@ def test_cleanup_archive_can_remove_managed_worktree(tmp_path):
     root = _started_issue_root(tmp_path)
     active_worktree = root / "worktrees" / "sample" / "issue-001"
 
-    cleanup_issue(root, "sample/issue-001", destination="archive", note="Closed after review.", remove_worktree=True)
+    cleanup_issue(
+        root,
+        "sample/issue-001",
+        destination="archive",
+        note="Closed after review.",
+        remove_worktree=True,
+        confirm_archive=True,
+    )
 
     assert not active_worktree.exists()
 
@@ -733,7 +747,14 @@ def test_cleanup_archive_refuses_to_remove_dirty_managed_worktree(tmp_path):
     (active_worktree / "scratch.txt").write_text("untracked local work\n")
 
     with pytest.raises(GoShipitError, match="managed worktree has uncommitted changes"):
-        cleanup_issue(root, "sample/issue-001", destination="archive", note="Closed after review.", remove_worktree=True)
+        cleanup_issue(
+            root,
+            "sample/issue-001",
+            destination="archive",
+            note="Closed after review.",
+            remove_worktree=True,
+            confirm_archive=True,
+        )
 
     assert active_worktree.exists()
     assert (active_worktree / "README.md").read_text() == "# Sample\nChanged locally.\n"
@@ -755,6 +776,7 @@ def test_cleanup_archive_can_discard_dirty_managed_worktree_when_explicit(tmp_pa
         note="Closed after intentionally discarding local work.",
         remove_worktree=True,
         discard_worktree_changes=True,
+        confirm_archive=True,
     )
 
     assert result == root / "state" / "repos" / "sample" / "issues" / "archive" / "issue-001" / "issue.md"
@@ -786,3 +808,35 @@ def test_write_handoff_defaults_to_run_directory(tmp_path):
 
     assert path == root / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001" / "handoff.md"
     assert "# GoShipit Handoff: sample/issue-001" in path.read_text()
+
+
+def test_archive_without_confirm_is_refused_as_terminal(tmp_path):
+    root = _started_issue_root(tmp_path)
+    with pytest.raises(GoShipitError, match="terminal"):
+        cleanup_issue(root, "sample/issue-001", destination="archive", note="Done.", remove_worktree=False)
+
+
+def test_archive_with_confirm_succeeds_and_sets_archived_phase(tmp_path):
+    root = _started_issue_root(tmp_path)
+    issue_file = cleanup_issue(
+        root,
+        "sample/issue-001",
+        destination="archive",
+        note="Done.",
+        remove_worktree=False,
+        confirm_archive=True,
+    )
+    metadata, _body = parse_frontmatter(issue_file.read_text())
+    assert metadata["phase"] == "archived"
+
+
+def test_return_to_todo_needs_no_confirm(tmp_path):
+    root = _started_issue_root(tmp_path)
+    issue_file = cleanup_issue(
+        root,
+        "sample/issue-001",
+        destination="todo",
+        note="Later.",
+        remove_worktree=True,
+    )
+    assert issue_file.exists()

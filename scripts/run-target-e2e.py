@@ -362,6 +362,7 @@ def main(argv: list[str] | None = None) -> int:
                     "--note",
                     "Disposable target e2e complete.",
                     "--remove-worktree",
+                    "--confirm",
                 ),
                 cwd=ROOT,
             )

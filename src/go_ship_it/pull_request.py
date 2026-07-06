@@ -11,6 +11,7 @@ from go_ship_it.state import (
     _append_event,
     _parse_mapping,
     _render_mapping,
+    _write_active_phase,
     pull_request_config,
     read_repo_config,
     show_issue,
@@ -108,6 +109,8 @@ def prepare_pull_request(
         local_branch=local_branch,
         body_file=relative_to_root(root, output_path),
     )
+    if issue.summary.status == "execution":
+        _write_active_phase(issue.summary.issue_file, run.run_file, "prepare-pr")
     return PullRequestPreview(
         issue_ref=run.issue_ref,
         path=output_path,
@@ -186,6 +189,9 @@ def publish_pull_request(
         base=base,
         url=url,
     )
+    issue = show_issue(root, issue_ref)
+    if issue.summary.status == "execution":
+        _write_active_phase(issue.summary.issue_file, run.run_file, "publish")
     return PullRequestPublish(issue_ref=run.issue_ref, branch=pr_branch, remote=remote, base=base, url=url)
 
 
