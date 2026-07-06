@@ -144,7 +144,11 @@ def publish_pull_request(
     if not bool(record.get("auto_publish")) and not approved:
         raise GoShipitError("Publishing requires explicit approval; rerun with --approved or enable pull_request.auto_publish")
 
-    provider = _required_record_string(record, "provider")
+    # Resolve the publish target from the LIVE repo config at publish time, not from the
+    # provider snapshotted into the record at prepare time. Flipping the repo to
+    # provider: none after prepare-pr must still hit the no-publish-target refusal.
+    issue = show_issue(root, issue_ref)
+    provider = str(pull_request_config(read_repo_config(root, issue.summary.repo)).get("provider"))
     if provider == "none":
         raise GoShipitError(
             "This repo has no publish target (pull_request.provider: none); "
@@ -204,7 +208,6 @@ def publish_pull_request(
         base=base,
         url=url,
     )
-    issue = show_issue(root, issue_ref)
     if issue.summary.status == "execution":
         _write_active_phase(issue.summary.issue_file, run.run_file, "publish")
     return PullRequestPublish(issue_ref=run.issue_ref, branch=pr_branch, remote=remote, base=base, url=url)

@@ -61,6 +61,49 @@ def test_verify_run_errors_on_failed_command(tmp_path):
     assert any(item.code == "command.failed" for item in report.errors)
 
 
+def test_verify_run_ignores_earlier_command_failure_when_latest_passes(tmp_path):
+    # F1: a legitimately failed run-check during review must not permanently block publish.
+    # Fail the test check, then fix the command and re-run green; verify judges the LATEST
+    # record per check, so the healed check produces NO command.failed error.
+    root = _started_issue_root(
+        tmp_path,
+        test_command="python -c 'import time, sys; time.sleep(1.1); sys.exit(7)'",
+    )
+    _write_required_notes(root, ISSUE_REF)
+    with pytest.raises(CheckFailedError):
+        run_check(root, ISSUE_REF, check="test")
+    update_repo_config(
+        root, "sample", updates={"test_command": "python -c 'print(\"ok\")'"}, clears=set()
+    )
+    run_check(root, ISSUE_REF, check="test")
+
+    report = verify_run(root, ISSUE_REF)
+
+    assert not any(item.code == "command.failed" for item in report.errors)
+    assert not report.errors  # publish-style strict pass is now possible for the commands gate
+    assert any(item.code == "command.test_passed" for item in report.ok)
+
+
+def test_verify_run_still_errors_when_latest_command_fails_after_earlier_pass(tmp_path):
+    # F1: the latest record for a check is authoritative; a passing then failing sequence errors.
+    root = _started_issue_root(
+        tmp_path,
+        test_command="python -c 'import time; time.sleep(1.1); print(\"ok\")'",
+    )
+    _write_required_notes(root, ISSUE_REF)
+    run_check(root, ISSUE_REF, check="test")
+    update_repo_config(
+        root, "sample", updates={"test_command": "python -c 'import sys; sys.exit(7)'"}, clears=set()
+    )
+    with pytest.raises(CheckFailedError):
+        run_check(root, ISSUE_REF, check="test")
+
+    report = verify_run(root, ISSUE_REF)
+
+    assert any(item.code == "command.failed" for item in report.errors)
+    assert not any(item.code == "command.test_passed" for item in report.ok)
+
+
 def test_verify_run_warns_when_acceptance_criteria_lack_evidence(tmp_path):
     root = _started_issue_root(tmp_path)
     _write_required_notes(root, ISSUE_REF)

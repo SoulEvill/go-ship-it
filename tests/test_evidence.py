@@ -61,9 +61,13 @@ def test_phase_enum_accepts_all_lifecycle_phases(tmp_path):
         "publish",
         "archived",
     )
-    for phase in ("review", "prepare-pr", "publish"):
-        issue_file = set_phase(root, "sample/issue-001", phase, note=f"Entering {phase}.")
-        assert issue_file.exists()
+    # set-phase drives only the build phases; review is the last one it may set.
+    issue_file = set_phase(root, "sample/issue-001", "review", note="Entering review.")
+    assert issue_file.exists()
+    # Close-out phases are set exclusively by their owning close-out commands.
+    for closeout in ("prepare-pr", "publish", "archived"):
+        with pytest.raises(ValueError, match="owning close-out command"):
+            set_phase(root, "sample/issue-001", closeout, note=f"Entering {closeout}.")
 
 
 def test_phase_enum_rejects_retired_phase_names(tmp_path):

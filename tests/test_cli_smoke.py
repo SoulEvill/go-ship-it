@@ -8,6 +8,7 @@ from go_ship_it import __version__
 from go_ship_it.cli import build_parser, main
 from go_ship_it.frontmatter import parse_frontmatter
 from go_ship_it.state import (
+    _write_active_phase,
     add_issue,
     append_note,
     register_repo,
@@ -805,7 +806,7 @@ def test_status_ladder_review_phase_offers_closeout_handoff(tmp_path, capsys):
 
 def test_status_ladder_prepare_pr_phase_offers_publish(tmp_path, capsys):
     root = _started_issue_root(tmp_path)
-    set_phase(root, "sample/issue-001", "prepare-pr", note="PR drafted.")
+    _force_close_out_phase(root, "prepare-pr")
 
     main(["--root", str(root), "status"])
 
@@ -816,7 +817,7 @@ def test_status_ladder_prepare_pr_phase_offers_publish(tmp_path, capsys):
 
 def test_status_ladder_publish_phase_offers_confirmed_archive(tmp_path, capsys):
     root = _started_issue_root(tmp_path)
-    set_phase(root, "sample/issue-001", "publish", note="Published.")
+    _force_close_out_phase(root, "publish")
 
     main(["--root", str(root), "status"])
 
@@ -830,7 +831,7 @@ def test_status_ladder_publish_phase_offers_confirmed_archive(tmp_path, capsys):
 def test_status_ladder_prepare_pr_phase_with_no_provider_offers_confirmed_archive_not_publish(tmp_path, capsys):
     root = _started_issue_root(tmp_path)
     update_repo_config(root, "sample", updates={"pull_request": {"provider": "none"}}, clears=set())
-    set_phase(root, "sample/issue-001", "prepare-pr", note="PR drafted.")
+    _force_close_out_phase(root, "prepare-pr")
 
     main(["--root", str(root), "status"])
 
@@ -1068,6 +1069,17 @@ def _started_issue_root(tmp_path: Path, *, test_command: str | None = None, trac
     )
     start_issue(tmp_path, "sample/issue-001", claimed_by="test-thread", track=track)
     return tmp_path
+
+
+def _force_close_out_phase(root: Path, phase: str) -> None:
+    """Stage a close-out phase directly for ladder tests.
+
+    set-phase only accepts build phases; close-out phases are written by their owning
+    operations via the internal _write_active_phase, which the tests use to reach the
+    prepare-pr/publish rungs of the status ladder.
+    """
+    base = root / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001"
+    _write_active_phase(base / "issue.md", base / "run.yaml", phase)
 
 
 def _create_git_repo(path: Path) -> Path:

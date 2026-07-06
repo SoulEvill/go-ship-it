@@ -57,10 +57,13 @@ def build_parser() -> argparse.ArgumentParser:
             "  start-issue <repo>/<issue-id>\n"
             "  status\n"
             "  run-check <repo>/<issue-id> --check test    # or run-check --current --check test from the worktree\n"
+            "  verify-run <repo>/<issue-id> --strict\n"
+            "  prepare-pr <repo>/<issue-id> --branch <pr-branch>\n"
+            "  publish-pr <repo>/<issue-id> --approved     # provider: none repos skip publish and archive after local pr.md sign-off\n"
             "  cleanup-issue <repo>/<issue-id> --destination archive --confirm --note <note> --remove-worktree\n\n"
             "Advanced/support:\n"
             "  show-issue, show-run, handoff, append-note, set-phase, set-track,\n"
-            "  export-run, prepare-pr, publish-pr, verify-run, doctor, package-root, update-repo\n"
+            "  export-run, doctor, package-root, update-repo\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -163,9 +166,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Label the note with a phase without changing the current phase.",
     )
 
-    phase = subparsers.add_parser("set-phase", help="Set the current workflow phase for an active issue.")
+    phase = subparsers.add_parser(
+        "set-phase",
+        help="Set the current build phase for an active issue (build phases only).",
+    )
     phase.add_argument("issue_id", nargs="?")
-    phase.add_argument("phase", nargs="?")
+    phase.add_argument(
+        "phase",
+        nargs="?",
+        help=(
+            "Build phase: setup, investigate, propose, implement, or review. "
+            "Close-out phases (prepare-pr/publish/archived) are set by their owning "
+            "commands (prepare-pr, publish-pr, cleanup-issue), not set-phase."
+        ),
+    )
     phase.add_argument("--current", action="store_true", help="Use the managed worktree's current run context.")
     phase.add_argument("--note", required=True)
     phase.add_argument("--inner-loop", dest="inner_loop", choices=list(INNER_LOOPS), default=None,

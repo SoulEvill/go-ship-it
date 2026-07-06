@@ -98,9 +98,15 @@ def _check_commands(findings: list[VerificationFinding], commands: list[dict[str
         findings.append(_ok("commands.test_present", "commands/test", "Test check was recorded"))
     else:
         findings.append(_warning("commands.test_missing", "commands/test", "No test check record found"))
-    for command in commands:
+    # Judge each check on its MOST RECENT record only; a check that failed earlier but
+    # was re-run green must not keep emitting command.failed (earlier records remain in
+    # the audit trail without blocking). Records are grouped by check, latest by started_at.
+    latest_by_check: dict[str, dict[str, object]] = {}
+    for command in sorted(commands, key=lambda item: str(item.get("started_at") or "")):
+        latest_by_check[str(command.get("check"))] = command
+    for check in sorted(latest_by_check):
+        command = latest_by_check[check]
         exit_code = command.get("exit_code")
-        check = str(command.get("check"))
         if exit_code == 0:
             findings.append(_ok(f"command.{check}_passed", f"commands/{check}", f"{check} command exited 0"))
         else:

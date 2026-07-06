@@ -33,6 +33,11 @@ PHASES = (
     "publish",
     "archived",
 )
+# The public set-phase (and CLI) drives only the build phases. The close-out phases are
+# set exclusively by their owning operations (prepare_pull_request, publish_pull_request,
+# cleanup_issue) via the internal _write_active_phase.
+BUILD_PHASES = ("setup", "investigate", "propose", "implement", "review")
+CLOSE_OUT_PHASES = ("prepare-pr", "publish", "archived")
 TRACKS = ("standard", "quick")
 INNER_LOOPS = ("tdd", "debug", "spike", "none")
 REVIEW_PIPELINES = ("self", "clean-room")
@@ -791,7 +796,7 @@ def set_phase(
     review_pipeline: str | None = None,
 ) -> Path:
     repo_id, issue_id = _parse_issue_ref(issue_ref)
-    safe_phase = _validate_phase(phase)
+    safe_phase = _validate_build_phase(phase)
     if safe_phase != "implement" and (inner_loop is not None or inner_loop_reason is not None):
         raise ValueError("--inner-loop/--inner-loop-reason only apply when entering the implement phase")
     if safe_phase != "review" and review_pipeline is not None:
@@ -1881,6 +1886,18 @@ def _validate_phase(phase: str) -> str:
     safe_phase = phase.strip().lower()
     if safe_phase not in PHASES:
         raise ValueError(f"phase must be one of: {', '.join(PHASES)}")
+    return safe_phase
+
+
+def _validate_build_phase(phase: str) -> str:
+    safe_phase = phase.strip().lower()
+    if safe_phase in CLOSE_OUT_PHASES:
+        raise ValueError(
+            f"phase '{safe_phase}' is set by its owning close-out command "
+            "(prepare-pr/publish-pr/cleanup-issue), not set-phase"
+        )
+    if safe_phase not in BUILD_PHASES:
+        raise ValueError(f"phase must be one of: {', '.join(BUILD_PHASES)}")
     return safe_phase
 
 

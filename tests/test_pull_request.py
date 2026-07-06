@@ -163,6 +163,18 @@ def test_publish_refuses_when_provider_is_none(tmp_path):
         publish_pull_request(root, "sample/issue-001", approved=True)
 
 
+def test_publish_refuses_when_provider_flipped_to_none_after_prepare(tmp_path):
+    # F2: the publish gate must read the provider from the LIVE repo config, not the
+    # snapshot captured in the prepared pull_request record. Prepare while provider is
+    # github, then flip provider to none; publish must still refuse.
+    root = _started_issue_root(tmp_path)
+    prepare_pull_request(root, "sample/issue-001", branch="feature/sample")
+    update_repo_config(root, "sample", updates={"pull_request": {"provider": "none"}}, clears=set())
+
+    with pytest.raises(GoShipitError, match="no publish target"):
+        publish_pull_request(root, "sample/issue-001", approved=True)
+
+
 def test_publish_blocks_when_verify_run_has_findings(tmp_path):
     root = _started_issue_root(tmp_path)  # no notes/acceptance evidence => verify-run has warnings
     worktree = root / "worktrees" / "sample" / "issue-001"
