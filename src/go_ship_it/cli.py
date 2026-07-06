@@ -9,6 +9,7 @@ from pathlib import Path
 
 import yaml
 
+from go_ship_it import __version__
 from go_ship_it.doctor import run_doctor
 from go_ship_it.package_assets import package_root
 from go_ship_it.portable import portable_path_value, portable_text, relative_to_root
@@ -25,6 +26,7 @@ from go_ship_it.state import (
     read_repo_config,
     register_feedback_repo,
     register_repo,
+    repo_config_files,
     render_handoff,
     resolve_current_run,
     run_check,
@@ -46,7 +48,8 @@ def build_parser() -> argparse.ArgumentParser:
         description="GoShipit local issue lifecycle manager.",
         epilog=(
             "Normal path:\n"
-            "  init --repo-id <id> --repo-source <path-or-git-url> [--test-command <cmd>]\n"
+            "  init\n"
+            "  register-repo <id> <path-or-git-url> [--test-command <cmd>]\n"
             "  add-issue --repo <id> --title <title> --problem <problem>\n"
             "  start-issue <repo>/<issue-id>\n"
             "  status\n"
@@ -59,29 +62,13 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--root", default=".", help="GoShipit repo root. Defaults to current directory.")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     init = subparsers.add_parser(
         "init",
-        help="Create state folders, optionally registering the first target repo.",
-        description="Create the local GoShipit state folders. Optionally register the first target repo.",
-    )
-    init.add_argument("--repo-id", default=None, help="Optional target repo id to register during init.")
-    init.add_argument("--repo-source", default=None, help="Optional target repo path or Git URL to register during init.")
-    init.add_argument("--default-branch", default="main")
-    init.add_argument("--setup-command", default=None)
-    init.add_argument("--test-command", default=None)
-    init.add_argument("--lint-command", default=None)
-    init.add_argument("--worktree-setup-command", default=None)
-    init.add_argument(
-        "--feedback-repo-source",
-        default=None,
-        help="Optional GoShipit repo path or Git URL to register as the go-ship-it product feedback target.",
-    )
-    init.add_argument(
-        "--feedback-test-command",
-        default=None,
-        help="Optional test command for the go-ship-it feedback repo.",
+        help="Create GoShipit control-root state folders.",
+        description="Create the local GoShipit control-root state folders.",
     )
     subparsers.add_parser("package-root", help="Print the bundled GoShipit agent package root.")
 
@@ -89,10 +76,19 @@ def build_parser() -> argparse.ArgumentParser:
     register.add_argument("repo_id")
     register.add_argument("source")
     register.add_argument("--default-branch", default="main")
-    register.add_argument("--setup-command", default=None)
-    register.add_argument("--test-command", default=None)
-    register.add_argument("--lint-command", default=None)
-    register.add_argument("--worktree-setup-command", default=None)
+    register.add_argument("--setup-command", default=None, help="Manual setup check used by run-check --check setup.")
+    register.add_argument("--test-command", default=None, help="Manual test check used by run-check --check test.")
+    register.add_argument("--lint-command", default=None, help="Manual lint check used by run-check --check lint.")
+    register.add_argument(
+        "--worktree-setup-command",
+        default=None,
+        help="Automatic bootstrap command run after each issue worktree is created.",
+    )
+    register.add_argument(
+        "--feedback",
+        action="store_true",
+        help="Register repo id go-ship-it with product feedback context.",
+    )
 
     show_repo = subparsers.add_parser("show-repo", help="Print a registered repo configuration.")
     show_repo.add_argument("repo_id")
@@ -102,10 +98,14 @@ def build_parser() -> argparse.ArgumentParser:
     update_repo.add_argument("--path", default=None)
     update_repo.add_argument("--default-branch", default=None)
     update_repo.add_argument("--worktree-root", default=None)
-    update_repo.add_argument("--setup-command", default=None)
-    update_repo.add_argument("--test-command", default=None)
-    update_repo.add_argument("--lint-command", default=None)
-    update_repo.add_argument("--worktree-setup-command", default=None)
+    update_repo.add_argument("--setup-command", default=None, help="Manual setup check used by run-check --check setup.")
+    update_repo.add_argument("--test-command", default=None, help="Manual test check used by run-check --check test.")
+    update_repo.add_argument("--lint-command", default=None, help="Manual lint check used by run-check --check lint.")
+    update_repo.add_argument(
+        "--worktree-setup-command",
+        default=None,
+        help="Automatic bootstrap command run after each issue worktree is created.",
+    )
     update_repo.add_argument("--pr-provider", default=None)
     update_repo.add_argument("--pr-remote", default=None)
     update_repo.add_argument("--pr-auto-publish", action=argparse.BooleanOptionalAction, default=None)
@@ -135,13 +135,23 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Remove the managed worktree. Required when returning to todo.",
     )
+    cleanup.add_argument(
+        "--discard-worktree-changes",
+        action="store_true",
+        help="Allow --remove-worktree to delete uncommitted changes in the managed worktree.",
+    )
 
     note = subparsers.add_parser("append-note", help="Append an authored note for an active issue.")
     note.add_argument("issue_id", nargs="?")
     note.add_argument("--current", action="store_true", help="Use the managed worktree's current run context.")
     note.add_argument("--section", required=True)
     note.add_argument("--note", required=True)
-    note.add_argument("--phase", default=None)
+    note.add_argument(
+        "--for-phase",
+        dest="for_phase",
+        default=None,
+        help="Label the note with a phase without changing the current phase.",
+    )
 
     phase = subparsers.add_parser("set-phase", help="Set the current workflow phase for an active issue.")
     phase.add_argument("issue_id", nargs="?")
@@ -149,7 +159,7 @@ def build_parser() -> argparse.ArgumentParser:
     phase.add_argument("--current", action="store_true", help="Use the managed worktree's current run context.")
     phase.add_argument("--note", required=True)
 
-    check = subparsers.add_parser("run-check", help="Run a registered repo check and record evidence.")
+    check = subparsers.add_parser("run-check", help="Run a manual registered repo check and record evidence.")
     check.add_argument("issue_id", nargs="?")
     check.add_argument("--current", action="store_true", help="Use the managed worktree's current run context.")
     check.add_argument("--check", choices=["setup", "test", "lint"], required=True)
@@ -210,6 +220,11 @@ def build_parser() -> argparse.ArgumentParser:
     publish_pr.add_argument("--current", action="store_true", help="Use the managed worktree's current run context.")
     publish_pr.add_argument("--branch", default=None, help="Override the PR branch name before publishing.")
     publish_pr.add_argument("--title", default=None, help="Override the PR title before publishing.")
+    publish_pr.add_argument(
+        "--approved",
+        action="store_true",
+        help="Confirm the user approved publishing when repo auto-publish is disabled.",
+    )
     return parser
 
 
@@ -443,6 +458,7 @@ def _format_status(status: object, root: Path, *, current: object | None = None)
             f"Managed Worktrees: {len(status.worktrees)}",
         ]
     )
+    lines.extend(_format_repo_status(root))
     lines.extend(_status_next_steps(status))
     lines.extend(_format_todo_status(root))
     lines.extend(["", "## Active Issues"])
@@ -479,6 +495,33 @@ def _format_status(status: object, root: Path, *, current: object | None = None)
     else:
         lines.append("No preserved worktrees.")
     return "\n".join(lines)
+
+
+def _format_repo_status(root: Path) -> list[str]:
+    lines = ["", "## Registered Repos"]
+    repo_files = repo_config_files(root)
+    if not repo_files:
+        lines.append("No registered repos.")
+        return lines
+    for repo_file in repo_files:
+        repo_id = repo_file.parent.name
+        try:
+            config = read_repo_config(root, repo_id)
+        except (OSError, ValueError) as exc:
+            lines.append(f"- {repo_id}: unreadable repo config ({exc})")
+            continue
+        source_type = _display_value(config.get("source_type")) or "local"
+        source = portable_path_value(root, config.get("source") or config.get("path"))
+        path = portable_path_value(root, config.get("path"))
+        default_branch = _display_value(config.get("default_branch")) or "unknown"
+        checks = ", ".join(_configured_checks(root, repo_id)) or "none"
+        lines.append(f"- {repo_id} ({source_type})")
+        lines.append(f"  Source: {source}")
+        if path != source:
+            lines.append(f"  Local Path: {path}")
+        lines.append(f"  Default Branch: {default_branch}")
+        lines.append(f"  Checks: {checks}")
+    return lines
 
 
 def _status_next_steps(status: object) -> list[str]:
@@ -578,9 +621,28 @@ def _status_payload(status: object, root: Path, *, current: object | None = None
             "runs": status.run_count,
             "managed_worktrees": len(status.worktrees),
         },
+        "repos": [_repo_status_payload(root, repo_file.parent.name) for repo_file in repo_config_files(root)],
         "todo": [_issue_summary_payload(item) for item in list_issues(root, state="todo")],
         "active": [_active_issue_payload(root, item) for item in status.active],
         "worktrees": list(status.worktrees),
+    }
+
+
+def _repo_status_payload(root: Path, repo_id: str) -> dict[str, object]:
+    try:
+        config = read_repo_config(root, repo_id)
+    except (OSError, ValueError) as exc:
+        return {"id": repo_id, "error": str(exc)}
+    source = config.get("source") or config.get("path")
+    source_type = config.get("source_type") or "local"
+    return {
+        "id": repo_id,
+        "path": config.get("path"),
+        "source": source,
+        "source_type": source_type,
+        "default_branch": config.get("default_branch"),
+        "checks": _configured_checks(root, repo_id),
+        "pull_request": config.get("pull_request"),
     }
 
 
@@ -690,26 +752,26 @@ def _active_issue_next_commands(root: Path, item: object) -> list[str]:
     if phase in {"", "setup", "investigate"}:
         commands.extend(
             [
-                f"go-ship-it append-note {ref} --section \"Investigation\" --phase investigate --note \"<findings>\"",
+                f"go-ship-it append-note {ref} --section \"Investigation\" --for-phase investigate --note \"<findings>\"",
                 f"go-ship-it set-phase {ref} propose --note \"<investigation summary>\"",
             ]
         )
     elif phase == "propose":
         commands.extend(
             [
-                f"go-ship-it append-note {ref} --section \"Proposal\" --phase propose --note \"<proposal>\"",
+                f"go-ship-it append-note {ref} --section \"Proposal\" --for-phase propose --note \"<proposal>\"",
                 f"go-ship-it set-phase {ref} implement --note \"<proposal accepted>\"",
             ]
         )
     elif phase == "implement":
         commands.extend(
             [
-                f"go-ship-it append-note {ref} --section \"Implementation\" --phase implement --note \"<changed files and decisions>\"",
+                f"go-ship-it append-note {ref} --section \"Implementation\" --for-phase implement --note \"<changed files and decisions>\"",
                 f"go-ship-it set-phase {ref} test --note \"<ready for checks>\"",
             ]
         )
     elif phase == "test":
-        commands.append(f"go-ship-it append-note {ref} --section \"Review\" --phase test --note \"<readiness review>\"")
+        commands.append(f"go-ship-it append-note {ref} --section \"Review\" --for-phase test --note \"<readiness review>\"")
 
     checks = _configured_checks(root, item.repo)
     for check in checks:
@@ -751,34 +813,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "init":
             ensure_layout(root)
             print(f"Initialized GoShipit state at {root}")
-            has_repo_id = args.repo_id is not None
-            has_repo_source = args.repo_source is not None
-            if has_repo_id != has_repo_source:
-                raise ValueError("--repo-id and --repo-source must be provided together")
-            if args.feedback_test_command is not None and args.feedback_repo_source is None:
-                raise ValueError("--feedback-test-command requires --feedback-repo-source")
-            if has_repo_id and has_repo_source:
-                repo_file = register_repo(
+            return 0
+
+        if args.command == "register-repo":
+            if args.feedback:
+                if args.repo_id != "go-ship-it":
+                    raise ValueError("--feedback requires repo id go-ship-it")
+                feedback_file = register_feedback_repo(
                     root,
-                    repo_id=args.repo_id,
-                    path=args.repo_source,
+                    path=args.source,
                     default_branch=args.default_branch,
                     setup_command=args.setup_command,
                     test_command=args.test_command,
                     lint_command=args.lint_command,
                     worktree_setup_command=args.worktree_setup_command,
                 )
-                print(f"Registered repo: {repo_file}")
-            if args.feedback_repo_source is not None:
-                feedback_file = register_feedback_repo(
-                    root,
-                    path=args.feedback_repo_source,
-                    test_command=args.feedback_test_command,
-                )
-                print(f"Registered GoShipit feedback repo: {feedback_file}")
-            return 0
-
-        if args.command == "register-repo":
+                print(feedback_file)
+                return 0
             repo_file = register_repo(
                 root,
                 repo_id=args.repo_id,
@@ -836,13 +887,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 destination=args.destination,
                 note=args.note,
                 remove_worktree=args.remove_worktree,
+                discard_worktree_changes=args.discard_worktree_changes,
             )
             print(issue_file)
             return 0
 
         if args.command == "append-note":
             target_root, issue_id = _resolve_issue_target(root, args)
-            notes = append_note(target_root, issue_id, section=args.section, note=args.note, phase=args.phase)
+            notes = append_note(target_root, issue_id, section=args.section, note=args.note, phase=args.for_phase)
             print(notes)
             return 0
 
@@ -953,7 +1005,13 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         if args.command == "publish-pr":
             target_root, issue_id = _resolve_issue_target(root, args)
-            published = publish_pull_request(target_root, issue_id, branch=args.branch, title=args.title)
+            published = publish_pull_request(
+                target_root,
+                issue_id,
+                branch=args.branch,
+                title=args.title,
+                approved=args.approved,
+            )
             print(published.url)
             return 0
     except CheckFailedError as exc:

@@ -14,6 +14,14 @@ def test_version_is_defined():
     assert __version__ == "0.1.0"
 
 
+def test_main_version_exits_cleanly(capsys):
+    exit_code = main(["--version"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert captured.out.strip() == f"go-ship-it {__version__}"
+
+
 def test_parser_has_init_command():
     parser = build_parser()
     args = parser.parse_args(["init"])
@@ -56,17 +64,15 @@ def test_main_init_creates_state_layout(tmp_path):
     assert not (tmp_path / "state" / "issues").exists()
 
 
-def test_main_init_can_register_first_repo(tmp_path):
+def test_main_register_repo_adds_first_repo(tmp_path):
     target = _create_git_repo(tmp_path / "target")
 
     exit_code = main(
         [
             "--root",
             str(tmp_path / "control"),
-            "init",
-            "--repo-id",
+            "register-repo",
             "sample",
-            "--repo-source",
             str(target),
             "--test-command",
             "python -c 'print(\"ok\")'",
@@ -84,24 +90,18 @@ def test_main_init_can_register_first_repo(tmp_path):
     assert "test_command: python -c 'print(\"ok\")'\n" in text
 
 
-def test_main_init_can_register_go_ship_it_feedback_repo(tmp_path):
-    target = _create_git_repo(tmp_path / "target")
+def test_main_register_repo_can_add_go_ship_it_feedback_repo(tmp_path):
     feedback = _create_git_repo(tmp_path / "go-ship-it")
 
     exit_code = main(
         [
             "--root",
             str(tmp_path / "control"),
-            "init",
-            "--repo-id",
-            "sample",
-            "--repo-source",
-            str(target),
-            "--test-command",
-            "python -c 'print(\"ok\")'",
-            "--feedback-repo-source",
+            "register-repo",
+            "go-ship-it",
             str(feedback),
-            "--feedback-test-command",
+            "--feedback",
+            "--test-command",
             "uv run pytest -q",
         ]
     )
@@ -114,20 +114,19 @@ def test_main_init_can_register_go_ship_it_feedback_repo(tmp_path):
     assert "Use this registered repo for GoShipit product feedback" in context
 
 
-def test_main_init_rejects_partial_repo_registration(tmp_path, capsys):
+def test_main_init_rejects_repo_registration_options(tmp_path):
     exit_code = main(["--root", str(tmp_path), "init", "--repo-id", "sample"])
 
+    assert exit_code == 2
+
+
+def test_main_register_repo_feedback_requires_go_ship_it_id(tmp_path, capsys):
+    target = _create_git_repo(tmp_path / "target")
+    exit_code = main(["--root", str(tmp_path), "register-repo", "sample", str(target), "--feedback"])
+
     captured = capsys.readouterr()
     assert exit_code == 1
-    assert "--repo-id and --repo-source must be provided together" in captured.err
-
-
-def test_main_init_rejects_feedback_test_without_feedback_repo(tmp_path, capsys):
-    exit_code = main(["--root", str(tmp_path), "init", "--feedback-test-command", "uv run pytest -q"])
-
-    captured = capsys.readouterr()
-    assert exit_code == 1
-    assert "--feedback-test-command requires --feedback-repo-source" in captured.err
+    assert "--feedback requires repo id go-ship-it" in captured.err
 
 
 def test_register_repo_cli_preserves_relative_paths(tmp_path):
@@ -158,10 +157,22 @@ def test_register_repo_cli_clones_git_url_source(tmp_path):
 def test_parser_has_evidence_commands():
     parser = build_parser()
 
-    append = parser.parse_args(["append-note", "sample/issue-001", "--section", "Investigation", "--note", "Read README"])
+    append = parser.parse_args(
+        [
+            "append-note",
+            "sample/issue-001",
+            "--section",
+            "Investigation",
+            "--for-phase",
+            "investigate",
+            "--note",
+            "Read README",
+        ]
+    )
     assert append.command == "append-note"
     assert append.issue_id == "sample/issue-001"
     assert append.section == "Investigation"
+    assert append.for_phase == "investigate"
     assert append.note == "Read README"
 
     phase = parser.parse_args(["set-phase", "sample/issue-001", "propose", "--note", "Ready to propose"])
@@ -169,6 +180,22 @@ def test_parser_has_evidence_commands():
     assert phase.issue_id == "sample/issue-001"
     assert phase.phase == "propose"
     assert phase.note == "Ready to propose"
+
+    cleanup = parser.parse_args(
+        [
+            "cleanup-issue",
+            "sample/issue-001",
+            "--destination",
+            "archive",
+            "--note",
+            "Done",
+            "--remove-worktree",
+            "--discard-worktree-changes",
+        ]
+    )
+    assert cleanup.command == "cleanup-issue"
+    assert cleanup.remove_worktree is True
+    assert cleanup.discard_worktree_changes is True
 
     check = parser.parse_args(["run-check", "sample/issue-001", "--check", "test"])
     assert check.command == "run-check"
@@ -188,13 +215,19 @@ def test_parser_has_evidence_commands():
     assert prepare_pr.issue_id == "sample/issue-001"
     assert prepare_pr.branch == "feature/readme"
 
-    publish_pr = parser.parse_args(["publish-pr", "sample/issue-001"])
+    publish_pr = parser.parse_args(["publish-pr", "sample/issue-001", "--approved"])
     assert publish_pr.command == "publish-pr"
     assert publish_pr.issue_id == "sample/issue-001"
+    assert publish_pr.approved is True
 
 
 def test_parser_has_repo_config_commands():
     parser = build_parser()
+
+    register = parser.parse_args(["register-repo", "go-ship-it", "../go-ship-it", "--feedback"])
+    assert register.command == "register-repo"
+    assert register.repo_id == "go-ship-it"
+    assert register.feedback is True
 
     show = parser.parse_args(["show-repo", "parawave"])
     assert show.command == "show-repo"
@@ -648,6 +681,11 @@ def test_main_status_prints_workspace_summary(tmp_path, capsys):
     assert "Repos: 1" in out
     assert "Execution: 1" in out
     assert "Managed Worktrees: 1" in out
+    assert "## Registered Repos" in out
+    assert "- sample (local)" in out
+    assert "Source: target" in out
+    assert "Default Branch: main" in out
+    assert "Checks: test" in out
     assert "- sample/issue-001 Change README" in out
     assert "Phase: investigate" in out
     assert "Claimed By: test-thread" in out
@@ -674,6 +712,9 @@ def test_main_status_json_prints_structured_workspace(tmp_path, capsys):
     assert exit_code == 0
     assert payload["summary"]["repos"] == 1
     assert payload["summary"]["execution"] == 1
+    assert payload["repos"][0]["id"] == "sample"
+    assert payload["repos"][0]["source_type"] == "local"
+    assert payload["repos"][0]["checks"] == ["test"]
     assert payload["active"][0]["issue_id"] == "issue-001"
     assert payload["active"][0]["issue_ref"] == "sample/issue-001"
     assert payload["active"][0]["phase"] == "investigate"
@@ -734,6 +775,8 @@ def test_main_status_guides_empty_control_root(tmp_path, capsys):
     assert exit_code == 0
     out = capsys.readouterr().out
     assert "Repos: 0" in out
+    assert "## Registered Repos" in out
+    assert "No registered repos." in out
     assert "## Next Steps" in out
     assert "go-ship-it register-repo <repo-id> <local-path-or-git-url>" in out
     assert "go-ship-it add-issue --repo <repo-id>" in out
@@ -844,7 +887,7 @@ def test_main_append_note_records_note_entry(tmp_path):
             "Investigation",
             "--note",
             "Read README",
-            "--phase",
+            "--for-phase",
             "investigate",
         ]
     )
@@ -870,7 +913,7 @@ def test_main_append_note_current_records_note_entry(tmp_path, monkeypatch):
             "Investigation",
             "--note",
             "Read README from locked session.",
-            "--phase",
+            "--for-phase",
             "investigate",
         ]
     )

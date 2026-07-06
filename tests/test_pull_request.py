@@ -12,6 +12,7 @@ from go_ship_it.state import (
     register_repo,
     run_check,
     start_issue,
+    update_repo_config,
     write_handoff,
 )
 
@@ -60,6 +61,14 @@ def test_prepare_pull_request_accepts_explicit_branch(tmp_path):
     assert preview.branch == "bugfix/readme"
 
 
+def test_publish_pull_request_requires_approval_when_auto_publish_disabled(tmp_path):
+    root = _started_issue_root(tmp_path)
+    prepare_pull_request(root, "sample/issue-001", branch="feature/readme")
+
+    with pytest.raises(GoShipitError, match="requires explicit approval"):
+        publish_pull_request(root, "sample/issue-001")
+
+
 def test_publish_pull_request_rejects_dirty_worktree(tmp_path):
     root = _started_issue_root(tmp_path)
     worktree = root / "worktrees" / "sample" / "issue-001"
@@ -67,7 +76,7 @@ def test_publish_pull_request_rejects_dirty_worktree(tmp_path):
     prepare_pull_request(root, "sample/issue-001", branch="feature/readme")
 
     with pytest.raises(GoShipitError, match="uncommitted changes"):
-        publish_pull_request(root, "sample/issue-001")
+        publish_pull_request(root, "sample/issue-001", approved=True)
 
 
 def test_publish_pull_request_pushes_pr_branch_and_records_url(tmp_path, monkeypatch):
@@ -92,7 +101,7 @@ def test_publish_pull_request_pushes_pr_branch_and_records_url(tmp_path, monkeyp
 
     monkeypatch.setattr(pr_module, "_run_command", fake_run_command)
 
-    published = publish_pull_request(root, "sample/issue-001")
+    published = publish_pull_request(root, "sample/issue-001", approved=True)
 
     assert published.url == "https://github.com/example/repo/pull/1"
     assert ["git", "-C", str(worktree), "push", "origin", "go-ship-it/issue-001:feature/readme"] in calls
@@ -101,6 +110,32 @@ def test_publish_pull_request_pushes_pr_branch_and_records_url(tmp_path, monkeyp
         (root / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001" / "run.yaml").read_text()
     )
     assert run["pull_request"]["published_url"] == "https://github.com/example/repo/pull/1"
+
+
+def test_publish_pull_request_allows_repo_auto_publish_without_approval(tmp_path, monkeypatch):
+    root = _started_issue_root(tmp_path)
+    update_repo_config(root, "sample", updates={"pull_request": {"auto_publish": True}}, clears=set())
+    target = root / "target"
+    remote = tmp_path / "remote.git"
+    _run_git(remote.parent, "init", "--bare", remote.name)
+    _run_git(target, "remote", "add", "origin", str(remote))
+    worktree = root / "worktrees" / "sample" / "issue-001"
+    (worktree / "README.md").write_text("# Sample\n\nMore detail.\n")
+    _run_git(worktree, "add", "README.md")
+    _run_git(worktree, "commit", "-m", "update readme")
+    prepare_pull_request(root, "sample/issue-001", branch="feature/readme")
+    original_run_command = pr_module._run_command
+
+    def fake_run_command(command: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+        if command and command[0] == "gh":
+            return subprocess.CompletedProcess(command, 0, stdout="https://github.com/example/repo/pull/2\n", stderr="")
+        return original_run_command(command, cwd=cwd)
+
+    monkeypatch.setattr(pr_module, "_run_command", fake_run_command)
+
+    published = publish_pull_request(root, "sample/issue-001")
+
+    assert published.url == "https://github.com/example/repo/pull/2"
 
 
 def _started_issue_root(tmp_path: Path) -> Path:

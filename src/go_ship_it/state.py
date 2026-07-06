@@ -160,7 +160,9 @@ def next_issue_id(root: Path, repo_id: str) -> str:
     issue_dirs = tuple(_repo_issues_dir(root, safe_repo_id, state) for state in ISSUE_STATES)
     existing = [path for directory in issue_dirs for path in _collect_issue_dirs(directory)]
     existing.extend(_collect_issue_dirs(root / "worktrees" / safe_repo_id))
-    next_number = max((_issue_number(path) for path in existing), default=0) + 1
+    issue_numbers = [_issue_number(path) for path in existing]
+    issue_numbers.extend(_managed_issue_branch_numbers(root, safe_repo_id))
+    next_number = max(issue_numbers, default=0) + 1
     return f"issue-{next_number:03d}"
 
 
@@ -208,17 +210,21 @@ def register_feedback_repo(
     root: Path,
     *,
     path: Path | str,
+    default_branch: str,
+    setup_command: str | None,
     test_command: str | None,
+    lint_command: str | None,
+    worktree_setup_command: str | None = None,
 ) -> Path:
     repo_file = register_repo(
         root,
         repo_id="go-ship-it",
         path=path,
-        default_branch="main",
-        setup_command=None,
+        default_branch=default_branch,
+        setup_command=setup_command,
         test_command=test_command,
-        lint_command=None,
-        worktree_setup_command=None,
+        lint_command=lint_command,
+        worktree_setup_command=worktree_setup_command,
     )
     context_file = _repo_dir(root, "go-ship-it") / "context.md"
     generic_template = _repo_context_template("go-ship-it")
@@ -566,6 +572,11 @@ def start_issue(root: Path, issue_ref: str, *, claimed_by: str | None = None) ->
         claim_id = _claim_id(root, safe_issue_id, worktree_relative)
         if worktree.exists():
             raise FileExistsError(f"Worktree path already exists: {worktree}")
+        if _managed_branch_exists(target_repo, branch):
+            raise GoShipitError(
+                f"managed branch already exists for {branch}; create the next issue id, "
+                "or delete/reclaim the stale GoShipit branch in the target repo"
+            )
         worktree.parent.mkdir(parents=True, exist_ok=True)
         _git(target_repo, "worktree", "add", "-b", branch, str(worktree), _required_string(repo, "default_branch"))
         worktree_created = True
@@ -863,6 +874,7 @@ def cleanup_issue(
     destination: str,
     note: str,
     remove_worktree: bool,
+    discard_worktree_changes: bool = False,
 ) -> Path:
     ensure_layout(root)
     repo_id, issue_id = _parse_issue_ref(issue_ref)
@@ -887,7 +899,9 @@ def cleanup_issue(
         worktree = root / worktree_value
         if _is_managed_worktree(root, worktree) and worktree.exists():
             _ensure_git_repo(target_repo)
-            _remove_worktree(target_repo, worktree)
+            if not discard_worktree_changes:
+                _ensure_worktree_clean(worktree)
+            _remove_worktree(target_repo, worktree, force=discard_worktree_changes)
             metadata["worktree"] = None
 
     if destination == "todo":
@@ -1403,6 +1417,22 @@ def _issue_number(path: Path) -> int:
     return int(match.group(1)) if match else 0
 
 
+def _managed_issue_branch_numbers(root: Path, repo_id: str) -> list[int]:
+    try:
+        repo = _read_repo(root, repo_id)
+        target_repo = _resolve_repo_path(root, repo.get("path"))
+        _ensure_git_repo(target_repo)
+        branches = _git(target_repo, "branch", "--list", "go-ship-it/issue-*", "--format=%(refname:short)")
+    except (OSError, ValueError, GoShipitError):
+        return []
+    numbers: list[int] = []
+    for line in branches.splitlines():
+        match = re.fullmatch(r"go-ship-it/(issue-\d+)", line.strip())
+        if match:
+            numbers.append(_issue_number(Path(match.group(1))))
+    return numbers
+
+
 def _active_run_error(issue_id: str, execution_file: Path, run_dir: Path) -> IssueAlreadyActiveError:
     worktree: str | None = None
     if execution_file.exists():
@@ -1590,11 +1620,35 @@ def _git(repo: Path, *args: str) -> str:
     return result.stdout
 
 
-def _remove_worktree(target_repo: Path, worktree: Path) -> None:
-    try:
-        _git(target_repo, "worktree", "remove", "--force", str(worktree))
-    except GoShipitError:
-        shutil.rmtree(worktree, ignore_errors=True)
+def _remove_worktree(target_repo: Path, worktree: Path, *, force: bool = False) -> None:
+    args = ["worktree", "remove"]
+    if force:
+        args.append("--force")
+    args.append(str(worktree))
+    _git(target_repo, *args)
+
+
+def _ensure_worktree_clean(worktree: Path) -> None:
+    status = _git(worktree, "status", "--porcelain", "--untracked-files=all")
+    dirty_entries = [line for line in status.splitlines() if not _is_go_ship_it_worktree_metadata(line)]
+    if dirty_entries:
+        raise GoShipitError(
+            "managed worktree has uncommitted changes; commit or prepare a PR, "
+            "archive without --remove-worktree, or rerun cleanup with "
+            "--discard-worktree-changes to intentionally delete local work"
+        )
+
+
+def _is_go_ship_it_worktree_metadata(status_line: str) -> bool:
+    path = status_line[3:]
+    if " -> " in path:
+        path = path.rsplit(" -> ", 1)[1]
+    return path == ".go-ship-it" or path.startswith(".go-ship-it/")
+
+
+def _managed_branch_exists(target_repo: Path, branch: str) -> bool:
+    output = _git(target_repo, "branch", "--list", branch, "--format=%(refname:short)")
+    return any(line.strip() == branch for line in output.splitlines())
 
 
 def _delete_branch(target_repo: Path, branch: str) -> None:

@@ -127,7 +127,10 @@ def test_register_feedback_repo_writes_product_context(tmp_path):
     repo_file = register_feedback_repo(
         tmp_path,
         path=target,
+        default_branch="main",
+        setup_command=None,
         test_command="uv run pytest -q",
+        lint_command=None,
     )
 
     assert repo_file == tmp_path / "state" / "repos" / "go-ship-it" / "repo.yaml"
@@ -226,6 +229,22 @@ def test_next_issue_id_counts_preserved_managed_worktrees(tmp_path):
         lint_command=None,
     )
     (tmp_path / "worktrees" / "sample" / "issue-001").mkdir(parents=True)
+
+    assert next_issue_id(tmp_path, "sample") == "issue-002"
+
+
+def test_next_issue_id_counts_leftover_managed_branches(tmp_path):
+    target = _create_git_repo(tmp_path / "target")
+    _run_git(target, "branch", "go-ship-it/issue-001")
+    register_repo(
+        tmp_path,
+        repo_id="sample",
+        path=target,
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+    )
 
     assert next_issue_id(tmp_path, "sample") == "issue-002"
 
@@ -345,6 +364,28 @@ def test_start_issue_claims_issue_and_creates_worktree(tmp_path):
     assert context["claimed_by"] == "test-thread"
     assert context["claim_id"] == run.claim_id
     assert ".go-ship-it/" in _git_output(run.worktree, "status", "--ignored", "--short")
+
+
+def test_start_issue_reports_managed_branch_collision_without_raw_git_error(tmp_path):
+    target = _create_git_repo(tmp_path / "target")
+    register_repo(
+        tmp_path,
+        repo_id="sample",
+        path=target,
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+    )
+    _add_sample_issue(tmp_path)
+    _run_git(target, "branch", "go-ship-it/issue-001")
+
+    with pytest.raises(GoShipitError, match="managed branch already exists"):
+        start_issue(tmp_path, "sample/issue-001", claimed_by="test-thread")
+
+    assert (tmp_path / "state" / "repos" / "sample" / "issues" / "todo" / "issue-001" / "issue.md").exists()
+    assert not (tmp_path / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001").exists()
+    assert not (tmp_path / "worktrees" / "sample" / "issue-001").exists()
 
 
 def test_start_issue_runs_worktree_setup_command(tmp_path):
@@ -623,6 +664,42 @@ def test_cleanup_archive_can_remove_managed_worktree(tmp_path):
 
     cleanup_issue(root, "sample/issue-001", destination="archive", note="Closed after review.", remove_worktree=True)
 
+    assert not active_worktree.exists()
+
+
+def test_cleanup_archive_refuses_to_remove_dirty_managed_worktree(tmp_path):
+    root = _started_issue_root(tmp_path)
+    active_worktree = root / "worktrees" / "sample" / "issue-001"
+    (active_worktree / "README.md").write_text("# Sample\nChanged locally.\n")
+    (active_worktree / "scratch.txt").write_text("untracked local work\n")
+
+    with pytest.raises(GoShipitError, match="managed worktree has uncommitted changes"):
+        cleanup_issue(root, "sample/issue-001", destination="archive", note="Closed after review.", remove_worktree=True)
+
+    assert active_worktree.exists()
+    assert (active_worktree / "README.md").read_text() == "# Sample\nChanged locally.\n"
+    assert (active_worktree / "scratch.txt").read_text() == "untracked local work\n"
+    assert (root / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001" / "issue.md").exists()
+    assert not (root / "state" / "repos" / "sample" / "issues" / "archive" / "issue-001").exists()
+
+
+def test_cleanup_archive_can_discard_dirty_managed_worktree_when_explicit(tmp_path):
+    root = _started_issue_root(tmp_path)
+    active_worktree = root / "worktrees" / "sample" / "issue-001"
+    (active_worktree / "README.md").write_text("# Sample\nDiscard me.\n")
+    (active_worktree / "scratch.txt").write_text("untracked local work\n")
+
+    result = cleanup_issue(
+        root,
+        "sample/issue-001",
+        destination="archive",
+        note="Closed after intentionally discarding local work.",
+        remove_worktree=True,
+        discard_worktree_changes=True,
+    )
+
+    assert result == root / "state" / "repos" / "sample" / "issues" / "archive" / "issue-001" / "issue.md"
+    assert result.exists()
     assert not active_worktree.exists()
 
 

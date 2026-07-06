@@ -127,6 +127,7 @@ def publish_pull_request(
     *,
     branch: str | None = None,
     title: str | None = None,
+    approved: bool = False,
 ) -> PullRequestPublish:
     run = show_run(root, issue_ref)
     record = run.run.get("pull_request")
@@ -136,6 +137,8 @@ def publish_pull_request(
         record = run.run.get("pull_request")
     if not isinstance(record, dict):
         raise GoShipitError("Pull request preview is missing; run prepare-pr first")
+    if not bool(record.get("auto_publish")) and not approved:
+        raise GoShipitError("Publishing requires explicit approval; rerun with --approved or enable pull_request.auto_publish")
 
     provider = _required_record_string(record, "provider")
     if provider != "github":
