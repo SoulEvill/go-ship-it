@@ -8,7 +8,7 @@ This is the surface coding agents should see first:
 
 - `using-go-ship-it`: orient to package root, control root, state, and worktree boundaries.
 - `manage-issues`: initialize/register, add todos, start issues, inspect status, and clean up active issues.
-- `work-issue`: investigate, propose, implement, test, review, and record run evidence.
+- `work-issue`: investigate, propose, implement, review, and record run evidence.
 
 Avoid adding a new skill when the behavior is only a new CLI verb or a new reference note.
 
@@ -90,7 +90,7 @@ go-ship-it status
 go-ship-it show-run
 go-ship-it show-run --current
 go-ship-it append-note --current --section "Investigation" --note "<note>"
-go-ship-it set-phase --current test --note "<ready>"
+go-ship-it set-phase --current review --note "<ready for review>"
 go-ship-it run-check --current --check test
 go-ship-it handoff --write
 ```
