@@ -19,7 +19,7 @@ Parallel GoShipit sessions need a deterministic way to know which issue/run they
 go-ship-it status
 go-ship-it show-run
 go-ship-it show-run --current
-go-ship-it append-note --current --section "Investigation" --phase investigate --note "Read parser tests."
+go-ship-it append-note --current --section "Investigation" --for-phase investigate --note "Read parser tests."
 go-ship-it set-phase --current test --note "Ready for configured checks."
 go-ship-it run-check --current --check test
 go-ship-it handoff --write

@@ -1,6 +1,8 @@
 # Dogfood Reports
 
-Dogfood reports capture what happened and what the harness should learn.
+Dogfood reports are committed maintainer notes for GoShipit contributors. They capture what happened while dogfooding the harness and what the harness should learn.
+
+Normal user runs should not write here by default. `go-ship-it export-run` writes an issue-local `evidence.md` inside `state/repos/<repo>/issues/.../<issue-id>/` unless the user explicitly chooses another output path.
 
 Every report should include:
 

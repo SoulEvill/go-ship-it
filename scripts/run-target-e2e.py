@@ -290,7 +290,7 @@ def main(argv: list[str] | None = None) -> int:
                 issue_ref,
                 "--section",
                 "Investigation",
-                "--phase",
+                "--for-phase",
                 "investigate",
                 "--note",
                 "Disposable target clone and worktree were created successfully.",
@@ -312,7 +312,7 @@ def main(argv: list[str] | None = None) -> int:
                 issue_ref,
                 "--section",
                 "Proposal",
-                "--phase",
+                "--for-phase",
                 "propose",
                 "--note",
                 "Use a harmless marker file to prove implementation and check execution.",
@@ -321,8 +321,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         checked(
             records,
-            "set phase test",
-            phase_argv(paths, issue_ref, "test", "Marker implementation committed; ready for configured checks."),
+            "set phase review",
+            phase_argv(paths, issue_ref, "review", "Marker implementation committed; ready for configured checks."),
             cwd=ROOT,
         )
         checked(records, "run setup check", go_ship_it_argv(paths, "run-check", issue_ref, "--check", "setup"), cwd=ROOT)
@@ -336,8 +336,8 @@ def main(argv: list[str] | None = None) -> int:
                 issue_ref,
                 "--section",
                 "Review",
-                "--phase",
-                "test",
+                "--for-phase",
+                "review",
                 "--note",
                 "Configured setup and test checks passed in the disposable target clone.",
             ),
@@ -362,6 +362,7 @@ def main(argv: list[str] | None = None) -> int:
                     "--note",
                     "Disposable target e2e complete.",
                     "--remove-worktree",
+                    "--confirm",
                 ),
                 cwd=ROOT,
             )

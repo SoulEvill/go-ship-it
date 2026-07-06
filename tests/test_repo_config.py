@@ -21,10 +21,18 @@ def test_read_repo_config_returns_registered_yaml(tmp_path):
 
     assert config["id"] == "sample"
     assert config["path"] == "../sample"
+    assert config["source"] == "../sample"
+    assert config["source_type"] == "local"
     assert config["default_branch"] == "main"
     assert config["setup_command"] == "uv sync"
     assert config["test_command"] == "uv run pytest"
     assert config["lint_command"] is None
+    assert config["worktree_setup"] == {"command": None}
+    assert config["pull_request"] == {
+        "provider": "github",
+        "remote": "origin",
+        "auto_publish": False,
+    }
 
 
 def test_update_repo_config_updates_one_command_and_preserves_relative_path(tmp_path):
@@ -70,6 +78,84 @@ def test_update_repo_config_clears_optional_command(tmp_path):
     assert data["lint_command"] is None
 
 
+def test_update_repo_config_merges_pull_request_config(tmp_path):
+    register_repo(
+        tmp_path,
+        repo_id="sample",
+        path=Path("../sample"),
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+    )
+
+    update_repo_config(
+        tmp_path,
+        "sample",
+        updates={"pull_request": {"remote": "upstream", "auto_publish": True}},
+        clears=set(),
+    )
+
+    data = read_repo_config(tmp_path, "sample")
+    assert data["pull_request"] == {
+        "provider": "github",
+        "remote": "upstream",
+        "auto_publish": True,
+    }
+
+
+def test_update_repo_config_updates_worktree_setup_command(tmp_path):
+    register_repo(
+        tmp_path,
+        repo_id="sample",
+        path=Path("../sample"),
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+    )
+
+    update_repo_config(
+        tmp_path,
+        "sample",
+        updates={"worktree_setup": {"command": "scripts/setup-worktree.sh"}},
+        clears=set(),
+    )
+
+    data = read_repo_config(tmp_path, "sample")
+    assert data["worktree_setup"] == {"command": "scripts/setup-worktree.sh"}
+
+
+def test_update_repo_config_rejects_unknown_worktree_setup_field(tmp_path):
+    register_repo(
+        tmp_path,
+        repo_id="sample",
+        path=Path("../sample"),
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+    )
+
+    with pytest.raises(ValueError, match="Unknown worktree_setup fields"):
+        update_repo_config(tmp_path, "sample", updates={"worktree_setup": {"copy": []}}, clears=set())
+
+
+def test_update_repo_config_rejects_unknown_pull_request_field(tmp_path):
+    register_repo(
+        tmp_path,
+        repo_id="sample",
+        path=Path("../sample"),
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+    )
+
+    with pytest.raises(ValueError, match="Unknown pull_request fields"):
+        update_repo_config(tmp_path, "sample", updates={"pull_request": {"base": "main"}}, clears=set())
+
+
 def test_update_repo_config_rejects_empty_required_field(tmp_path):
     register_repo(
         tmp_path,
@@ -83,3 +169,35 @@ def test_update_repo_config_rejects_empty_required_field(tmp_path):
 
     with pytest.raises(ValueError, match="default_branch"):
         update_repo_config(tmp_path, "sample", updates={"default_branch": ""}, clears=set())
+
+
+def test_pull_request_provider_accepts_none(tmp_path):
+    register_repo(
+        tmp_path,
+        repo_id="sample",
+        path=Path("../sample"),
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+    )
+
+    update_repo_config(tmp_path, "sample", updates={"pull_request": {"provider": "none"}}, clears=set())
+
+    config = read_repo_config(tmp_path, "sample")
+    assert config["pull_request"]["provider"] == "none"
+
+
+def test_pull_request_provider_rejects_unknown_values(tmp_path):
+    register_repo(
+        tmp_path,
+        repo_id="sample",
+        path=Path("../sample"),
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+    )
+
+    with pytest.raises(ValueError, match="provider"):
+        update_repo_config(tmp_path, "sample", updates={"pull_request": {"provider": "gitlab"}}, clears=set())

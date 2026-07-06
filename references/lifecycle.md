@@ -15,8 +15,13 @@ todo -> execution -> archive
 Detailed progress is stored as issue metadata:
 
 ```text
-setup -> investigate -> propose -> implement -> test -> cleanup
+setup -> investigate -> propose -> implement -> review -> prepare-pr -> publish -> archived
 ```
+
+Each issue runs on a `track`: `standard` requires every phase; `quick` skips investigate/propose
+and starts at implement (promote with `go-ship-it set-track <repo>/<issue-id> standard`).
+Both tracks cross the same close-out gates: prepare-pr (local, reversible), publish
+(human-approved; blocked while verify-run has findings), archive (terminal; requires --confirm).
 
 ## Readiness Checks
 
@@ -46,3 +51,7 @@ Cleanup only changes state in two ways:
 execution -> todo
 execution -> archive
 ```
+
+`execution -> todo` returns unfinished work (`manage-issues`). `execution -> archive` is terminal and
+requires `--confirm`; it is normally reached only after the run has crossed the close-out gates
+(prepare-pr, publish) for its track — see `go-ship-it verify-run <repo>/<issue-id> --strict`.

@@ -165,6 +165,35 @@ def _check_repos(root: Path, *, repo_id: str | None) -> list[DoctorFinding]:
                     "No setup, test, or lint command is configured",
                 )
             )
+
+        worktree_setup = config.get("worktree_setup")
+        if worktree_setup is not None:
+            if not isinstance(worktree_setup, dict):
+                findings.append(
+                    DoctorFinding("error", "repo.worktree_setup_invalid", subject, "worktree_setup must be a mapping")
+                )
+            else:
+                command = worktree_setup.get("command")
+                if command is None:
+                    pass
+                elif isinstance(command, str) and command.strip():
+                    findings.append(
+                        DoctorFinding(
+                            "ok",
+                            "repo.worktree_setup_command_configured",
+                            subject,
+                            "worktree_setup.command is configured",
+                        )
+                    )
+                else:
+                    findings.append(
+                        DoctorFinding(
+                            "error",
+                            "repo.worktree_setup_command_invalid",
+                            subject,
+                            "worktree_setup.command must be a non-empty string or null",
+                        )
+                    )
     return findings
 
 

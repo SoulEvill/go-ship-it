@@ -4,7 +4,13 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from go_ship_it.state import show_issue, show_run
+from go_ship_it.state import (
+    TRACK_REQUIRED_NOTE_SECTIONS,
+    pull_request_config,
+    read_repo_config,
+    show_issue,
+    show_run,
+)
 
 
 @dataclass(frozen=True)
@@ -50,13 +56,18 @@ def verify_run(root: Path, issue_id: str) -> VerificationReport:
         findings.append(_error("run.missing", "run/file", str(exc)))
         return _report(findings)
 
+    track = str(run.run.get("track") or "standard")
+    if track not in TRACK_REQUIRED_NOTE_SECTIONS:
+        findings.append(_error("run.track_invalid", "run/track", f"Unknown track: {track}"))
+        track = "standard"
     _check_run_metadata(findings, run.run)
-    _check_notes(findings, run.notes)
+    _check_notes(findings, run.notes, track)
     _check_commands(findings, run.commands)
     if issue is not None:
         _check_acceptance_criteria(findings, issue.body, run.notes, run.commands)
         _check_active_handoff(findings, root, run.run_file, issue.summary.status)
         _check_cleanup_and_exports(findings, root, issue_id, issue.summary.status, issue.metadata, run.run)
+        _check_publish(findings, root, issue.summary.repo, issue.summary.status, run.run)
     return _report(findings)
 
 
@@ -68,9 +79,8 @@ def _check_run_metadata(findings: list[VerificationFinding], run: dict[str, obje
             findings.append(_error(f"run.{field}_missing", f"run/{field}", f"{field} is missing"))
 
 
-def _check_notes(findings: list[VerificationFinding], notes: str) -> None:
-    required_sections = ("Investigation", "Proposal", "Implementation", "Review")
-    for section in required_sections:
+def _check_notes(findings: list[VerificationFinding], notes: str, track: str) -> None:
+    for section in TRACK_REQUIRED_NOTE_SECTIONS[track]:
         if f"## {section}" in notes:
             findings.append(_ok(f"notes.{section.lower()}", f"notes/{section}", f"{section} note exists"))
         else:
@@ -88,9 +98,15 @@ def _check_commands(findings: list[VerificationFinding], commands: list[dict[str
         findings.append(_ok("commands.test_present", "commands/test", "Test check was recorded"))
     else:
         findings.append(_warning("commands.test_missing", "commands/test", "No test check record found"))
-    for command in commands:
+    # Judge each check on its MOST RECENT record only; a check that failed earlier but
+    # was re-run green must not keep emitting command.failed (earlier records remain in
+    # the audit trail without blocking). Records are grouped by check, latest by started_at.
+    latest_by_check: dict[str, dict[str, object]] = {}
+    for command in sorted(commands, key=lambda item: str(item.get("started_at") or "")):
+        latest_by_check[str(command.get("check"))] = command
+    for check in sorted(latest_by_check):
+        command = latest_by_check[check]
         exit_code = command.get("exit_code")
-        check = str(command.get("check"))
         if exit_code == 0:
             findings.append(_ok(f"command.{check}_passed", f"commands/{check}", f"{check} command exited 0"))
         else:
@@ -183,18 +199,7 @@ def _check_cleanup_and_exports(
     latest_export = exports[-1] if isinstance(exports, list) and exports and isinstance(exports[-1], dict) else None
     closed_at = run.get("closed_at")
     if latest_export is None:
-        legacy_exports = _legacy_export_paths(root, issue_id)
-        if legacy_exports:
-            paths = ", ".join(path.relative_to(root).as_posix() for path in legacy_exports)
-            findings.append(
-                _warning(
-                    "run.export_stale",
-                    "export/latest",
-                    f"Legacy export lacks cleanup metadata; re-run export-run after cleanup: {paths}",
-                )
-            )
-        else:
-            findings.append(_warning("run.export_missing", "export/latest", "No export metadata found"))
+        findings.append(_warning("run.export_missing", "export/latest", "No export metadata found"))
     elif _export_is_stale(latest_export, closed_at):
         findings.append(_warning("run.export_stale", "export/latest", "Latest export was written before cleanup"))
     else:
@@ -210,27 +215,37 @@ def _check_cleanup_and_exports(
         )
 
 
+def _check_publish(
+    findings: list[VerificationFinding],
+    root: Path,
+    repo_id: str,
+    issue_status: str,
+    run: dict[str, object],
+) -> None:
+    if issue_status != "archive":
+        return
+    try:
+        provider = str(pull_request_config(read_repo_config(root, repo_id)).get("provider"))
+    except (OSError, ValueError) as exc:
+        findings.append(_warning("publish.config_unreadable", "publish", f"Repo PR config unreadable: {exc}"))
+        return
+    if provider == "none":
+        findings.append(
+            _ok("publish.not_required", "publish", "Repo has no publish target; local pr.md sign-off is the gate")
+        )
+        return
+    record = run.get("pull_request")
+    if isinstance(record, dict) and isinstance(record.get("published_url"), str) and record["published_url"].strip():
+        findings.append(_ok("publish.recorded", "publish", f"Published: {record['published_url']}"))
+    else:
+        findings.append(_warning("publish.missing", "publish", "Archived without a published PR"))
+
+
 def _export_is_stale(export: dict[object, object], closed_at: object) -> bool:
-    if export.get("issue_status") != "archive" or export.get("run_phase") != "cleanup":
+    if export.get("issue_status") != "archive" or export.get("run_phase") != "archived":
         return True
     exported_at = export.get("exported_at")
     return isinstance(closed_at, str) and isinstance(exported_at, str) and exported_at < closed_at
-
-
-def _legacy_export_paths(root: Path, issue_id: str) -> list[Path]:
-    dogfood_dir = root / "docs" / "dogfood"
-    if not dogfood_dir.is_dir():
-        return []
-    header = f"# GoShipit Run Evidence: {issue_id}"
-    matches: list[Path] = []
-    for path in sorted(dogfood_dir.glob("*.md")):
-        try:
-            text = path.read_text()
-        except OSError:
-            continue
-        if header in text:
-            matches.append(path)
-    return matches
 
 
 def _report(findings: list[VerificationFinding]) -> VerificationReport:

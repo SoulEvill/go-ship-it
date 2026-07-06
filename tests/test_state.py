@@ -6,6 +6,7 @@ import pytest
 
 from go_ship_it.frontmatter import parse_frontmatter
 from go_ship_it.state import (
+    CheckFailedError,
     GoShipitError,
     add_issue,
     cleanup_issue,
@@ -16,6 +17,7 @@ from go_ship_it.state import (
     register_repo,
     render_handoff,
     resolve_current_run,
+    set_track,
     start_issue,
     write_handoff,
 )
@@ -48,12 +50,20 @@ def test_register_repo_writes_simple_registry_file(tmp_path):
     assert repo_file.read_text() == (
         "id: sample\n"
         f"path: {target}\n"
+        f"source: {target}\n"
+        "source_type: local\n"
         "default_branch: main\n"
         "worktree_root: worktrees/sample\n"
         "context_file: state/repos/sample/context.md\n"
         "setup_command: uv sync\n"
         "test_command: uv run pytest\n"
         "lint_command: null\n"
+        "worktree_setup:\n"
+        "  command: null\n"
+        "pull_request:\n"
+        "  provider: github\n"
+        "  remote: origin\n"
+        "  auto_publish: false\n"
     )
     context_file = tmp_path / "state" / "repos" / "sample" / "context.md"
     assert context_file.exists()
@@ -64,6 +74,53 @@ def test_register_repo_writes_simple_registry_file(tmp_path):
     assert not (tmp_path / "state" / "repos" / "sample" / "runs").exists()
 
 
+def test_register_repo_clones_git_url_into_repo_worktree_source(tmp_path):
+    source = _create_git_repo(tmp_path / "source")
+    remote = tmp_path / "remote.git"
+    subprocess.run(["git", "clone", "--bare", str(source), str(remote)], check=True, capture_output=True, text=True)
+    control = tmp_path / "control"
+
+    repo_file = register_repo(
+        control,
+        repo_id="sample",
+        path=remote.as_uri(),
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+    )
+
+    data = yaml.safe_load(repo_file.read_text())
+    assert data["path"] == "worktrees/sample/_source"
+    assert data["source"] == remote.as_uri()
+    assert data["source_type"] == "git_url"
+    assert (control / "worktrees" / "sample" / "_source" / "README.md").exists()
+    assert _git_output(control / "worktrees" / "sample" / "_source", "config", "--get", "remote.origin.url").strip() == remote.as_uri()
+
+
+def test_start_issue_uses_managed_source_clone_for_git_url_repo(tmp_path):
+    source = _create_git_repo(tmp_path / "source")
+    remote = tmp_path / "remote.git"
+    subprocess.run(["git", "clone", "--bare", str(source), str(remote)], check=True, capture_output=True, text=True)
+    control = tmp_path / "control"
+    register_repo(
+        control,
+        repo_id="sample",
+        path=remote.as_uri(),
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+    )
+    _add_sample_issue(control)
+
+    run = start_issue(control, "sample/issue-001", claimed_by="test-thread")
+
+    assert run.worktree == control / "worktrees" / "sample" / "issue-001"
+    assert (run.worktree / "README.md").exists()
+    assert (control / "worktrees" / "sample" / "_source").exists()
+
+
 def test_register_feedback_repo_writes_product_context(tmp_path):
     target = tmp_path / "go-ship-it"
     target.mkdir()
@@ -71,7 +128,10 @@ def test_register_feedback_repo_writes_product_context(tmp_path):
     repo_file = register_feedback_repo(
         tmp_path,
         path=target,
+        default_branch="main",
+        setup_command=None,
         test_command="uv run pytest -q",
+        lint_command=None,
     )
 
     assert repo_file == tmp_path / "state" / "repos" / "go-ship-it" / "repo.yaml"
@@ -170,6 +230,22 @@ def test_next_issue_id_counts_preserved_managed_worktrees(tmp_path):
         lint_command=None,
     )
     (tmp_path / "worktrees" / "sample" / "issue-001").mkdir(parents=True)
+
+    assert next_issue_id(tmp_path, "sample") == "issue-002"
+
+
+def test_next_issue_id_counts_leftover_managed_branches(tmp_path):
+    target = _create_git_repo(tmp_path / "target")
+    _run_git(target, "branch", "go-ship-it/issue-001")
+    register_repo(
+        tmp_path,
+        repo_id="sample",
+        path=target,
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+    )
 
     assert next_issue_id(tmp_path, "sample") == "issue-002"
 
@@ -289,6 +365,84 @@ def test_start_issue_claims_issue_and_creates_worktree(tmp_path):
     assert context["claimed_by"] == "test-thread"
     assert context["claim_id"] == run.claim_id
     assert ".go-ship-it/" in _git_output(run.worktree, "status", "--ignored", "--short")
+
+
+def test_start_issue_reports_managed_branch_collision_without_raw_git_error(tmp_path):
+    target = _create_git_repo(tmp_path / "target")
+    register_repo(
+        tmp_path,
+        repo_id="sample",
+        path=target,
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+    )
+    _add_sample_issue(tmp_path)
+    _run_git(target, "branch", "go-ship-it/issue-001")
+
+    with pytest.raises(GoShipitError, match="managed branch already exists"):
+        start_issue(tmp_path, "sample/issue-001", claimed_by="test-thread")
+
+    assert (tmp_path / "state" / "repos" / "sample" / "issues" / "todo" / "issue-001" / "issue.md").exists()
+    assert not (tmp_path / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001").exists()
+    assert not (tmp_path / "worktrees" / "sample" / "issue-001").exists()
+
+
+def test_start_issue_runs_worktree_setup_command(tmp_path):
+    target = _create_git_repo(tmp_path / "target")
+    register_repo(
+        tmp_path,
+        repo_id="sample",
+        path=target,
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+        worktree_setup_command='python -c \'from pathlib import Path; Path("local.env").write_text("ok")\'',
+    )
+    _add_sample_issue(tmp_path)
+
+    run = start_issue(tmp_path, "sample/issue-001", claimed_by="test-thread")
+
+    assert (run.worktree / "local.env").read_text() == "ok"
+    run_data = yaml.safe_load(run.run_file.read_text())
+    assert run_data["phase"] == "investigate"
+    command_records = sorted((run.run_file.parent / "logs" / "commands").glob("*-worktree-setup.yaml"))
+    assert len(command_records) == 1
+    record = yaml.safe_load(command_records[0].read_text())
+    assert record["check"] == "worktree_setup"
+    assert record["exit_code"] == 0
+    notes = (run.run_file.parent / "notes.md").read_text()
+    assert "## Worktree Setup" in notes
+
+
+def test_start_issue_preserves_active_run_when_worktree_setup_fails(tmp_path):
+    target = _create_git_repo(tmp_path / "target")
+    register_repo(
+        tmp_path,
+        repo_id="sample",
+        path=target,
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+        worktree_setup_command='python -c \'import sys; print("setup failed"); sys.exit(7)\'',
+    )
+    _add_sample_issue(tmp_path)
+
+    with pytest.raises(CheckFailedError) as exc:
+        start_issue(tmp_path, "sample/issue-001", claimed_by="test-thread")
+
+    assert exc.value.check == "worktree_setup"
+    execution_dir = tmp_path / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001"
+    assert (execution_dir / "issue.md").exists()
+    assert (tmp_path / "worktrees" / "sample" / "issue-001").exists()
+    run_data = yaml.safe_load((execution_dir / "run.yaml").read_text())
+    assert run_data["phase"] == "setup"
+    command_records = sorted((execution_dir / "logs" / "commands").glob("*-worktree-setup.yaml"))
+    assert len(command_records) == 1
+    assert yaml.safe_load(command_records[0].read_text())["exit_code"] == 7
 
 
 def test_resolve_current_run_uses_worktree_context_and_run_claim(tmp_path):
@@ -433,6 +587,64 @@ def test_start_issue_leaves_todo_unmoved_when_target_repo_is_missing(tmp_path):
     assert not (tmp_path / "worktrees" / "sample" / "issue-001").exists()
 
 
+def _root_with_todo_issue(tmp_path: Path) -> Path:
+    target = _create_git_repo(tmp_path / "target")
+    register_repo(
+        tmp_path,
+        repo_id="sample",
+        path=target,
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+    )
+    _add_sample_issue(tmp_path)
+    return tmp_path
+
+
+def test_start_issue_records_standard_track_by_default(tmp_path):
+    root = _root_with_todo_issue(tmp_path)
+    run = start_issue(root, "sample/issue-001", claimed_by="t")
+    run_data = yaml.safe_load(run.run_file.read_text())
+    assert run_data["track"] == "standard"
+    assert run_data["phase"] == "investigate"
+
+
+def test_start_issue_quick_track_starts_at_implement_with_tdd_loop(tmp_path):
+    root = _root_with_todo_issue(tmp_path)
+    run = start_issue(root, "sample/issue-001", claimed_by="t", track="quick")
+    run_data = yaml.safe_load(run.run_file.read_text())
+    assert run_data["track"] == "quick"
+    assert run_data["phase"] == "implement"
+    assert run_data["inner_loop"] == "tdd"
+    metadata, _body = parse_frontmatter(run.issue_file.read_text())
+    assert metadata["track"] == "quick"
+    assert metadata["inner_loop"] == "tdd"
+
+
+def test_start_issue_rejects_unknown_track(tmp_path):
+    root = _root_with_todo_issue(tmp_path)
+    with pytest.raises(ValueError, match="track must be one of"):
+        start_issue(root, "sample/issue-001", claimed_by="t", track="heavy")
+
+
+def test_set_track_promotes_quick_to_standard(tmp_path):
+    root = _root_with_todo_issue(tmp_path)
+    run = start_issue(root, "sample/issue-001", claimed_by="t", track="quick")
+    set_track(root, "sample/issue-001", "standard", note="Grew beyond a quick fix.")
+    run_data = yaml.safe_load(run.run_file.read_text())
+    assert run_data["track"] == "standard"
+    metadata, _body = parse_frontmatter(run.issue_file.read_text())
+    assert metadata["track"] == "standard"
+
+
+def test_set_track_refuses_demotion(tmp_path):
+    root = _root_with_todo_issue(tmp_path)
+    start_issue(root, "sample/issue-001", claimed_by="t")
+    with pytest.raises(GoShipitError, match="only promotes"):
+        set_track(root, "sample/issue-001", "quick", note="Nope.")
+
+
 def _started_issue_root(tmp_path: Path) -> Path:
     target = _create_git_repo(tmp_path / "target")
     register_repo(
@@ -492,7 +704,14 @@ def test_cleanup_archive_moves_issue_to_archive_and_preserves_worktree(tmp_path)
     root = _started_issue_root(tmp_path)
     active_worktree = root / "worktrees" / "sample" / "issue-001"
 
-    result = cleanup_issue(root, "sample/issue-001", destination="archive", note="Closed after review.", remove_worktree=False)
+    result = cleanup_issue(
+        root,
+        "sample/issue-001",
+        destination="archive",
+        note="Closed after review.",
+        remove_worktree=False,
+        confirm_archive=True,
+    )
 
     assert result == root / "state" / "repos" / "sample" / "issues" / "archive" / "issue-001" / "issue.md"
     assert result.exists()
@@ -500,7 +719,7 @@ def test_cleanup_archive_moves_issue_to_archive_and_preserves_worktree(tmp_path)
     assert not (root / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001").exists()
     metadata, body = parse_frontmatter(result.read_text())
     assert "status" not in metadata
-    assert metadata["phase"] == "cleanup"
+    assert metadata["phase"] == "archived"
     assert "Closed after review." in body
     assert not (root / "state" / "repos" / "sample" / "issues" / "archive" / "issue-001" / "claim.lock").exists()
 
@@ -509,8 +728,59 @@ def test_cleanup_archive_can_remove_managed_worktree(tmp_path):
     root = _started_issue_root(tmp_path)
     active_worktree = root / "worktrees" / "sample" / "issue-001"
 
-    cleanup_issue(root, "sample/issue-001", destination="archive", note="Closed after review.", remove_worktree=True)
+    cleanup_issue(
+        root,
+        "sample/issue-001",
+        destination="archive",
+        note="Closed after review.",
+        remove_worktree=True,
+        confirm_archive=True,
+    )
 
+    assert not active_worktree.exists()
+
+
+def test_cleanup_archive_refuses_to_remove_dirty_managed_worktree(tmp_path):
+    root = _started_issue_root(tmp_path)
+    active_worktree = root / "worktrees" / "sample" / "issue-001"
+    (active_worktree / "README.md").write_text("# Sample\nChanged locally.\n")
+    (active_worktree / "scratch.txt").write_text("untracked local work\n")
+
+    with pytest.raises(GoShipitError, match="managed worktree has uncommitted changes"):
+        cleanup_issue(
+            root,
+            "sample/issue-001",
+            destination="archive",
+            note="Closed after review.",
+            remove_worktree=True,
+            confirm_archive=True,
+        )
+
+    assert active_worktree.exists()
+    assert (active_worktree / "README.md").read_text() == "# Sample\nChanged locally.\n"
+    assert (active_worktree / "scratch.txt").read_text() == "untracked local work\n"
+    assert (root / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001" / "issue.md").exists()
+    assert not (root / "state" / "repos" / "sample" / "issues" / "archive" / "issue-001").exists()
+
+
+def test_cleanup_archive_can_discard_dirty_managed_worktree_when_explicit(tmp_path):
+    root = _started_issue_root(tmp_path)
+    active_worktree = root / "worktrees" / "sample" / "issue-001"
+    (active_worktree / "README.md").write_text("# Sample\nDiscard me.\n")
+    (active_worktree / "scratch.txt").write_text("untracked local work\n")
+
+    result = cleanup_issue(
+        root,
+        "sample/issue-001",
+        destination="archive",
+        note="Closed after intentionally discarding local work.",
+        remove_worktree=True,
+        discard_worktree_changes=True,
+        confirm_archive=True,
+    )
+
+    assert result == root / "state" / "repos" / "sample" / "issues" / "archive" / "issue-001" / "issue.md"
+    assert result.exists()
     assert not active_worktree.exists()
 
 
@@ -538,3 +808,35 @@ def test_write_handoff_defaults_to_run_directory(tmp_path):
 
     assert path == root / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001" / "handoff.md"
     assert "# GoShipit Handoff: sample/issue-001" in path.read_text()
+
+
+def test_archive_without_confirm_is_refused_as_terminal(tmp_path):
+    root = _started_issue_root(tmp_path)
+    with pytest.raises(GoShipitError, match="terminal"):
+        cleanup_issue(root, "sample/issue-001", destination="archive", note="Done.", remove_worktree=False)
+
+
+def test_archive_with_confirm_succeeds_and_sets_archived_phase(tmp_path):
+    root = _started_issue_root(tmp_path)
+    issue_file = cleanup_issue(
+        root,
+        "sample/issue-001",
+        destination="archive",
+        note="Done.",
+        remove_worktree=False,
+        confirm_archive=True,
+    )
+    metadata, _body = parse_frontmatter(issue_file.read_text())
+    assert metadata["phase"] == "archived"
+
+
+def test_return_to_todo_needs_no_confirm(tmp_path):
+    root = _started_issue_root(tmp_path)
+    issue_file = cleanup_issue(
+        root,
+        "sample/issue-001",
+        destination="todo",
+        note="Later.",
+        remove_worktree=True,
+    )
+    assert issue_file.exists()

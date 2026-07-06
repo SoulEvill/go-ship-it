@@ -9,26 +9,32 @@ from pathlib import Path
 
 import yaml
 
+from go_ship_it import __version__
 from go_ship_it.doctor import run_doctor
 from go_ship_it.package_assets import package_root
 from go_ship_it.portable import portable_path_value, portable_text, relative_to_root
+from go_ship_it.pull_request import prepare_pull_request, publish_pull_request
 from go_ship_it.state import (
     CheckFailedError,
     GoShipitError,
+    INNER_LOOPS,
     add_issue,
     append_note,
     cleanup_issue,
     ensure_layout,
     export_run,
     list_issues,
+    pull_request_config,
     read_repo_config,
     register_feedback_repo,
     register_repo,
+    repo_config_files,
     render_handoff,
     resolve_current_run,
     run_check,
     run_timeline,
     set_phase,
+    set_track,
     show_issue,
     show_run,
     start_issue,
@@ -45,51 +51,50 @@ def build_parser() -> argparse.ArgumentParser:
         description="GoShipit local issue lifecycle manager.",
         epilog=(
             "Normal path:\n"
-            "  init --repo-id <id> --repo-path <path> [--test-command <cmd>]\n"
+            "  init\n"
+            "  register-repo <id> <path-or-git-url> [--test-command <cmd>]\n"
             "  add-issue --repo <id> --title <title> --problem <problem>\n"
             "  start-issue <repo>/<issue-id>\n"
             "  status\n"
             "  run-check <repo>/<issue-id> --check test    # or run-check --current --check test from the worktree\n"
-            "  cleanup-issue <repo>/<issue-id> --destination archive --note <note> --remove-worktree\n\n"
+            "  verify-run <repo>/<issue-id> --strict\n"
+            "  prepare-pr <repo>/<issue-id> --branch <pr-branch>\n"
+            "  publish-pr <repo>/<issue-id> --approved     # provider: none repos skip publish and archive after local pr.md sign-off\n"
+            "  cleanup-issue <repo>/<issue-id> --destination archive --confirm --note <note> --remove-worktree\n\n"
             "Advanced/support:\n"
-            "  show-issue, show-run, handoff, append-note, set-phase,\n"
-            "  export-run, verify-run, doctor, package-root, update-repo\n"
+            "  show-issue, show-run, handoff, append-note, set-phase, set-track,\n"
+            "  export-run, doctor, package-root, update-repo\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--root", default=".", help="GoShipit repo root. Defaults to current directory.")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     init = subparsers.add_parser(
         "init",
-        help="Create state folders, optionally registering the first target repo.",
-        description="Create the local GoShipit state folders. Optionally register the first target repo.",
-    )
-    init.add_argument("--repo-id", default=None, help="Optional target repo id to register during init.")
-    init.add_argument("--repo-path", default=None, help="Optional target repo path to register during init.")
-    init.add_argument("--default-branch", default="main")
-    init.add_argument("--setup-command", default=None)
-    init.add_argument("--test-command", default=None)
-    init.add_argument("--lint-command", default=None)
-    init.add_argument(
-        "--feedback-repo-path",
-        default=None,
-        help="Optional GoShipit repo path to register as the go-ship-it product feedback target.",
-    )
-    init.add_argument(
-        "--feedback-test-command",
-        default=None,
-        help="Optional test command for the go-ship-it feedback repo.",
+        help="Create GoShipit control-root state folders.",
+        description="Create the local GoShipit control-root state folders.",
     )
     subparsers.add_parser("package-root", help="Print the bundled GoShipit agent package root.")
 
-    register = subparsers.add_parser("register-repo", help="Register a target repository.")
+    register = subparsers.add_parser("register-repo", help="Register a target repository from a local path or Git URL.")
     register.add_argument("repo_id")
-    register.add_argument("path")
+    register.add_argument("source")
     register.add_argument("--default-branch", default="main")
-    register.add_argument("--setup-command", default=None)
-    register.add_argument("--test-command", default=None)
-    register.add_argument("--lint-command", default=None)
+    register.add_argument("--setup-command", default=None, help="Manual setup check used by run-check --check setup.")
+    register.add_argument("--test-command", default=None, help="Manual test check used by run-check --check test.")
+    register.add_argument("--lint-command", default=None, help="Manual lint check used by run-check --check lint.")
+    register.add_argument(
+        "--worktree-setup-command",
+        default=None,
+        help="Automatic bootstrap command run after each issue worktree is created.",
+    )
+    register.add_argument(
+        "--feedback",
+        action="store_true",
+        help="Register repo id go-ship-it with product feedback context.",
+    )
 
     show_repo = subparsers.add_parser("show-repo", help="Print a registered repo configuration.")
     show_repo.add_argument("repo_id")
@@ -99,12 +104,21 @@ def build_parser() -> argparse.ArgumentParser:
     update_repo.add_argument("--path", default=None)
     update_repo.add_argument("--default-branch", default=None)
     update_repo.add_argument("--worktree-root", default=None)
-    update_repo.add_argument("--setup-command", default=None)
-    update_repo.add_argument("--test-command", default=None)
-    update_repo.add_argument("--lint-command", default=None)
+    update_repo.add_argument("--setup-command", default=None, help="Manual setup check used by run-check --check setup.")
+    update_repo.add_argument("--test-command", default=None, help="Manual test check used by run-check --check test.")
+    update_repo.add_argument("--lint-command", default=None, help="Manual lint check used by run-check --check lint.")
+    update_repo.add_argument(
+        "--worktree-setup-command",
+        default=None,
+        help="Automatic bootstrap command run after each issue worktree is created.",
+    )
+    update_repo.add_argument("--pr-provider", default=None)
+    update_repo.add_argument("--pr-remote", default=None)
+    update_repo.add_argument("--pr-auto-publish", action=argparse.BooleanOptionalAction, default=None)
     update_repo.add_argument("--clear-setup-command", action="store_true")
     update_repo.add_argument("--clear-test-command", action="store_true")
     update_repo.add_argument("--clear-lint-command", action="store_true")
+    update_repo.add_argument("--clear-worktree-setup-command", action="store_true")
 
     issue = subparsers.add_parser("add-issue", help="Create a todo issue.")
     issue.add_argument("--repo", required=True)
@@ -116,6 +130,8 @@ def build_parser() -> argparse.ArgumentParser:
     start = subparsers.add_parser("start-issue", help="Claim a todo issue and create its worktree.")
     start.add_argument("issue_id")
     start.add_argument("--claimed-by", default=None)
+    start.add_argument("--track", choices=["standard", "quick"], default=None)
+    start.add_argument("--quick", action="store_true", help="Shorthand for --track quick.")
 
     cleanup = subparsers.add_parser("cleanup-issue", help="Return an execution issue to todo or archive it.")
     cleanup.add_argument("issue_id", nargs="?")
@@ -127,21 +143,58 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Remove the managed worktree. Required when returning to todo.",
     )
+    cleanup.add_argument(
+        "--discard-worktree-changes",
+        action="store_true",
+        help="Allow --remove-worktree to delete uncommitted changes in the managed worktree.",
+    )
+    cleanup.add_argument(
+        "--confirm",
+        action="store_true",
+        help="Acknowledge that archiving is terminal (required with --destination archive).",
+    )
 
     note = subparsers.add_parser("append-note", help="Append an authored note for an active issue.")
     note.add_argument("issue_id", nargs="?")
     note.add_argument("--current", action="store_true", help="Use the managed worktree's current run context.")
     note.add_argument("--section", required=True)
     note.add_argument("--note", required=True)
-    note.add_argument("--phase", default=None)
+    note.add_argument(
+        "--for-phase",
+        dest="for_phase",
+        default=None,
+        help="Label the note with a phase without changing the current phase.",
+    )
 
-    phase = subparsers.add_parser("set-phase", help="Set the current workflow phase for an active issue.")
+    phase = subparsers.add_parser(
+        "set-phase",
+        help="Set the current build phase for an active issue (build phases only).",
+    )
     phase.add_argument("issue_id", nargs="?")
-    phase.add_argument("phase", nargs="?")
+    phase.add_argument(
+        "phase",
+        nargs="?",
+        help=(
+            "Build phase: setup, investigate, propose, implement, or review. "
+            "Close-out phases (prepare-pr/publish/archived) are set by their owning "
+            "commands (prepare-pr, publish-pr, cleanup-issue), not set-phase."
+        ),
+    )
     phase.add_argument("--current", action="store_true", help="Use the managed worktree's current run context.")
     phase.add_argument("--note", required=True)
+    phase.add_argument("--inner-loop", dest="inner_loop", choices=list(INNER_LOOPS), default=None,
+                       help="Record the implement inner loop (default tdd; 'none' requires --inner-loop-reason).")
+    phase.add_argument("--inner-loop-reason", dest="inner_loop_reason", default=None)
+    phase.add_argument("--review-pipeline", dest="review_pipeline", default=None,
+                       help="Record the review pipeline: self, clean-room, or plugin:<name>.")
 
-    check = subparsers.add_parser("run-check", help="Run a registered repo check and record evidence.")
+    track_cmd = subparsers.add_parser("set-track", help="Promote an issue's track (quick -> standard).")
+    track_cmd.add_argument("issue_id", nargs="?")
+    track_cmd.add_argument("track", nargs="?")
+    track_cmd.add_argument("--current", action="store_true", help="Use the managed worktree's current run context.")
+    track_cmd.add_argument("--note", required=True)
+
+    check = subparsers.add_parser("run-check", help="Run a manual registered repo check and record evidence.")
     check.add_argument("issue_id", nargs="?")
     check.add_argument("--current", action="store_true", help="Use the managed worktree's current run context.")
     check.add_argument("--check", choices=["setup", "test", "lint"], required=True)
@@ -188,7 +241,25 @@ def build_parser() -> argparse.ArgumentParser:
     export = subparsers.add_parser("export-run", help="Export run evidence to Markdown.")
     export.add_argument("issue_id", nargs="?")
     export.add_argument("--current", action="store_true", help="Use the managed worktree's current run context.")
-    export.add_argument("--output", required=True)
+    export.add_argument("--output", default=None, help="Defaults to evidence.md inside the issue folder.")
+
+    prepare_pr = subparsers.add_parser("prepare-pr", help="Write a local PR preview markdown file.")
+    prepare_pr.add_argument("issue_id", nargs="?")
+    prepare_pr.add_argument("--current", action="store_true", help="Use the managed worktree's current run context.")
+    prepare_pr.add_argument("--branch", default=None, help="PR branch name to publish later.")
+    prepare_pr.add_argument("--title", default=None, help="PR title. Defaults to the issue title.")
+    prepare_pr.add_argument("--output", default=None, help="Defaults to pr.md inside the issue folder.")
+
+    publish_pr = subparsers.add_parser("publish-pr", help="Push the PR branch and create a GitHub PR.")
+    publish_pr.add_argument("issue_id", nargs="?")
+    publish_pr.add_argument("--current", action="store_true", help="Use the managed worktree's current run context.")
+    publish_pr.add_argument("--branch", default=None, help="Override the PR branch name before publishing.")
+    publish_pr.add_argument("--title", default=None, help="Override the PR title before publishing.")
+    publish_pr.add_argument(
+        "--approved",
+        action="store_true",
+        help="Confirm the user approved publishing when repo auto-publish is disabled.",
+    )
     return parser
 
 
@@ -202,6 +273,23 @@ def _repo_updates(args: argparse.Namespace) -> tuple[dict[str, object], set[str]
         "lint_command": args.lint_command,
     }
     updates = {key: value for key, value in pairs.items() if value is not None}
+    pr_updates = {
+        key: value
+        for key, value in {
+            "provider": args.pr_provider,
+            "remote": args.pr_remote,
+            "auto_publish": args.pr_auto_publish,
+        }.items()
+        if value is not None
+    }
+    if pr_updates:
+        updates["pull_request"] = pr_updates
+    if args.worktree_setup_command is not None and args.clear_worktree_setup_command:
+        raise ValueError("Cannot set and clear --worktree-setup-command")
+    if args.worktree_setup_command is not None:
+        updates["worktree_setup"] = {"command": args.worktree_setup_command}
+    elif args.clear_worktree_setup_command:
+        updates["worktree_setup"] = {"command": None}
     clears = {
         field
         for field, flag in {
@@ -239,14 +327,14 @@ def _resolve_issue_target(root: Path, args: argparse.Namespace) -> tuple[Path, s
     return root, issue_ref
 
 
-def _resolve_phase_target(root: Path, args: argparse.Namespace) -> tuple[Path, str, str]:
+def _resolve_positional_target(root: Path, args: argparse.Namespace, attr: str) -> tuple[Path, str, str]:
     issue_id = args.issue_id
-    phase = args.phase
+    phase = getattr(args, attr)
     if phase is None and issue_id is not None and (args.current or _can_resolve_current_run()):
         phase = issue_id
         issue_id = None
     if phase is None:
-        raise ValueError("phase is required")
+        raise ValueError(f"{attr} is required")
 
     target_args = argparse.Namespace(issue_id=issue_id, current=args.current)
     resolved_root, resolved_issue = _resolve_issue_target(root, target_args)
@@ -405,6 +493,7 @@ def _format_status(status: object, root: Path, *, current: object | None = None)
             f"Managed Worktrees: {len(status.worktrees)}",
         ]
     )
+    lines.extend(_format_repo_status(root))
     lines.extend(_status_next_steps(status))
     lines.extend(_format_todo_status(root))
     lines.extend(["", "## Active Issues"])
@@ -443,6 +532,33 @@ def _format_status(status: object, root: Path, *, current: object | None = None)
     return "\n".join(lines)
 
 
+def _format_repo_status(root: Path) -> list[str]:
+    lines = ["", "## Registered Repos"]
+    repo_files = repo_config_files(root)
+    if not repo_files:
+        lines.append("No registered repos.")
+        return lines
+    for repo_file in repo_files:
+        repo_id = repo_file.parent.name
+        try:
+            config = read_repo_config(root, repo_id)
+        except (OSError, ValueError) as exc:
+            lines.append(f"- {repo_id}: unreadable repo config ({exc})")
+            continue
+        source_type = _display_value(config.get("source_type")) or "local"
+        source = portable_path_value(root, config.get("source") or config.get("path"))
+        path = portable_path_value(root, config.get("path"))
+        default_branch = _display_value(config.get("default_branch")) or "unknown"
+        checks = ", ".join(_configured_checks(root, repo_id)) or "none"
+        lines.append(f"- {repo_id} ({source_type})")
+        lines.append(f"  Source: {source}")
+        if path != source:
+            lines.append(f"  Local Path: {path}")
+        lines.append(f"  Default Branch: {default_branch}")
+        lines.append(f"  Checks: {checks}")
+    return lines
+
+
 def _status_next_steps(status: object) -> list[str]:
     if status.repo_count == 0:
         return [
@@ -451,7 +567,7 @@ def _status_next_steps(status: object) -> list[str]:
             "No target repos are registered yet.",
             "",
             "```sh",
-            "go-ship-it register-repo <repo-id> <path> --test-command \"<cmd>\"",
+            "go-ship-it register-repo <repo-id> <local-path-or-git-url> --test-command \"<cmd>\"",
             "go-ship-it add-issue --repo <repo-id> --title \"<title>\" --problem \"<problem>\"",
             "```",
         ]
@@ -540,9 +656,28 @@ def _status_payload(status: object, root: Path, *, current: object | None = None
             "runs": status.run_count,
             "managed_worktrees": len(status.worktrees),
         },
+        "repos": [_repo_status_payload(root, repo_file.parent.name) for repo_file in repo_config_files(root)],
         "todo": [_issue_summary_payload(item) for item in list_issues(root, state="todo")],
         "active": [_active_issue_payload(root, item) for item in status.active],
         "worktrees": list(status.worktrees),
+    }
+
+
+def _repo_status_payload(root: Path, repo_id: str) -> dict[str, object]:
+    try:
+        config = read_repo_config(root, repo_id)
+    except (OSError, ValueError) as exc:
+        return {"id": repo_id, "error": str(exc)}
+    source = config.get("source") or config.get("path")
+    source_type = config.get("source_type") or "local"
+    return {
+        "id": repo_id,
+        "path": config.get("path"),
+        "source": source,
+        "source_type": source_type,
+        "default_branch": config.get("default_branch"),
+        "checks": _configured_checks(root, repo_id),
+        "pull_request": config.get("pull_request"),
     }
 
 
@@ -648,47 +783,70 @@ def _active_issue_next_commands(root: Path, item: object) -> list[str]:
         f"go-ship-it show-run {ref} --trace",
         f"go-ship-it show-run {ref} --handoff",
     ]
+    track = "standard"
+    try:
+        track = str(show_run(root, ref).run.get("track") or "standard")
+    except (OSError, ValueError):
+        pass
+    provider = "github"
+    try:
+        provider = str(pull_request_config(read_repo_config(root, item.repo)).get("provider"))
+    except (OSError, ValueError):
+        pass
+
     phase = (item.phase or "").strip().casefold()
-    if phase in {"", "setup", "investigate"}:
+    if phase in {"", "setup"}:
+        if track == "quick":
+            commands.append(f"go-ship-it set-phase {ref} implement --note \"<quick-track start>\"")
+        else:
+            commands.append(f"go-ship-it set-phase {ref} investigate --note \"<investigation started>\"")
+    elif phase == "investigate":
         commands.extend(
             [
-                f"go-ship-it append-note {ref} --section \"Investigation\" --phase investigate --note \"<findings>\"",
+                f"go-ship-it append-note {ref} --section \"Investigation\" --for-phase investigate --note \"<findings>\"",
                 f"go-ship-it set-phase {ref} propose --note \"<investigation summary>\"",
             ]
         )
     elif phase == "propose":
         commands.extend(
             [
-                f"go-ship-it append-note {ref} --section \"Proposal\" --phase propose --note \"<proposal>\"",
-                f"go-ship-it set-phase {ref} implement --note \"<proposal accepted>\"",
+                f"go-ship-it append-note {ref} --section \"Proposal\" --for-phase propose --note \"<proposal and acceptance-level failing test>\"",
+                f"go-ship-it set-phase {ref} implement --inner-loop tdd --note \"<proposal accepted>\"",
             ]
         )
     elif phase == "implement":
         commands.extend(
             [
-                f"go-ship-it append-note {ref} --section \"Implementation\" --phase implement --note \"<changed files and decisions>\"",
-                f"go-ship-it set-phase {ref} test --note \"<ready for checks>\"",
+                f"go-ship-it append-note {ref} --section \"Implementation\" --for-phase implement --note \"<changed files and decisions>\"",
+                f"go-ship-it set-phase {ref} review --note \"<ready for review>\"",
             ]
         )
-    elif phase == "test":
-        commands.append(f"go-ship-it append-note {ref} --section \"Review\" --phase test --note \"<readiness review>\"")
+    elif phase == "review":
+        commands.append(
+            f"go-ship-it append-note {ref} --section \"Review\" --for-phase review --note \"<review findings and readiness>\""
+        )
 
-    checks = _configured_checks(root, item.repo)
-    for check in checks:
+    for check in _configured_checks(root, item.repo):
         commands.append(f"go-ship-it run-check {ref} --check {check}")
-    if phase == "test":
+
+    if phase == "review":
         commands.extend(
             [
                 f"go-ship-it handoff {ref} --write",
-                f"go-ship-it export-run {ref} --output docs/dogfood/{item.repo}-{item.issue_id}-evidence.md",
+                f"go-ship-it export-run {ref}",
+                f"go-ship-it prepare-pr {ref} --branch <pr-branch>",
             ]
         )
-    commands.extend(
-        [
-            f"go-ship-it verify-run {ref} --strict",
-            f"go-ship-it cleanup-issue {ref} --destination archive --note \"<note>\" --remove-worktree",
-        ]
-    )
+    if phase == "prepare-pr" and provider != "none":
+        commands.append(f"go-ship-it publish-pr {ref} --approved")
+
+    commands.append(f"go-ship-it verify-run {ref} --strict")
+    if phase == "publish" or (phase == "prepare-pr" and provider == "none"):
+        commands.append(
+            f"go-ship-it cleanup-issue {ref} --destination archive --confirm --note \"<note>\" --remove-worktree"
+        )
+    if track == "quick":
+        commands.append(f"go-ship-it set-track {ref} standard --note \"<why the issue grew>\"")
     return commands
 
 
@@ -712,41 +870,32 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "init":
             ensure_layout(root)
             print(f"Initialized GoShipit state at {root}")
-            has_repo_id = args.repo_id is not None
-            has_repo_path = args.repo_path is not None
-            if has_repo_id != has_repo_path:
-                raise ValueError("--repo-id and --repo-path must be provided together")
-            if args.feedback_test_command is not None and args.feedback_repo_path is None:
-                raise ValueError("--feedback-test-command requires --feedback-repo-path")
-            if has_repo_id and has_repo_path:
-                repo_file = register_repo(
+            return 0
+
+        if args.command == "register-repo":
+            if args.feedback:
+                if args.repo_id != "go-ship-it":
+                    raise ValueError("--feedback requires repo id go-ship-it")
+                feedback_file = register_feedback_repo(
                     root,
-                    repo_id=args.repo_id,
-                    path=Path(args.repo_path),
+                    path=args.source,
                     default_branch=args.default_branch,
                     setup_command=args.setup_command,
                     test_command=args.test_command,
                     lint_command=args.lint_command,
+                    worktree_setup_command=args.worktree_setup_command,
                 )
-                print(f"Registered repo: {repo_file}")
-            if args.feedback_repo_path is not None:
-                feedback_file = register_feedback_repo(
-                    root,
-                    path=Path(args.feedback_repo_path),
-                    test_command=args.feedback_test_command,
-                )
-                print(f"Registered GoShipit feedback repo: {feedback_file}")
-            return 0
-
-        if args.command == "register-repo":
+                print(feedback_file)
+                return 0
             repo_file = register_repo(
                 root,
                 repo_id=args.repo_id,
-                path=Path(args.path),
+                path=args.source,
                 default_branch=args.default_branch,
                 setup_command=args.setup_command,
                 test_command=args.test_command,
                 lint_command=args.lint_command,
+                worktree_setup_command=args.worktree_setup_command,
             )
             print(repo_file)
             return 0
@@ -775,7 +924,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
 
         if args.command == "start-issue":
-            run = start_issue(root, args.issue_id, claimed_by=args.claimed_by)
+            if args.quick and args.track == "standard":
+                raise ValueError("Cannot combine --quick with --track standard")
+            track = "quick" if args.quick else (args.track or "standard")
+            run = start_issue(root, args.issue_id, claimed_by=args.claimed_by, track=track)
             if run.already_active:
                 print("Active run already exists.")
             print(f"Issue: {run.issue_ref}")
@@ -795,19 +947,35 @@ def main(argv: Sequence[str] | None = None) -> int:
                 destination=args.destination,
                 note=args.note,
                 remove_worktree=args.remove_worktree,
+                discard_worktree_changes=args.discard_worktree_changes,
+                confirm_archive=args.confirm,
             )
             print(issue_file)
             return 0
 
         if args.command == "append-note":
             target_root, issue_id = _resolve_issue_target(root, args)
-            notes = append_note(target_root, issue_id, section=args.section, note=args.note, phase=args.phase)
+            notes = append_note(target_root, issue_id, section=args.section, note=args.note, phase=args.for_phase)
             print(notes)
             return 0
 
         if args.command == "set-phase":
-            target_root, issue_id, phase = _resolve_phase_target(root, args)
-            issue_file = set_phase(target_root, issue_id, phase, note=args.note)
+            target_root, issue_id, phase = _resolve_positional_target(root, args, "phase")
+            issue_file = set_phase(
+                target_root,
+                issue_id,
+                phase,
+                note=args.note,
+                inner_loop=args.inner_loop,
+                inner_loop_reason=args.inner_loop_reason,
+                review_pipeline=args.review_pipeline,
+            )
+            print(issue_file)
+            return 0
+
+        if args.command == "set-track":
+            target_root, issue_id, track = _resolve_positional_target(root, args, "track")
+            issue_file = set_track(target_root, issue_id, track, note=args.note)
             print(issue_file)
             return 0
 
@@ -892,9 +1060,34 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         if args.command == "export-run":
             target_root, issue_id = _resolve_issue_target(root, args)
-            output_path = Path(args.output)
+            output_path = Path(args.output) if args.output is not None else None
             output = export_run(target_root, issue_id, output=output_path)
             print(output)
+            return 0
+
+        if args.command == "prepare-pr":
+            target_root, issue_id = _resolve_issue_target(root, args)
+            output_path = Path(args.output) if args.output is not None else None
+            preview = prepare_pull_request(
+                target_root,
+                issue_id,
+                branch=args.branch,
+                title=args.title,
+                output=output_path,
+            )
+            print(preview.path)
+            return 0
+
+        if args.command == "publish-pr":
+            target_root, issue_id = _resolve_issue_target(root, args)
+            published = publish_pull_request(
+                target_root,
+                issue_id,
+                branch=args.branch,
+                title=args.title,
+                approved=args.approved,
+            )
+            print(published.url)
             return 0
     except CheckFailedError as exc:
         print(exc, file=sys.stderr)

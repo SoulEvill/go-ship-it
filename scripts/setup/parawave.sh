@@ -17,10 +17,12 @@ if ! FEEDBACK_REPO_ROOT="$(git -C "$FEEDBACK_REPO_PATH" rev-parse --show-topleve
   exit 1
 fi
 
-exec uv run go-ship-it --root "$ROOT" init \
-  --repo-id parawave \
-  --repo-path "$PARAWAVE_ROOT" \
+uv run go-ship-it --root "$ROOT" init
+
+uv run go-ship-it --root "$ROOT" register-repo parawave "$PARAWAVE_ROOT" \
   --test-command "uv run --extra dev --extra sqlite pytest tests/ -v --tb=short" \
-  --feedback-repo-path "$FEEDBACK_REPO_ROOT" \
-  --feedback-test-command "uv run pytest -q" \
   "$@"
+
+uv run go-ship-it --root "$ROOT" register-repo go-ship-it "$FEEDBACK_REPO_ROOT" \
+  --feedback \
+  --test-command "uv run pytest -q"

@@ -20,9 +20,11 @@ def test_export_run_writes_archived_issue_evidence_snapshot(tmp_path):
     root = _started_issue_root(tmp_path, test_command="python -c 'print(\"ok\")'")
     append_note(root, "sample/issue-001", section="Investigation", note="Read README.", phase="investigate")
     run_check(root, "sample/issue-001", check="test")
-    cleanup_issue(root, "sample/issue-001", destination="archive", note="Done.", remove_worktree=False)
+    cleanup_issue(root, "sample/issue-001", destination="archive", note="Done.", remove_worktree=False, confirm_archive=True)
 
-    output = export_run(root, "sample/issue-001", output=tmp_path / "docs" / "dogfood" / "issue-001-evidence.md")
+    output = export_run(root, "sample/issue-001")
+
+    assert output == root / "state" / "repos" / "sample" / "issues" / "archive" / "issue-001" / "evidence.md"
 
     text = output.read_text()
     assert "# GoShipit Run Evidence: sample/issue-001" in text
@@ -43,7 +45,7 @@ def test_export_run_writes_archived_issue_evidence_snapshot(tmp_path):
 def test_export_run_removes_root_absolute_paths_from_snapshot(tmp_path):
     root = _started_issue_root(tmp_path, test_command="python -c 'print(\"ok\")'")
     run_check(root, "sample/issue-001", check="test")
-    cleanup_issue(root, "sample/issue-001", destination="archive", note="Done.", remove_worktree=False)
+    cleanup_issue(root, "sample/issue-001", destination="archive", note="Done.", remove_worktree=False, confirm_archive=True)
 
     output = export_run(root, "sample/issue-001", output=tmp_path / "issue-001-evidence.md")
 
@@ -51,6 +53,15 @@ def test_export_run_removes_root_absolute_paths_from_snapshot(tmp_path):
     assert str(root) not in text
     assert "- CWD: `worktrees/sample/issue-001`" in text
     assert "Log: `logs/commands/" in text
+
+
+def test_export_run_defaults_to_active_issue_folder(tmp_path):
+    root = _started_issue_root(tmp_path, test_command="python -c 'print(\"ok\")'")
+
+    output = export_run(root, "sample/issue-001")
+
+    assert output == root / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001" / "evidence.md"
+    assert output.exists()
 
 
 def test_export_run_includes_failed_command_exit_code(tmp_path):
@@ -74,7 +85,7 @@ def test_export_run_fails_for_missing_issue_and_run(tmp_path):
 def test_export_run_records_export_metadata(tmp_path):
     root = _started_issue_root(tmp_path, test_command="python -c 'print(\"ok\")'")
     run_check(root, "sample/issue-001", check="test")
-    cleanup_issue(root, "sample/issue-001", destination="archive", note="Done.", remove_worktree=False)
+    cleanup_issue(root, "sample/issue-001", destination="archive", note="Done.", remove_worktree=False, confirm_archive=True)
 
     output = export_run(root, "sample/issue-001", output=tmp_path / "docs" / "dogfood" / "issue-001-evidence.md")
 
@@ -85,7 +96,7 @@ def test_export_run_records_export_metadata(tmp_path):
     export = run["exports"][0]
     assert export["path"] == output.relative_to(root).as_posix()
     assert export["issue_status"] == "archive"
-    assert export["run_phase"] == "cleanup"
+    assert export["run_phase"] == "archived"
     assert isinstance(export["exported_at"], str)
 
 

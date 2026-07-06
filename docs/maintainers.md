@@ -9,8 +9,11 @@ Keep the agent-facing skill surface lean:
 - `using-go-ship-it` for orientation
 - `manage-issues` for lifecycle state movement
 - `work-issue` for active issue work and evidence
+- `close-out` for shipping a reviewed issue
 
 Add a CLI command when the behavior is plumbing. Add a skill only when the user needs a distinct mental model or workflow entry point.
+
+`close-out` earned its slot on exactly that bar: `prepare-pr` (reversible), `publish` (irreversible), and `archive` (terminal) are a genuinely distinct mental model from investigate/propose/implement/review — a "gate" a human crosses deliberately, not another `work-issue` phase to click through. See `docs/design/lifecycle-phase-separation.md` for the full reasoning behind splitting close-out into its own skill.
 
 ## State Shape
 

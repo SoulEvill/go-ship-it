@@ -49,9 +49,10 @@ def test_parawave_setup_helper_registers_parawave_target():
     assert PARAWAVE_SETUP_PATH.exists()
     assert PARAWAVE_SETUP_PATH.stat().st_mode & 0o111
     text = PARAWAVE_SETUP_PATH.read_text()
-    assert "--repo-id parawave" in text
+    assert 'register-repo parawave "$PARAWAVE_ROOT"' in text
     assert 'PARAWAVE_PATH="${PARAWAVE_PATH:-$ROOT/../parawave}"' in text
-    assert "--feedback-repo-path" in text
+    assert 'register-repo go-ship-it "$FEEDBACK_REPO_ROOT"' in text
+    assert "--feedback" in text
 
 
 @pytest.mark.parametrize("flag", ["--setup-command", "--test-command"])
@@ -241,8 +242,10 @@ def test_dev_parawave_wrapper_is_explicit_about_target_values():
     text = wrapper.read_text()
 
     assert "run-target-e2e.py" in text
+    assert 'PARAWAVE_PATH="${PARAWAVE_PATH:-$ROOT/../parawave}"' in text
+    assert 'PARAWAVE_ROOT="$(git -C "$PARAWAVE_PATH" rev-parse --show-toplevel 2>/dev/null)"' in text
     assert "--target-id parawave" in text
-    assert '--target-path "$ROOT/../parawave"' in text
+    assert '--target-path "$PARAWAVE_ROOT"' in text
     assert "uv sync --extra dev" in text
     assert "uv run --extra dev pytest -q" in text
 

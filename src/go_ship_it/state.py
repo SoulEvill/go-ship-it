@@ -23,10 +23,42 @@ STATE_DIRS = (
 )
 
 ISSUE_STATES = ("todo", "execution", "archive")
-ALLOWED_PHASES = {"setup", "investigate", "propose", "implement", "test", "cleanup"}
+PHASES = (
+    "setup",
+    "investigate",
+    "propose",
+    "implement",
+    "review",
+    "prepare-pr",
+    "publish",
+    "archived",
+)
+# The public set-phase (and CLI) drives only the build phases. The close-out phases are
+# set exclusively by their owning operations (prepare_pull_request, publish_pull_request,
+# cleanup_issue) via the internal _write_active_phase.
+BUILD_PHASES = ("setup", "investigate", "propose", "implement", "review")
+CLOSE_OUT_PHASES = ("prepare-pr", "publish", "archived")
+TRACKS = ("standard", "quick")
+INNER_LOOPS = ("tdd", "debug", "spike", "none")
+REVIEW_PIPELINES = ("self", "clean-room")
+TRACK_REQUIRED_NOTE_SECTIONS = {
+    "standard": ("Investigation", "Proposal", "Implementation", "Review"),
+    "quick": ("Implementation", "Review"),
+}
 OPTIONAL_COMMAND_FIELDS = {"setup_command", "test_command", "lint_command"}
 REQUIRED_REPO_FIELDS = {"id", "path", "default_branch", "worktree_root"}
-UPDATABLE_REPO_FIELDS = REQUIRED_REPO_FIELDS | OPTIONAL_COMMAND_FIELDS
+REPO_SOURCE_TYPES = {"local", "git_url"}
+PULL_REQUEST_FIELDS = {"provider", "remote", "auto_publish"}
+WORKTREE_SETUP_FIELDS = {"command"}
+UPDATABLE_REPO_FIELDS = REQUIRED_REPO_FIELDS | OPTIONAL_COMMAND_FIELDS | {"pull_request", "worktree_setup"}
+DEFAULT_PULL_REQUEST_CONFIG = {
+    "provider": "github",
+    "remote": "origin",
+    "auto_publish": False,
+}
+DEFAULT_WORKTREE_SETUP_CONFIG = {
+    "command": None,
+}
 
 
 class GoShipitError(RuntimeError):
@@ -149,7 +181,9 @@ def next_issue_id(root: Path, repo_id: str) -> str:
     issue_dirs = tuple(_repo_issues_dir(root, safe_repo_id, state) for state in ISSUE_STATES)
     existing = [path for directory in issue_dirs for path in _collect_issue_dirs(directory)]
     existing.extend(_collect_issue_dirs(root / "worktrees" / safe_repo_id))
-    next_number = max((_issue_number(path) for path in existing), default=0) + 1
+    issue_numbers = [_issue_number(path) for path in existing]
+    issue_numbers.extend(_managed_issue_branch_numbers(root, safe_repo_id))
+    next_number = max(issue_numbers, default=0) + 1
     return f"issue-{next_number:03d}"
 
 
@@ -157,14 +191,16 @@ def register_repo(
     root: Path,
     *,
     repo_id: str,
-    path: Path,
+    path: Path | str,
     default_branch: str,
     setup_command: str | None,
     test_command: str | None,
     lint_command: str | None,
+    worktree_setup_command: str | None = None,
 ) -> Path:
     ensure_layout(root)
     safe_repo_id = _safe_id(repo_id)
+    source_values = _prepare_repo_source(root, safe_repo_id, path)
     repo_dir = _repo_dir(root, safe_repo_id)
     repo_dir.mkdir(parents=True, exist_ok=True)
     for state in ISSUE_STATES:
@@ -173,13 +209,17 @@ def register_repo(
     context_file = repo_dir / "context.md"
     values = {
         "id": safe_repo_id,
-        "path": str(path),
+        "path": source_values["path"],
+        "source": source_values["source"],
+        "source_type": source_values["source_type"],
         "default_branch": default_branch,
         "worktree_root": f"worktrees/{safe_repo_id}",
         "context_file": relative_to_root(root, context_file),
         "setup_command": setup_command,
         "test_command": test_command,
         "lint_command": lint_command,
+        "worktree_setup": {"command": worktree_setup_command},
+        "pull_request": dict(DEFAULT_PULL_REQUEST_CONFIG),
     }
     repo_file.write_text(_render_mapping(values))
     if not context_file.exists():
@@ -190,17 +230,22 @@ def register_repo(
 def register_feedback_repo(
     root: Path,
     *,
-    path: Path,
+    path: Path | str,
+    default_branch: str,
+    setup_command: str | None,
     test_command: str | None,
+    lint_command: str | None,
+    worktree_setup_command: str | None = None,
 ) -> Path:
     repo_file = register_repo(
         root,
         repo_id="go-ship-it",
         path=path,
-        default_branch="main",
-        setup_command=None,
+        default_branch=default_branch,
+        setup_command=setup_command,
         test_command=test_command,
-        lint_command=None,
+        lint_command=lint_command,
+        worktree_setup_command=worktree_setup_command,
     )
     context_file = _repo_dir(root, "go-ship-it") / "context.md"
     generic_template = _repo_context_template("go-ship-it")
@@ -367,6 +412,12 @@ def update_repo_config(
 
     config = _parse_mapping(repo_file.read_text())
     for key, value in updates.items():
+        if key == "pull_request":
+            config[key] = _merged_pull_request_config(config.get(key), value)
+            continue
+        if key == "worktree_setup":
+            config[key] = _merged_worktree_setup_config(config.get(key), value)
+            continue
         if key in REQUIRED_REPO_FIELDS and (not isinstance(value, str) or not value.strip()):
             raise ValueError(f"{key} must not be empty")
         config[key] = value
@@ -380,6 +431,89 @@ def update_repo_config(
 
     repo_file.write_text(_render_mapping(config))
     return repo_file
+
+
+def pull_request_config(repo: dict[str, object]) -> dict[str, object]:
+    return _merged_pull_request_config(repo.get("pull_request"), {})
+
+
+def worktree_setup_config(repo: dict[str, object]) -> dict[str, object]:
+    return _merged_worktree_setup_config(repo.get("worktree_setup"), {})
+
+
+def _configured_worktree_setup_command(repo: dict[str, object]) -> str | None:
+    config = worktree_setup_config(repo)
+    command = config.get("command")
+    if isinstance(command, str) and command.strip():
+        return command.strip()
+    return None
+
+
+def _merged_pull_request_config(existing: object, updates: object) -> dict[str, object]:
+    if existing is None:
+        current: dict[str, object] = {}
+    elif isinstance(existing, dict):
+        current = dict(existing)
+    else:
+        raise ValueError("pull_request must be a mapping")
+    if updates is None:
+        incoming: dict[str, object] = {}
+    elif isinstance(updates, dict):
+        incoming = dict(updates)
+    else:
+        raise ValueError("pull_request update must be a mapping")
+
+    unknown = (set(current) | set(incoming)) - PULL_REQUEST_FIELDS
+    if unknown:
+        raise ValueError(f"Unknown pull_request fields: {', '.join(sorted(unknown))}")
+
+    merged = dict(DEFAULT_PULL_REQUEST_CONFIG)
+    merged.update(current)
+    merged.update(incoming)
+    _validate_pull_request_config(merged)
+    return merged
+
+
+def _validate_pull_request_config(config: dict[str, object]) -> None:
+    provider = config.get("provider")
+    if provider not in {"github", "none"}:
+        raise ValueError("pull_request.provider must be 'github' or 'none'")
+    remote = config.get("remote")
+    if not isinstance(remote, str) or not remote.strip():
+        raise ValueError("pull_request.remote must not be empty")
+    if config.get("auto_publish") not in {True, False}:
+        raise ValueError("pull_request.auto_publish must be true or false")
+
+
+def _merged_worktree_setup_config(existing: object, updates: object) -> dict[str, object]:
+    if existing is None:
+        current: dict[str, object] = {}
+    elif isinstance(existing, dict):
+        current = dict(existing)
+    else:
+        raise ValueError("worktree_setup must be a mapping")
+    if updates is None:
+        incoming: dict[str, object] = {}
+    elif isinstance(updates, dict):
+        incoming = dict(updates)
+    else:
+        raise ValueError("worktree_setup update must be a mapping")
+
+    unknown = (set(current) | set(incoming)) - WORKTREE_SETUP_FIELDS
+    if unknown:
+        raise ValueError(f"Unknown worktree_setup fields: {', '.join(sorted(unknown))}")
+
+    merged = dict(DEFAULT_WORKTREE_SETUP_CONFIG)
+    merged.update(current)
+    merged.update(incoming)
+    _validate_worktree_setup_config(merged)
+    return merged
+
+
+def _validate_worktree_setup_config(config: dict[str, object]) -> None:
+    command = config.get("command")
+    if command is not None and (not isinstance(command, str) or not command.strip()):
+        raise ValueError("worktree_setup.command must be a non-empty string or null")
 
 
 def add_issue(
@@ -418,8 +552,9 @@ def add_issue(
     return issue_file
 
 
-def start_issue(root: Path, issue_ref: str, *, claimed_by: str | None = None) -> StartedRun:
+def start_issue(root: Path, issue_ref: str, *, claimed_by: str | None = None, track: str = "standard") -> StartedRun:
     ensure_layout(root)
+    safe_track = _validate_track(track)
     repo_id, safe_issue_id = _parse_issue_ref(issue_ref)
     todo_dir = _repo_issue_dir(root, repo_id, "todo", safe_issue_id)
     todo_file = todo_dir / "issue.md"
@@ -444,9 +579,13 @@ def start_issue(root: Path, issue_ref: str, *, claimed_by: str | None = None) ->
     target_repo: Path | None = None
     branch: str | None = None
     worktree: Path | None = None
+    repo: dict[str, object] | None = None
+    started_run: StartedRun | None = None
+    setup_command: str | None = None
     try:
         metadata, body = parse_frontmatter(execution_file.read_text())
         repo = _read_repo(root, repo_id)
+        setup_command = _configured_worktree_setup_command(repo)
         target_repo = _resolve_repo_path(root, repo.get("path"))
         _ensure_git_repo(target_repo)
 
@@ -457,36 +596,50 @@ def start_issue(root: Path, issue_ref: str, *, claimed_by: str | None = None) ->
         claim_id = _claim_id(root, safe_issue_id, worktree_relative)
         if worktree.exists():
             raise FileExistsError(f"Worktree path already exists: {worktree}")
+        if _managed_branch_exists(target_repo, branch):
+            raise GoShipitError(
+                f"managed branch already exists for {branch}; create the next issue id, "
+                "or delete/reclaim the stale GoShipit branch in the target repo"
+            )
         worktree.parent.mkdir(parents=True, exist_ok=True)
         _git(target_repo, "worktree", "add", "-b", branch, str(worktree), _required_string(repo, "default_branch"))
         worktree_created = True
 
         timestamp = _now_iso()
-        metadata["phase"] = "investigate"
+        if setup_command is not None:
+            initial_phase = "setup"
+        elif safe_track == "quick":
+            initial_phase = "implement"
+        else:
+            initial_phase = "investigate"
+        metadata["phase"] = initial_phase
         metadata["branch"] = branch
         metadata["worktree"] = worktree_relative.as_posix()
         metadata["claimed_by"] = resolved_claimed_by
         metadata["claim_id"] = claim_id
         metadata["started_at"] = timestamp
         metadata["last_activity_at"] = timestamp
+        metadata["track"] = safe_track
+        if safe_track == "quick":
+            metadata["inner_loop"] = "tdd"
         execution_file.write_text(render_frontmatter(metadata, body))
 
         run_file = run_dir / "run.yaml"
-        run_file.write_text(
-            _render_mapping(
-                {
-                    "issue_id": safe_issue_id,
-                    "repo": repo_id,
-                    "branch": branch,
-                    "worktree": worktree_relative.as_posix(),
-                    "claimed_by": resolved_claimed_by,
-                    "claim_id": claim_id,
-                    "phase": "investigate",
-                    "started_at": timestamp,
-                    "last_activity_at": timestamp,
-                }
-            )
-        )
+        run_values: dict[str, object] = {
+            "issue_id": safe_issue_id,
+            "repo": repo_id,
+            "branch": branch,
+            "worktree": worktree_relative.as_posix(),
+            "claimed_by": resolved_claimed_by,
+            "claim_id": claim_id,
+            "phase": initial_phase,
+            "track": safe_track,
+            "started_at": timestamp,
+            "last_activity_at": timestamp,
+        }
+        if safe_track == "quick":
+            run_values["inner_loop"] = "tdd"
+        run_file.write_text(_render_mapping(run_values))
         _append_event(
             run_dir,
             "run.started",
@@ -506,7 +659,7 @@ def start_issue(root: Path, issue_ref: str, *, claimed_by: str | None = None) ->
             claimed_by=resolved_claimed_by,
             claim_id=claim_id,
         )
-        return StartedRun(
+        started_run = StartedRun(
             issue_id=safe_issue_id,
             repo_id=repo_id,
             issue_ref=_issue_ref(repo_id, safe_issue_id),
@@ -527,6 +680,26 @@ def start_issue(root: Path, issue_ref: str, *, claimed_by: str | None = None) ->
         if execution_dir.exists() and not todo_dir.exists():
             execution_dir.rename(todo_dir)
         raise
+    if started_run is None or worktree is None:
+        raise GoShipitError(f"failed to start issue {_issue_ref(repo_id, safe_issue_id)}")
+    if setup_command is not None:
+        record_file, exit_code = _run_logged_command(
+            run_dir,
+            worktree,
+            check="worktree_setup",
+            command=setup_command,
+            section="Worktree Setup",
+            phase="setup",
+            event_kind="worktree_setup.ran",
+        )
+        if exit_code != 0:
+            raise CheckFailedError("worktree_setup", exit_code, record_file)
+        _write_active_phase(
+            execution_file,
+            run_dir / "run.yaml",
+            "implement" if safe_track == "quick" else "investigate",
+        )
+    return started_run
 
 
 def default_claimed_by(root: Path) -> str:
@@ -612,9 +785,34 @@ def append_note(root: Path, issue_ref: str, *, section: str, note: str, phase: s
     return notes
 
 
-def set_phase(root: Path, issue_ref: str, phase: str, *, note: str) -> Path:
+def set_phase(
+    root: Path,
+    issue_ref: str,
+    phase: str,
+    *,
+    note: str,
+    inner_loop: str | None = None,
+    inner_loop_reason: str | None = None,
+    review_pipeline: str | None = None,
+) -> Path:
     repo_id, issue_id = _parse_issue_ref(issue_ref)
-    safe_phase = _validate_phase(phase)
+    safe_phase = _validate_build_phase(phase)
+    if safe_phase != "implement" and (inner_loop is not None or inner_loop_reason is not None):
+        raise ValueError("--inner-loop/--inner-loop-reason only apply when entering the implement phase")
+    if safe_phase != "review" and review_pipeline is not None:
+        raise ValueError("--review-pipeline only applies when entering the review phase")
+
+    axis_values: dict[str, object] = {}
+    if safe_phase == "implement":
+        loop = _validate_inner_loop(inner_loop or "tdd")
+        if loop == "none" and not (inner_loop_reason and inner_loop_reason.strip()):
+            raise ValueError("inner_loop 'none' requires --inner-loop-reason recording why no test loop is used")
+        axis_values["inner_loop"] = loop
+        if inner_loop_reason and inner_loop_reason.strip():
+            axis_values["inner_loop_reason"] = inner_loop_reason.strip()
+    if safe_phase == "review":
+        axis_values["review_pipeline"] = _validate_review_pipeline(review_pipeline or "self")
+
     issue_file = _active_issue_file(root, repo_id, issue_id)
     run_dir = _run_dir(root, repo_id, issue_id)
     run_file = run_dir / "run.yaml"
@@ -622,11 +820,13 @@ def set_phase(root: Path, issue_ref: str, phase: str, *, note: str) -> Path:
     metadata, body = parse_frontmatter(issue_file.read_text())
     timestamp = _now_iso()
     metadata["phase"] = safe_phase
+    metadata.update(axis_values)
     metadata["last_activity_at"] = timestamp
     issue_file.write_text(render_frontmatter(metadata, body))
 
     run = _load_run(run_file)
     run["phase"] = safe_phase
+    run.update(axis_values)
     run["last_activity_at"] = timestamp
     run_file.write_text(_render_mapping(run))
 
@@ -638,6 +838,42 @@ def set_phase(root: Path, issue_ref: str, phase: str, *, note: str) -> Path:
         timestamp=timestamp,
         phase=safe_phase,
         note_timestamp=note_timestamp,
+        **axis_values,
+    )
+    return issue_file
+
+
+def set_track(root: Path, issue_ref: str, track: str, *, note: str) -> Path:
+    repo_id, issue_id = _parse_issue_ref(issue_ref)
+    safe_track = _validate_track(track)
+    issue_file = _active_issue_file(root, repo_id, issue_id)
+    run_dir = _run_dir(root, repo_id, issue_id)
+    run_file = run_dir / "run.yaml"
+
+    run = _load_run(run_file)
+    current = str(run.get("track") or "standard")
+    if not (current == "quick" and safe_track == "standard"):
+        raise GoShipitError(
+            f"set-track only promotes quick to standard; run is on track '{current}'"
+        )
+
+    metadata, body = parse_frontmatter(issue_file.read_text())
+    timestamp = _now_iso()
+    metadata["track"] = safe_track
+    metadata["last_activity_at"] = timestamp
+    issue_file.write_text(render_frontmatter(metadata, body))
+
+    run["track"] = safe_track
+    run["last_activity_at"] = timestamp
+    run_file.write_text(_render_mapping(run))
+
+    _append_note_to_notes(run_dir / "notes.md", section=f"Track: {safe_track}", note=note, phase=None)
+    _append_event(
+        run_dir,
+        "track.changed",
+        f"track={safe_track}",
+        timestamp=timestamp,
+        track=safe_track,
     )
     return issue_file
 
@@ -663,6 +899,34 @@ def run_check(root: Path, issue_ref: str, *, check: str) -> Path:
     if not worktree.is_dir():
         raise FileNotFoundError(f"Worktree not found: {worktree}")
 
+    run_file = run_dir / "run.yaml"
+    current_phase = _validate_phase(str(_load_run(run_file).get("phase") or ""))
+
+    record_file, exit_code = _run_logged_command(
+        run_dir,
+        worktree,
+        check=safe_check,
+        command=command,
+        section=f"Check: {safe_check}",
+        phase=current_phase,
+        event_kind=f"check.{safe_check}",
+    )
+
+    if exit_code != 0:
+        raise CheckFailedError(safe_check, exit_code, record_file)
+    return record_file
+
+
+def _run_logged_command(
+    run_dir: Path,
+    worktree: Path,
+    *,
+    check: str,
+    command: str,
+    section: str,
+    phase: str,
+    event_kind: str,
+) -> tuple[Path, int]:
     started_at = _now_iso()
     result = subprocess.run(
         command,
@@ -676,9 +940,9 @@ def run_check(root: Path, issue_ref: str, *, check: str) -> Path:
 
     commands_dir = _logs_dir(run_dir) / "commands"
     commands_dir.mkdir(parents=True, exist_ok=True)
-    record_file = commands_dir / f"{_timestamp_slug(started_at)}-{safe_check}.yaml"
+    record_file = commands_dir / f"{_timestamp_slug(started_at)}-{check.replace('_', '-')}.yaml"
     record = {
-        "check": safe_check,
+        "check": check,
         "command": command,
         "cwd": str(worktree),
         "exit_code": result.returncode,
@@ -691,21 +955,18 @@ def run_check(root: Path, issue_ref: str, *, check: str) -> Path:
 
     record_label = record_file.relative_to(run_dir).as_posix()
     note = f"Command: `{command}`\n\nExit code: {result.returncode}\n\nLog: `{record_label}`"
-    _append_note_to_notes(run_dir / "notes.md", section=f"Check: {safe_check}", note=note, phase="test")
+    _append_note_to_notes(run_dir / "notes.md", section=section, note=note, phase=phase)
     _append_event(
         run_dir,
-        f"check.{safe_check}",
+        event_kind,
         f"exit={result.returncode} command={command}",
         timestamp=started_at,
-        check=safe_check,
+        check=check,
         command=command,
         exit_code=result.returncode,
         record_file=record_label,
     )
-
-    if result.returncode != 0:
-        raise CheckFailedError(safe_check, result.returncode, record_file)
-    return record_file
+    return record_file, result.returncode
 
 
 def cleanup_issue(
@@ -715,6 +976,8 @@ def cleanup_issue(
     destination: str,
     note: str,
     remove_worktree: bool,
+    discard_worktree_changes: bool = False,
+    confirm_archive: bool = False,
 ) -> Path:
     ensure_layout(root)
     repo_id, issue_id = _parse_issue_ref(issue_ref)
@@ -722,6 +985,11 @@ def cleanup_issue(
         raise ValueError("destination must be 'todo' or 'archive'")
     if destination == "todo" and not remove_worktree:
         raise ValueError("returning an issue to todo requires remove_worktree=True")
+    if destination == "archive" and not confirm_archive:
+        raise GoShipitError(
+            "Archiving is terminal: there is no reopen or unarchive. "
+            f"Re-run with --confirm to archive {issue_ref}."
+        )
 
     execution_dir = _repo_issue_dir(root, repo_id, "execution", issue_id)
     execution_file = execution_dir / "issue.md"
@@ -739,7 +1007,9 @@ def cleanup_issue(
         worktree = root / worktree_value
         if _is_managed_worktree(root, worktree) and worktree.exists():
             _ensure_git_repo(target_repo)
-            _remove_worktree(target_repo, worktree)
+            if not discard_worktree_changes:
+                _ensure_worktree_clean(worktree)
+            _remove_worktree(target_repo, worktree, force=discard_worktree_changes)
             metadata["worktree"] = None
 
     if destination == "todo":
@@ -754,7 +1024,7 @@ def cleanup_issue(
         metadata["last_activity_at"] = timestamp
         target_dir = _repo_issue_dir(root, repo_id, "todo", issue_id)
     else:
-        metadata["phase"] = "cleanup"
+        metadata["phase"] = "archived"
         metadata["last_activity_at"] = timestamp
         target_dir = _repo_issue_dir(root, repo_id, "archive", issue_id)
         body = f"{body.rstrip()}\n\n## Final Note\n\n{note.strip()}\n"
@@ -788,14 +1058,17 @@ def cleanup_issue(
     return target_file
 
 
-def export_run(root: Path, issue_ref: str, *, output: Path) -> Path:
+def export_run(root: Path, issue_ref: str, *, output: Path | None = None) -> Path:
     repo_id, issue_id = _parse_issue_ref(issue_ref)
     issue_file = _find_issue_file(root, repo_id, issue_id)
     run_dir = _repo_run_dir(root, repo_id, issue_id)
     if issue_file is None and not run_dir.exists():
         raise FileNotFoundError(f"No issue or run evidence found for {_issue_ref(repo_id, issue_id)}")
 
-    output = output if output.is_absolute() else root / output
+    if output is None:
+        output = run_dir / "evidence.md"
+    else:
+        output = output if output.is_absolute() else root / output
     output.parent.mkdir(parents=True, exist_ok=True)
     run_file = run_dir / "run.yaml"
     exported_at = _record_export_metadata(root, issue_file, run_file, output)
@@ -1252,6 +1525,22 @@ def _issue_number(path: Path) -> int:
     return int(match.group(1)) if match else 0
 
 
+def _managed_issue_branch_numbers(root: Path, repo_id: str) -> list[int]:
+    try:
+        repo = _read_repo(root, repo_id)
+        target_repo = _resolve_repo_path(root, repo.get("path"))
+        _ensure_git_repo(target_repo)
+        branches = _git(target_repo, "branch", "--list", "go-ship-it/issue-*", "--format=%(refname:short)")
+    except (OSError, ValueError, GoShipitError):
+        return []
+    numbers: list[int] = []
+    for line in branches.splitlines():
+        match = re.fullmatch(r"go-ship-it/(issue-\d+)", line.strip())
+        if match:
+            numbers.append(_issue_number(Path(match.group(1))))
+    return numbers
+
+
 def _active_run_error(issue_id: str, execution_file: Path, run_dir: Path) -> IssueAlreadyActiveError:
     worktree: str | None = None
     if execution_file.exists():
@@ -1366,8 +1655,57 @@ def _read_repo(root: Path, repo_id: str) -> dict[str, object]:
 def _resolve_repo_path(root: Path, value: object) -> Path:
     if not isinstance(value, str):
         raise ValueError("Repo path must be a string")
-    path = Path(value)
+    path = Path(value).expanduser()
     return path if path.is_absolute() else (root / path).resolve()
+
+
+def _prepare_repo_source(root: Path, repo_id: str, source: Path | str) -> dict[str, str]:
+    source_text = str(source).strip()
+    if not source_text:
+        raise ValueError("Repo source must not be empty")
+    if _is_git_url(source_text):
+        return _prepare_git_url_source(root, repo_id, source_text)
+    return {
+        "path": source_text,
+        "source": source_text,
+        "source_type": "local",
+    }
+
+
+def _prepare_git_url_source(root: Path, repo_id: str, source_url: str) -> dict[str, str]:
+    source_relative = Path("worktrees") / repo_id / "_source"
+    source_path = root / source_relative
+    if source_path.exists():
+        _ensure_git_repo(source_path)
+        configured_remote = _git(source_path, "config", "--get", "remote.origin.url").strip()
+        if configured_remote != source_url:
+            raise GoShipitError(
+                "Managed source clone already exists with a different origin: "
+                f"{source_path} has {configured_remote!r}, expected {source_url!r}"
+            )
+    else:
+        source_path.parent.mkdir(parents=True, exist_ok=True)
+        result = subprocess.run(
+            ["git", "clone", source_url, str(source_path)],
+            capture_output=True,
+            check=False,
+            text=True,
+        )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout).strip()
+            raise GoShipitError(f"git clone {source_url} {source_path} failed: {detail}")
+    return {
+        "path": source_relative.as_posix(),
+        "source": source_url,
+        "source_type": "git_url",
+    }
+
+
+def _is_git_url(value: str) -> bool:
+    lowered = value.lower()
+    if lowered.startswith(("https://", "http://", "ssh://", "git://", "file://")):
+        return True
+    return re.match(r"^[^@\s]+@[^:\s]+:.+", value) is not None
 
 
 def _ensure_git_repo(path: Path) -> None:
@@ -1390,11 +1728,35 @@ def _git(repo: Path, *args: str) -> str:
     return result.stdout
 
 
-def _remove_worktree(target_repo: Path, worktree: Path) -> None:
-    try:
-        _git(target_repo, "worktree", "remove", "--force", str(worktree))
-    except GoShipitError:
-        shutil.rmtree(worktree, ignore_errors=True)
+def _remove_worktree(target_repo: Path, worktree: Path, *, force: bool = False) -> None:
+    args = ["worktree", "remove"]
+    if force:
+        args.append("--force")
+    args.append(str(worktree))
+    _git(target_repo, *args)
+
+
+def _ensure_worktree_clean(worktree: Path) -> None:
+    status = _git(worktree, "status", "--porcelain", "--untracked-files=all")
+    dirty_entries = [line for line in status.splitlines() if not _is_go_ship_it_worktree_metadata(line)]
+    if dirty_entries:
+        raise GoShipitError(
+            "managed worktree has uncommitted changes; commit or prepare a PR, "
+            "archive without --remove-worktree, or rerun cleanup with "
+            "--discard-worktree-changes to intentionally delete local work"
+        )
+
+
+def _is_go_ship_it_worktree_metadata(status_line: str) -> bool:
+    path = status_line[3:]
+    if " -> " in path:
+        path = path.rsplit(" -> ", 1)[1]
+    return path == ".go-ship-it" or path.startswith(".go-ship-it/")
+
+
+def _managed_branch_exists(target_repo: Path, branch: str) -> bool:
+    output = _git(target_repo, "branch", "--list", branch, "--format=%(refname:short)")
+    return any(line.strip() == branch for line in output.splitlines())
 
 
 def _delete_branch(target_repo: Path, branch: str) -> None:
@@ -1476,13 +1838,34 @@ def _write_run_cleanup(
     timestamp: str,
 ) -> None:
     run = _parse_mapping(run_file.read_text()) if run_file.exists() else {}
-    run["phase"] = "cleanup"
+    run["phase"] = "archived" if destination == "archive" else "setup"
     run["cleanup_destination"] = destination
     run["cleanup_note"] = note.strip()
     run["closed_at"] = timestamp
     if branch is not None:
         run["closed_branch"] = branch
     run_file.write_text(_render_mapping(run))
+
+
+def _write_active_phase(issue_file: Path, run_file: Path, phase: str) -> None:
+    safe_phase = _validate_phase(phase)
+    timestamp = _now_iso()
+    metadata, body = parse_frontmatter(issue_file.read_text())
+    metadata["phase"] = safe_phase
+    metadata["last_activity_at"] = timestamp
+    issue_file.write_text(render_frontmatter(metadata, body))
+
+    run = _load_run(run_file)
+    run["phase"] = safe_phase
+    run["last_activity_at"] = timestamp
+    run_file.write_text(_render_mapping(run))
+    _append_event(
+        run_file.parent,
+        "phase.changed",
+        f"phase={safe_phase}",
+        timestamp=timestamp,
+        phase=safe_phase,
+    )
 
 
 def _remove_empty_directory(path: Path) -> None:
@@ -1501,10 +1884,45 @@ def _required_string(mapping: dict[str, object], key: str) -> str:
 
 def _validate_phase(phase: str) -> str:
     safe_phase = phase.strip().lower()
-    if safe_phase not in ALLOWED_PHASES:
-        allowed = ", ".join(sorted(ALLOWED_PHASES))
-        raise ValueError(f"phase must be one of: {allowed}")
+    if safe_phase not in PHASES:
+        raise ValueError(f"phase must be one of: {', '.join(PHASES)}")
     return safe_phase
+
+
+def _validate_build_phase(phase: str) -> str:
+    safe_phase = phase.strip().lower()
+    if safe_phase in CLOSE_OUT_PHASES:
+        raise ValueError(
+            f"phase '{safe_phase}' is set by its owning close-out command "
+            "(prepare-pr/publish-pr/cleanup-issue), not set-phase"
+        )
+    if safe_phase not in BUILD_PHASES:
+        raise ValueError(f"phase must be one of: {', '.join(BUILD_PHASES)}")
+    return safe_phase
+
+
+def _validate_track(track: str) -> str:
+    safe_track = track.strip().lower()
+    if safe_track not in TRACKS:
+        raise ValueError(f"track must be one of: {', '.join(TRACKS)}")
+    return safe_track
+
+
+def _validate_inner_loop(value: str) -> str:
+    safe_value = value.strip().lower()
+    if safe_value not in INNER_LOOPS:
+        raise ValueError(f"inner_loop must be one of: {', '.join(INNER_LOOPS)}")
+    return safe_value
+
+
+def _validate_review_pipeline(value: str) -> str:
+    safe_value = value.strip()
+    if safe_value in REVIEW_PIPELINES:
+        return safe_value
+    if safe_value.startswith("plugin:") and len(safe_value) > len("plugin:"):
+        return safe_value
+    allowed = ", ".join((*REVIEW_PIPELINES, "plugin:<name>"))
+    raise ValueError(f"review_pipeline must be one of: {allowed}")
 
 
 def _timestamp_slug(timestamp: str) -> str:

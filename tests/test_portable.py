@@ -28,9 +28,9 @@ def test_portable_text_removes_local_root(tmp_path):
 
 def test_portable_text_rewrites_file_urls(tmp_path):
     root = tmp_path / "go-ship-it"
-    text = f"file://{root}/docs/dogfood/report.md"
+    text = f"file://{root}/state/repos/sample/issues/execution/issue-001/evidence.md"
 
-    assert portable_text(root, text) == "file://go-ship-it-root/docs/dogfood/report.md"
+    assert portable_text(root, text) == "file://go-ship-it-root/state/repos/sample/issues/execution/issue-001/evidence.md"
 
 
 def test_portable_path_value_handles_none(tmp_path):

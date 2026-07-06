@@ -13,6 +13,7 @@ from go_ship_it.state import (
     run_check,
     set_phase,
     start_issue,
+    update_repo_config,
     write_handoff,
 )
 from go_ship_it.verify import verify_run
@@ -25,8 +26,8 @@ def test_verify_run_warns_when_export_precedes_cleanup(tmp_path):
     root = _started_issue_root(tmp_path)
     _write_required_notes(root, ISSUE_REF)
     run_check(root, ISSUE_REF, check="test")
-    export_run(root, ISSUE_REF, output=tmp_path / "docs" / "dogfood" / "before-cleanup.md")
-    cleanup_issue(root, ISSUE_REF, destination="archive", note="Done.", remove_worktree=False)
+    export_run(root, ISSUE_REF, output=tmp_path / "exports" / "before-cleanup.md")
+    cleanup_issue(root, ISSUE_REF, destination="archive", note="Done.", remove_worktree=False, confirm_archive=True)
 
     report = verify_run(root, ISSUE_REF)
 
@@ -35,31 +36,12 @@ def test_verify_run_warns_when_export_precedes_cleanup(tmp_path):
     assert any(item.code == "worktree.preserved_after_archive" for item in report.warnings)
 
 
-def test_verify_run_warns_when_legacy_export_lacks_metadata_after_cleanup(tmp_path):
-    root = _started_issue_root(tmp_path)
-    _write_required_notes(root, ISSUE_REF)
-    run_check(root, ISSUE_REF, check="test")
-    cleanup_issue(root, ISSUE_REF, destination="archive", note="Done.", remove_worktree=False)
-    legacy_export = root / "docs" / "dogfood" / "legacy-export.md"
-    legacy_export.parent.mkdir(parents=True)
-    legacy_export.write_text(
-        "# GoShipit Run Evidence: sample/issue-001\n\n"
-        "Source: `state/repos/sample/issues/execution/issue-001/issue.md`\n\n"
-        "```yaml\nphase: test\n```\n"
-    )
-
-    report = verify_run(root, ISSUE_REF)
-
-    assert not report.errors
-    assert any(item.code == "run.export_stale" for item in report.warnings)
-
-
 def test_verify_run_accepts_export_after_cleanup(tmp_path):
     root = _started_issue_root(tmp_path)
     _write_required_notes(root, ISSUE_REF)
     run_check(root, ISSUE_REF, check="test")
-    cleanup_issue(root, ISSUE_REF, destination="archive", note="Done.", remove_worktree=False)
-    export_run(root, ISSUE_REF, output=tmp_path / "docs" / "dogfood" / "after-cleanup.md")
+    cleanup_issue(root, ISSUE_REF, destination="archive", note="Done.", remove_worktree=False, confirm_archive=True)
+    export_run(root, ISSUE_REF)
 
     report = verify_run(root, ISSUE_REF)
 
@@ -79,6 +61,49 @@ def test_verify_run_errors_on_failed_command(tmp_path):
     assert any(item.code == "command.failed" for item in report.errors)
 
 
+def test_verify_run_ignores_earlier_command_failure_when_latest_passes(tmp_path):
+    # F1: a legitimately failed run-check during review must not permanently block publish.
+    # Fail the test check, then fix the command and re-run green; verify judges the LATEST
+    # record per check, so the healed check produces NO command.failed error.
+    root = _started_issue_root(
+        tmp_path,
+        test_command="python -c 'import time, sys; time.sleep(1.1); sys.exit(7)'",
+    )
+    _write_required_notes(root, ISSUE_REF)
+    with pytest.raises(CheckFailedError):
+        run_check(root, ISSUE_REF, check="test")
+    update_repo_config(
+        root, "sample", updates={"test_command": "python -c 'print(\"ok\")'"}, clears=set()
+    )
+    run_check(root, ISSUE_REF, check="test")
+
+    report = verify_run(root, ISSUE_REF)
+
+    assert not any(item.code == "command.failed" for item in report.errors)
+    assert not report.errors  # publish-style strict pass is now possible for the commands gate
+    assert any(item.code == "command.test_passed" for item in report.ok)
+
+
+def test_verify_run_still_errors_when_latest_command_fails_after_earlier_pass(tmp_path):
+    # F1: the latest record for a check is authoritative; a passing then failing sequence errors.
+    root = _started_issue_root(
+        tmp_path,
+        test_command="python -c 'import time; time.sleep(1.1); print(\"ok\")'",
+    )
+    _write_required_notes(root, ISSUE_REF)
+    run_check(root, ISSUE_REF, check="test")
+    update_repo_config(
+        root, "sample", updates={"test_command": "python -c 'import sys; sys.exit(7)'"}, clears=set()
+    )
+    with pytest.raises(CheckFailedError):
+        run_check(root, ISSUE_REF, check="test")
+
+    report = verify_run(root, ISSUE_REF)
+
+    assert any(item.code == "command.failed" for item in report.errors)
+    assert not any(item.code == "command.test_passed" for item in report.ok)
+
+
 def test_verify_run_warns_when_acceptance_criteria_lack_evidence(tmp_path):
     root = _started_issue_root(tmp_path)
     _write_required_notes(root, ISSUE_REF)
@@ -96,7 +121,7 @@ def test_verify_run_accepts_acceptance_criteria_with_evidence(tmp_path):
         root,
         ISSUE_REF,
         section="Review",
-        phase="test",
+        phase="review",
         note="Acceptance evidence: README changes. Verified by the test check.",
     )
     run_check(root, ISSUE_REF, check="test")
@@ -129,6 +154,52 @@ def test_verify_run_accepts_active_run_handoff(tmp_path):
     assert any(item.code == "handoff.present" for item in report.ok)
 
 
+def test_verify_run_quick_track_requires_only_implementation_and_review_notes(tmp_path):
+    root = _started_issue_root(tmp_path, track="quick")
+    set_phase(root, ISSUE_REF, "review", note="Reviewing.")
+    append_note(root, ISSUE_REF, section="Implementation", phase="implement", note="Changed files.")
+    append_note(root, ISSUE_REF, section="Review", phase="review", note="Ready.")
+    run_check(root, ISSUE_REF, check="test")
+
+    report = verify_run(root, ISSUE_REF)
+
+    codes = {item.code for item in report.warnings}
+    assert "notes.investigation_missing" not in codes
+    assert "notes.proposal_missing" not in codes
+
+
+def test_verify_run_standard_track_still_requires_all_four_sections(tmp_path):
+    root = _started_issue_root(tmp_path)
+    report = verify_run(root, ISSUE_REF)
+    codes = {item.code for item in report.warnings}
+    assert "notes.investigation_missing" in codes
+    assert "notes.proposal_missing" in codes
+
+
+def test_verify_run_warns_when_archived_without_published_pr(tmp_path):
+    root = _started_issue_root(tmp_path)
+    _write_required_notes(root, ISSUE_REF)
+    run_check(root, ISSUE_REF, check="test")
+    cleanup_issue(root, ISSUE_REF, destination="archive", note="Done.", remove_worktree=False, confirm_archive=True)
+
+    report = verify_run(root, ISSUE_REF)
+
+    assert any(item.code == "publish.missing" for item in report.warnings)
+
+
+def test_verify_run_accepts_archive_without_publish_when_provider_none(tmp_path):
+    root = _started_issue_root(tmp_path)
+    update_repo_config(root, "sample", updates={"pull_request": {"provider": "none"}}, clears=set())
+    _write_required_notes(root, ISSUE_REF)
+    run_check(root, ISSUE_REF, check="test")
+    cleanup_issue(root, ISSUE_REF, destination="archive", note="Done.", remove_worktree=False, confirm_archive=True)
+
+    report = verify_run(root, ISSUE_REF)
+
+    assert not any(item.code == "publish.missing" for item in report.warnings)
+    assert any(item.code == "publish.not_required" for item in report.ok)
+
+
 def _write_required_notes(root: Path, issue_id: str) -> None:
     set_phase(root, issue_id, "investigate", note="Investigating.")
     append_note(root, issue_id, section="Investigation", phase="investigate", note="Read context.")
@@ -136,11 +207,13 @@ def _write_required_notes(root: Path, issue_id: str) -> None:
     append_note(root, issue_id, section="Proposal", phase="propose", note="Use small fix.")
     set_phase(root, issue_id, "implement", note="Implementation ready.")
     append_note(root, issue_id, section="Implementation", phase="implement", note="Changed files.")
-    set_phase(root, issue_id, "test", note="Testing.")
-    append_note(root, issue_id, section="Review", phase="test", note="Ready.")
+    set_phase(root, issue_id, "review", note="Testing.")
+    append_note(root, issue_id, section="Review", phase="review", note="Ready.")
 
 
-def _started_issue_root(tmp_path: Path, *, test_command: str = "python -c 'print(\"ok\")'") -> Path:
+def _started_issue_root(
+    tmp_path: Path, *, test_command: str = "python -c 'print(\"ok\")'", track: str = "standard"
+) -> Path:
     target = _create_git_repo(tmp_path / "target")
     register_repo(
         tmp_path,
@@ -159,7 +232,7 @@ def _started_issue_root(tmp_path: Path, *, test_command: str = "python -c 'print
         context="Use the test repo.",
         acceptance_criteria=["README changes."],
     )
-    start_issue(tmp_path, ISSUE_REF, claimed_by="test-thread")
+    start_issue(tmp_path, ISSUE_REF, claimed_by="test-thread", track=track)
     return tmp_path
 
 

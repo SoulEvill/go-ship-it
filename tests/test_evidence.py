@@ -47,6 +47,90 @@ def test_set_phase_rejects_invalid_phase(tmp_path):
         set_phase(root, "sample/issue-001", "banana", note="Nope.")
 
 
+def test_phase_enum_accepts_all_lifecycle_phases(tmp_path):
+    root = _started_issue_root(tmp_path)
+    from go_ship_it.state import PHASES
+
+    assert PHASES == (
+        "setup",
+        "investigate",
+        "propose",
+        "implement",
+        "review",
+        "prepare-pr",
+        "publish",
+        "archived",
+    )
+    # set-phase drives only the build phases; review is the last one it may set.
+    issue_file = set_phase(root, "sample/issue-001", "review", note="Entering review.")
+    assert issue_file.exists()
+    # Close-out phases are set exclusively by their owning close-out commands.
+    for closeout in ("prepare-pr", "publish", "archived"):
+        with pytest.raises(ValueError, match="owning close-out command"):
+            set_phase(root, "sample/issue-001", closeout, note=f"Entering {closeout}.")
+
+
+def test_phase_enum_rejects_retired_phase_names(tmp_path):
+    root = _started_issue_root(tmp_path)
+    for retired in ("test", "cleanup"):
+        with pytest.raises(ValueError, match="phase must be one of"):
+            set_phase(root, "sample/issue-001", retired, note="Nope.")
+
+
+def test_entering_implement_records_default_tdd_inner_loop(tmp_path):
+    root = _started_issue_root(tmp_path)
+    set_phase(root, "sample/issue-001", "implement", note="Building.")
+    run = yaml.safe_load(_run_file(root).read_text())
+    assert run["inner_loop"] == "tdd"
+
+
+def test_entering_implement_with_none_loop_requires_reason(tmp_path):
+    root = _started_issue_root(tmp_path)
+    with pytest.raises(ValueError, match="requires --inner-loop-reason"):
+        set_phase(root, "sample/issue-001", "implement", note="Building.", inner_loop="none")
+    set_phase(
+        root,
+        "sample/issue-001",
+        "implement",
+        note="Docs only.",
+        inner_loop="none",
+        inner_loop_reason="Docs-only change; no executable behavior.",
+    )
+    run = yaml.safe_load(_run_file(root).read_text())
+    assert run["inner_loop"] == "none"
+    assert run["inner_loop_reason"] == "Docs-only change; no executable behavior."
+
+
+def test_entering_review_records_default_self_pipeline(tmp_path):
+    root = _started_issue_root(tmp_path)
+    set_phase(root, "sample/issue-001", "review", note="Reviewing.")
+    run = yaml.safe_load(_run_file(root).read_text())
+    assert run["review_pipeline"] == "self"
+
+
+def test_review_pipeline_accepts_plugin_form_and_rejects_junk(tmp_path):
+    root = _started_issue_root(tmp_path)
+    set_phase(root, "sample/issue-001", "review", note="R.", review_pipeline="plugin:code-review")
+    run = yaml.safe_load(_run_file(root).read_text())
+    assert run["review_pipeline"] == "plugin:code-review"
+    with pytest.raises(ValueError, match="review_pipeline"):
+        set_phase(root, "sample/issue-001", "review", note="R.", review_pipeline="vibes")
+    with pytest.raises(ValueError, match="review_pipeline"):
+        set_phase(root, "sample/issue-001", "review", note="R.", review_pipeline="plugin:")
+
+
+def test_axis_flags_rejected_outside_their_phase(tmp_path):
+    root = _started_issue_root(tmp_path)
+    with pytest.raises(ValueError, match="inner-loop"):
+        set_phase(root, "sample/issue-001", "propose", note="P.", inner_loop="tdd")
+    with pytest.raises(ValueError, match="review-pipeline"):
+        set_phase(root, "sample/issue-001", "implement", note="I.", review_pipeline="self")
+
+
+def _run_file(root: Path) -> Path:
+    return root / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001" / "run.yaml"
+
+
 def _started_issue_root(tmp_path: Path) -> Path:
     target = _create_git_repo(tmp_path / "target")
     register_repo(

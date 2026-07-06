@@ -190,7 +190,7 @@ def _run_first_issue_flow(*, go_ship_it: Path, temp_root: Path, control_root: Pa
         return results
 
     success_messages = {
-        "flow.init_repo": "register target repo during init",
+        "flow.register_repo": "register target repo",
         "flow.add_issue": "add first issue",
         "flow.start_issue": "start first issue",
         "flow.status_json": "status JSON reports active issue",
@@ -204,19 +204,18 @@ def _run_first_issue_flow(*, go_ship_it: Path, temp_root: Path, control_root: Pa
         "flow.run_check": "record test command evidence",
         "flow.handoff": "write handoff",
         "flow.export": "export run evidence",
+        "flow.prepare_pr": "prepare local PR preview",
         "flow.verify_strict": "strict verification passed",
         "flow.cleanup_archive": "archive and remove worktree",
         "flow.final_doctor": "doctor passed after cleanup",
     }
     command_map = {
-        "flow.init_repo": [
+        "flow.register_repo": [
             str(go_ship_it),
             "--root",
             str(control_root),
-            "init",
-            "--repo-id",
+            "register-repo",
             "target",
-            "--repo-path",
             str(target_repo),
             "--test-command",
             "python -c 'print(\"ok\")'",
@@ -247,7 +246,7 @@ def _run_first_issue_flow(*, go_ship_it: Path, temp_root: Path, control_root: Pa
             "target/issue-001",
             "--section",
             "Investigation",
-            "--phase",
+            "--for-phase",
             "investigate",
             "--note",
             "Read the disposable target README.",
@@ -270,7 +269,7 @@ def _run_first_issue_flow(*, go_ship_it: Path, temp_root: Path, control_root: Pa
             "target/issue-001",
             "--section",
             "Proposal",
-            "--phase",
+            "--for-phase",
             "propose",
             "--note",
             "Use the smallest README-only change.",
@@ -293,7 +292,7 @@ def _run_first_issue_flow(*, go_ship_it: Path, temp_root: Path, control_root: Pa
             "target/issue-001",
             "--section",
             "Implementation",
-            "--phase",
+            "--for-phase",
             "implement",
             "--note",
             "No target mutation needed for packaged install smoke.",
@@ -316,7 +315,7 @@ def _run_first_issue_flow(*, go_ship_it: Path, temp_root: Path, control_root: Pa
             "target/issue-001",
             "--section",
             "Review",
-            "--phase",
+            "--for-phase",
             "test",
             "--note",
             "Acceptance evidence: README changes. Covered by the smoke test command.",
@@ -329,8 +328,15 @@ def _run_first_issue_flow(*, go_ship_it: Path, temp_root: Path, control_root: Pa
             str(control_root),
             "export-run",
             "target/issue-001",
-            "--output",
-            "docs/dogfood/target-issue-001-evidence.md",
+        ],
+        "flow.prepare_pr": [
+            str(go_ship_it),
+            "--root",
+            str(control_root),
+            "prepare-pr",
+            "target/issue-001",
+            "--branch",
+            "feature/readme-smoke",
         ],
         "flow.verify_strict": [str(go_ship_it), "--root", str(control_root), "verify-run", "target/issue-001", "--strict"],
         "flow.cleanup_archive": [
@@ -344,6 +350,7 @@ def _run_first_issue_flow(*, go_ship_it: Path, temp_root: Path, control_root: Pa
             "--note",
             "Packaged install smoke complete.",
             "--remove-worktree",
+            "--confirm",
         ],
         "flow.final_doctor": [str(go_ship_it), "--root", str(control_root), "doctor"],
     }

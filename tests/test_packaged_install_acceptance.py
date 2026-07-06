@@ -51,7 +51,39 @@ def test_packaged_install_acceptance_checks_fresh_room_and_agent_clis(tmp_path, 
         if "handoff" in command:
             return module.CommandResult(command=command, returncode=0, stdout=str(temp_root / "control" / "state" / "repos" / "target" / "issues" / "execution" / "issue-001" / "handoff.md"), stderr="")
         if "export-run" in command:
-            return module.CommandResult(command=command, returncode=0, stdout=str(temp_root / "control" / "docs" / "dogfood" / "issue-001-evidence.md"), stderr="")
+            return module.CommandResult(
+                command=command,
+                returncode=0,
+                stdout=str(
+                    temp_root
+                    / "control"
+                    / "state"
+                    / "repos"
+                    / "target"
+                    / "issues"
+                    / "execution"
+                    / "issue-001"
+                    / "evidence.md"
+                ),
+                stderr="",
+            )
+        if "prepare-pr" in command:
+            return module.CommandResult(
+                command=command,
+                returncode=0,
+                stdout=str(
+                    temp_root
+                    / "control"
+                    / "state"
+                    / "repos"
+                    / "target"
+                    / "issues"
+                    / "execution"
+                    / "issue-001"
+                    / "pr.md"
+                ),
+                stderr="",
+            )
         if "verify-run" in command and "--strict" in command:
             return module.CommandResult(command=command, returncode=0, stdout="# GoShipit Run Verification\n", stderr="")
         if "cleanup-issue" in command:
@@ -78,7 +110,7 @@ def test_packaged_install_acceptance_checks_fresh_room_and_agent_clis(tmp_path, 
         "cli.init",
         "cli.doctor",
         "flow.target_repo",
-        "flow.init_repo",
+        "flow.register_repo",
         "flow.add_issue",
         "flow.start_issue",
         "flow.status_json",
@@ -86,6 +118,7 @@ def test_packaged_install_acceptance_checks_fresh_room_and_agent_clis(tmp_path, 
         "flow.run_check",
         "flow.handoff",
         "flow.export",
+        "flow.prepare_pr",
         "flow.verify_strict",
         "flow.cleanup_archive",
         "flow.final_doctor",
@@ -94,6 +127,22 @@ def test_packaged_install_acceptance_checks_fresh_room_and_agent_clis(tmp_path, 
     }
     assert [sys.executable, "-m", "venv", str(temp_root / "venv")] in calls
     assert [str(temp_root / "venv" / "bin" / "go-ship-it"), "--root", str(temp_root / "control"), "doctor"] in calls
+    assert [
+        str(temp_root / "venv" / "bin" / "go-ship-it"),
+        "--root",
+        str(temp_root / "control"),
+        "export-run",
+        "target/issue-001",
+    ] in calls
+    assert [
+        str(temp_root / "venv" / "bin" / "go-ship-it"),
+        "--root",
+        str(temp_root / "control"),
+        "prepare-pr",
+        "target/issue-001",
+        "--branch",
+        "feature/readme-smoke",
+    ] in calls
     assert [
         str(temp_root / "venv" / "bin" / "go-ship-it"),
         "--root",
