@@ -33,6 +33,8 @@ PHASES = (
     "publish",
     "archived",
 )
+TRACKS = ("standard", "quick")
+INNER_LOOPS = ("tdd", "debug", "spike", "none")
 OPTIONAL_COMMAND_FIELDS = {"setup_command", "test_command", "lint_command"}
 REQUIRED_REPO_FIELDS = {"id", "path", "default_branch", "worktree_root"}
 REPO_SOURCE_TYPES = {"local", "git_url"}
@@ -538,8 +540,9 @@ def add_issue(
     return issue_file
 
 
-def start_issue(root: Path, issue_ref: str, *, claimed_by: str | None = None) -> StartedRun:
+def start_issue(root: Path, issue_ref: str, *, claimed_by: str | None = None, track: str = "standard") -> StartedRun:
     ensure_layout(root)
+    safe_track = _validate_track(track)
     repo_id, safe_issue_id = _parse_issue_ref(issue_ref)
     todo_dir = _repo_issue_dir(root, repo_id, "todo", safe_issue_id)
     todo_file = todo_dir / "issue.md"
@@ -591,7 +594,12 @@ def start_issue(root: Path, issue_ref: str, *, claimed_by: str | None = None) ->
         worktree_created = True
 
         timestamp = _now_iso()
-        initial_phase = "setup" if setup_command is not None else "investigate"
+        if setup_command is not None:
+            initial_phase = "setup"
+        elif safe_track == "quick":
+            initial_phase = "implement"
+        else:
+            initial_phase = "investigate"
         metadata["phase"] = initial_phase
         metadata["branch"] = branch
         metadata["worktree"] = worktree_relative.as_posix()
@@ -599,24 +607,27 @@ def start_issue(root: Path, issue_ref: str, *, claimed_by: str | None = None) ->
         metadata["claim_id"] = claim_id
         metadata["started_at"] = timestamp
         metadata["last_activity_at"] = timestamp
+        metadata["track"] = safe_track
+        if safe_track == "quick":
+            metadata["inner_loop"] = "tdd"
         execution_file.write_text(render_frontmatter(metadata, body))
 
         run_file = run_dir / "run.yaml"
-        run_file.write_text(
-            _render_mapping(
-                {
-                    "issue_id": safe_issue_id,
-                    "repo": repo_id,
-                    "branch": branch,
-                    "worktree": worktree_relative.as_posix(),
-                    "claimed_by": resolved_claimed_by,
-                    "claim_id": claim_id,
-                    "phase": initial_phase,
-                    "started_at": timestamp,
-                    "last_activity_at": timestamp,
-                }
-            )
-        )
+        run_values: dict[str, object] = {
+            "issue_id": safe_issue_id,
+            "repo": repo_id,
+            "branch": branch,
+            "worktree": worktree_relative.as_posix(),
+            "claimed_by": resolved_claimed_by,
+            "claim_id": claim_id,
+            "phase": initial_phase,
+            "track": safe_track,
+            "started_at": timestamp,
+            "last_activity_at": timestamp,
+        }
+        if safe_track == "quick":
+            run_values["inner_loop"] = "tdd"
+        run_file.write_text(_render_mapping(run_values))
         _append_event(
             run_dir,
             "run.started",
@@ -671,7 +682,11 @@ def start_issue(root: Path, issue_ref: str, *, claimed_by: str | None = None) ->
         )
         if exit_code != 0:
             raise CheckFailedError("worktree_setup", exit_code, record_file)
-        _write_active_phase(execution_file, run_dir / "run.yaml", "investigate")
+        _write_active_phase(
+            execution_file,
+            run_dir / "run.yaml",
+            "implement" if safe_track == "quick" else "investigate",
+        )
     return started_run
 
 
@@ -784,6 +799,41 @@ def set_phase(root: Path, issue_ref: str, phase: str, *, note: str) -> Path:
         timestamp=timestamp,
         phase=safe_phase,
         note_timestamp=note_timestamp,
+    )
+    return issue_file
+
+
+def set_track(root: Path, issue_ref: str, track: str, *, note: str) -> Path:
+    repo_id, issue_id = _parse_issue_ref(issue_ref)
+    safe_track = _validate_track(track)
+    issue_file = _active_issue_file(root, repo_id, issue_id)
+    run_dir = _run_dir(root, repo_id, issue_id)
+    run_file = run_dir / "run.yaml"
+
+    run = _load_run(run_file)
+    current = str(run.get("track") or "standard")
+    if not (current == "quick" and safe_track == "standard"):
+        raise GoShipitError(
+            f"set-track only promotes quick to standard; run is on track '{current}'"
+        )
+
+    metadata, body = parse_frontmatter(issue_file.read_text())
+    timestamp = _now_iso()
+    metadata["track"] = safe_track
+    metadata["last_activity_at"] = timestamp
+    issue_file.write_text(render_frontmatter(metadata, body))
+
+    run["track"] = safe_track
+    run["last_activity_at"] = timestamp
+    run_file.write_text(_render_mapping(run))
+
+    _append_note_to_notes(run_dir / "notes.md", section=f"Track: {safe_track}", note=note, phase=None)
+    _append_event(
+        run_dir,
+        "track.changed",
+        f"track={safe_track}",
+        timestamp=timestamp,
+        track=safe_track,
     )
     return issue_file
 
@@ -1791,6 +1841,13 @@ def _validate_phase(phase: str) -> str:
     if safe_phase not in PHASES:
         raise ValueError(f"phase must be one of: {', '.join(PHASES)}")
     return safe_phase
+
+
+def _validate_track(track: str) -> str:
+    safe_track = track.strip().lower()
+    if safe_track not in TRACKS:
+        raise ValueError(f"track must be one of: {', '.join(TRACKS)}")
+    return safe_track
 
 
 def _timestamp_slug(timestamp: str) -> str:

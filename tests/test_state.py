@@ -17,6 +17,7 @@ from go_ship_it.state import (
     register_repo,
     render_handoff,
     resolve_current_run,
+    set_track,
     start_issue,
     write_handoff,
 )
@@ -584,6 +585,64 @@ def test_start_issue_leaves_todo_unmoved_when_target_repo_is_missing(tmp_path):
     assert (tmp_path / "state" / "repos" / "sample" / "issues" / "todo" / "issue-001" / "issue.md").exists()
     assert not (tmp_path / "state" / "repos" / "sample" / "issues" / "execution" / "issue-001").exists()
     assert not (tmp_path / "worktrees" / "sample" / "issue-001").exists()
+
+
+def _root_with_todo_issue(tmp_path: Path) -> Path:
+    target = _create_git_repo(tmp_path / "target")
+    register_repo(
+        tmp_path,
+        repo_id="sample",
+        path=target,
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+    )
+    _add_sample_issue(tmp_path)
+    return tmp_path
+
+
+def test_start_issue_records_standard_track_by_default(tmp_path):
+    root = _root_with_todo_issue(tmp_path)
+    run = start_issue(root, "sample/issue-001", claimed_by="t")
+    run_data = yaml.safe_load(run.run_file.read_text())
+    assert run_data["track"] == "standard"
+    assert run_data["phase"] == "investigate"
+
+
+def test_start_issue_quick_track_starts_at_implement_with_tdd_loop(tmp_path):
+    root = _root_with_todo_issue(tmp_path)
+    run = start_issue(root, "sample/issue-001", claimed_by="t", track="quick")
+    run_data = yaml.safe_load(run.run_file.read_text())
+    assert run_data["track"] == "quick"
+    assert run_data["phase"] == "implement"
+    assert run_data["inner_loop"] == "tdd"
+    metadata, _body = parse_frontmatter(run.issue_file.read_text())
+    assert metadata["track"] == "quick"
+    assert metadata["inner_loop"] == "tdd"
+
+
+def test_start_issue_rejects_unknown_track(tmp_path):
+    root = _root_with_todo_issue(tmp_path)
+    with pytest.raises(ValueError, match="track must be one of"):
+        start_issue(root, "sample/issue-001", claimed_by="t", track="heavy")
+
+
+def test_set_track_promotes_quick_to_standard(tmp_path):
+    root = _root_with_todo_issue(tmp_path)
+    run = start_issue(root, "sample/issue-001", claimed_by="t", track="quick")
+    set_track(root, "sample/issue-001", "standard", note="Grew beyond a quick fix.")
+    run_data = yaml.safe_load(run.run_file.read_text())
+    assert run_data["track"] == "standard"
+    metadata, _body = parse_frontmatter(run.issue_file.read_text())
+    assert metadata["track"] == "standard"
+
+
+def test_set_track_refuses_demotion(tmp_path):
+    root = _root_with_todo_issue(tmp_path)
+    start_issue(root, "sample/issue-001", claimed_by="t")
+    with pytest.raises(GoShipitError, match="only promotes"):
+        set_track(root, "sample/issue-001", "quick", note="Nope.")
 
 
 def _started_issue_root(tmp_path: Path) -> Path:

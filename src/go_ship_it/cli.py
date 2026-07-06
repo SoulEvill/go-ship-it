@@ -32,6 +32,7 @@ from go_ship_it.state import (
     run_check,
     run_timeline,
     set_phase,
+    set_track,
     show_issue,
     show_run,
     start_issue,
@@ -124,6 +125,8 @@ def build_parser() -> argparse.ArgumentParser:
     start = subparsers.add_parser("start-issue", help="Claim a todo issue and create its worktree.")
     start.add_argument("issue_id")
     start.add_argument("--claimed-by", default=None)
+    start.add_argument("--track", choices=["standard", "quick"], default=None)
+    start.add_argument("--quick", action="store_true", help="Shorthand for --track quick.")
 
     cleanup = subparsers.add_parser("cleanup-issue", help="Return an execution issue to todo or archive it.")
     cleanup.add_argument("issue_id", nargs="?")
@@ -158,6 +161,12 @@ def build_parser() -> argparse.ArgumentParser:
     phase.add_argument("phase", nargs="?")
     phase.add_argument("--current", action="store_true", help="Use the managed worktree's current run context.")
     phase.add_argument("--note", required=True)
+
+    track_cmd = subparsers.add_parser("set-track", help="Promote an issue's track (quick -> standard).")
+    track_cmd.add_argument("issue_id", nargs="?")
+    track_cmd.add_argument("track", nargs="?")
+    track_cmd.add_argument("--current", action="store_true", help="Use the managed worktree's current run context.")
+    track_cmd.add_argument("--note", required=True)
 
     check = subparsers.add_parser("run-check", help="Run a manual registered repo check and record evidence.")
     check.add_argument("issue_id", nargs="?")
@@ -292,14 +301,14 @@ def _resolve_issue_target(root: Path, args: argparse.Namespace) -> tuple[Path, s
     return root, issue_ref
 
 
-def _resolve_phase_target(root: Path, args: argparse.Namespace) -> tuple[Path, str, str]:
+def _resolve_positional_target(root: Path, args: argparse.Namespace, attr: str) -> tuple[Path, str, str]:
     issue_id = args.issue_id
-    phase = args.phase
+    phase = getattr(args, attr)
     if phase is None and issue_id is not None and (args.current or _can_resolve_current_run()):
         phase = issue_id
         issue_id = None
     if phase is None:
-        raise ValueError("phase is required")
+        raise ValueError(f"{attr} is required")
 
     target_args = argparse.Namespace(issue_id=issue_id, current=args.current)
     resolved_root, resolved_issue = _resolve_issue_target(root, target_args)
@@ -867,7 +876,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
 
         if args.command == "start-issue":
-            run = start_issue(root, args.issue_id, claimed_by=args.claimed_by)
+            if args.quick and args.track == "standard":
+                raise ValueError("Cannot combine --quick with --track standard")
+            track = "quick" if args.quick else (args.track or "standard")
+            run = start_issue(root, args.issue_id, claimed_by=args.claimed_by, track=track)
             if run.already_active:
                 print("Active run already exists.")
             print(f"Issue: {run.issue_ref}")
@@ -899,8 +911,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
 
         if args.command == "set-phase":
-            target_root, issue_id, phase = _resolve_phase_target(root, args)
+            target_root, issue_id, phase = _resolve_positional_target(root, args, "phase")
             issue_file = set_phase(target_root, issue_id, phase, note=args.note)
+            print(issue_file)
+            return 0
+
+        if args.command == "set-track":
+            target_root, issue_id, track = _resolve_positional_target(root, args, "track")
+            issue_file = set_track(target_root, issue_id, track, note=args.note)
             print(issue_file)
             return 0
 

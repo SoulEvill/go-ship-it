@@ -181,6 +181,12 @@ def test_parser_has_evidence_commands():
     assert phase.phase == "propose"
     assert phase.note == "Ready to propose"
 
+    quick = parser.parse_args(["start-issue", "sample/issue-002", "--quick"])
+    assert quick.quick is True
+    track = parser.parse_args(["set-track", "sample/issue-002", "standard", "--note", "Promoted"])
+    assert track.command == "set-track"
+    assert track.track == "standard"
+
     cleanup = parser.parse_args(
         [
             "cleanup-issue",
