@@ -169,3 +169,35 @@ def test_update_repo_config_rejects_empty_required_field(tmp_path):
 
     with pytest.raises(ValueError, match="default_branch"):
         update_repo_config(tmp_path, "sample", updates={"default_branch": ""}, clears=set())
+
+
+def test_pull_request_provider_accepts_none(tmp_path):
+    register_repo(
+        tmp_path,
+        repo_id="sample",
+        path=Path("../sample"),
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+    )
+
+    update_repo_config(tmp_path, "sample", updates={"pull_request": {"provider": "none"}}, clears=set())
+
+    config = read_repo_config(tmp_path, "sample")
+    assert config["pull_request"]["provider"] == "none"
+
+
+def test_pull_request_provider_rejects_unknown_values(tmp_path):
+    register_repo(
+        tmp_path,
+        repo_id="sample",
+        path=Path("../sample"),
+        default_branch="main",
+        setup_command=None,
+        test_command=None,
+        lint_command=None,
+    )
+
+    with pytest.raises(ValueError, match="provider"):
+        update_repo_config(tmp_path, "sample", updates={"pull_request": {"provider": "gitlab"}}, clears=set())

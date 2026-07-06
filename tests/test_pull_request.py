@@ -150,6 +150,15 @@ def test_prepare_pr_moves_active_issue_to_prepare_pr_phase(tmp_path):
     assert run["phase"] == "prepare-pr"
 
 
+def test_publish_refuses_when_provider_is_none(tmp_path):
+    root = _started_issue_root(tmp_path)
+    update_repo_config(root, "sample", updates={"pull_request": {"provider": "none"}}, clears=set())
+    prepare_pull_request(root, "sample/issue-001", branch="feature/sample")
+
+    with pytest.raises(GoShipitError, match="no publish target"):
+        publish_pull_request(root, "sample/issue-001", approved=True)
+
+
 def _started_issue_root(tmp_path: Path) -> Path:
     target = _create_git_repo(tmp_path / "target")
     register_repo(

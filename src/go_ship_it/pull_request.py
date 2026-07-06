@@ -144,6 +144,11 @@ def publish_pull_request(
         raise GoShipitError("Publishing requires explicit approval; rerun with --approved or enable pull_request.auto_publish")
 
     provider = _required_record_string(record, "provider")
+    if provider == "none":
+        raise GoShipitError(
+            "This repo has no publish target (pull_request.provider: none); "
+            "archive after local pr.md sign-off instead"
+        )
     if provider != "github":
         raise GoShipitError(f"Unsupported pull_request.provider: {provider}")
     remote = _required_record_string(record, "remote")

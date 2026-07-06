@@ -13,6 +13,7 @@ from go_ship_it.state import (
     run_check,
     set_phase,
     start_issue,
+    update_repo_config,
     write_handoff,
 )
 from go_ship_it.verify import verify_run
@@ -110,6 +111,52 @@ def test_verify_run_accepts_active_run_handoff(tmp_path):
     assert any(item.code == "handoff.present" for item in report.ok)
 
 
+def test_verify_run_quick_track_requires_only_implementation_and_review_notes(tmp_path):
+    root = _started_issue_root(tmp_path, track="quick")
+    set_phase(root, ISSUE_REF, "review", note="Reviewing.")
+    append_note(root, ISSUE_REF, section="Implementation", phase="implement", note="Changed files.")
+    append_note(root, ISSUE_REF, section="Review", phase="review", note="Ready.")
+    run_check(root, ISSUE_REF, check="test")
+
+    report = verify_run(root, ISSUE_REF)
+
+    codes = {item.code for item in report.warnings}
+    assert "notes.investigation_missing" not in codes
+    assert "notes.proposal_missing" not in codes
+
+
+def test_verify_run_standard_track_still_requires_all_four_sections(tmp_path):
+    root = _started_issue_root(tmp_path)
+    report = verify_run(root, ISSUE_REF)
+    codes = {item.code for item in report.warnings}
+    assert "notes.investigation_missing" in codes
+    assert "notes.proposal_missing" in codes
+
+
+def test_verify_run_warns_when_archived_without_published_pr(tmp_path):
+    root = _started_issue_root(tmp_path)
+    _write_required_notes(root, ISSUE_REF)
+    run_check(root, ISSUE_REF, check="test")
+    cleanup_issue(root, ISSUE_REF, destination="archive", note="Done.", remove_worktree=False, confirm_archive=True)
+
+    report = verify_run(root, ISSUE_REF)
+
+    assert any(item.code == "publish.missing" for item in report.warnings)
+
+
+def test_verify_run_accepts_archive_without_publish_when_provider_none(tmp_path):
+    root = _started_issue_root(tmp_path)
+    update_repo_config(root, "sample", updates={"pull_request": {"provider": "none"}}, clears=set())
+    _write_required_notes(root, ISSUE_REF)
+    run_check(root, ISSUE_REF, check="test")
+    cleanup_issue(root, ISSUE_REF, destination="archive", note="Done.", remove_worktree=False, confirm_archive=True)
+
+    report = verify_run(root, ISSUE_REF)
+
+    assert not any(item.code == "publish.missing" for item in report.warnings)
+    assert any(item.code == "publish.not_required" for item in report.ok)
+
+
 def _write_required_notes(root: Path, issue_id: str) -> None:
     set_phase(root, issue_id, "investigate", note="Investigating.")
     append_note(root, issue_id, section="Investigation", phase="investigate", note="Read context.")
@@ -121,7 +168,9 @@ def _write_required_notes(root: Path, issue_id: str) -> None:
     append_note(root, issue_id, section="Review", phase="review", note="Ready.")
 
 
-def _started_issue_root(tmp_path: Path, *, test_command: str = "python -c 'print(\"ok\")'") -> Path:
+def _started_issue_root(
+    tmp_path: Path, *, test_command: str = "python -c 'print(\"ok\")'", track: str = "standard"
+) -> Path:
     target = _create_git_repo(tmp_path / "target")
     register_repo(
         tmp_path,
@@ -140,7 +189,7 @@ def _started_issue_root(tmp_path: Path, *, test_command: str = "python -c 'print
         context="Use the test repo.",
         acceptance_criteria=["README changes."],
     )
-    start_issue(tmp_path, ISSUE_REF, claimed_by="test-thread")
+    start_issue(tmp_path, ISSUE_REF, claimed_by="test-thread", track=track)
     return tmp_path
 
 

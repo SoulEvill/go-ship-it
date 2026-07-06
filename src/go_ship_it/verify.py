@@ -4,7 +4,13 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from go_ship_it.state import show_issue, show_run
+from go_ship_it.state import (
+    TRACK_REQUIRED_NOTE_SECTIONS,
+    pull_request_config,
+    read_repo_config,
+    show_issue,
+    show_run,
+)
 
 
 @dataclass(frozen=True)
@@ -50,13 +56,18 @@ def verify_run(root: Path, issue_id: str) -> VerificationReport:
         findings.append(_error("run.missing", "run/file", str(exc)))
         return _report(findings)
 
+    track = str(run.run.get("track") or "standard")
+    if track not in TRACK_REQUIRED_NOTE_SECTIONS:
+        findings.append(_error("run.track_invalid", "run/track", f"Unknown track: {track}"))
+        track = "standard"
     _check_run_metadata(findings, run.run)
-    _check_notes(findings, run.notes)
+    _check_notes(findings, run.notes, track)
     _check_commands(findings, run.commands)
     if issue is not None:
         _check_acceptance_criteria(findings, issue.body, run.notes, run.commands)
         _check_active_handoff(findings, root, run.run_file, issue.summary.status)
         _check_cleanup_and_exports(findings, root, issue_id, issue.summary.status, issue.metadata, run.run)
+        _check_publish(findings, root, issue.summary.repo, issue.summary.status, run.run)
     return _report(findings)
 
 
@@ -68,9 +79,8 @@ def _check_run_metadata(findings: list[VerificationFinding], run: dict[str, obje
             findings.append(_error(f"run.{field}_missing", f"run/{field}", f"{field} is missing"))
 
 
-def _check_notes(findings: list[VerificationFinding], notes: str) -> None:
-    required_sections = ("Investigation", "Proposal", "Implementation", "Review")
-    for section in required_sections:
+def _check_notes(findings: list[VerificationFinding], notes: str, track: str) -> None:
+    for section in TRACK_REQUIRED_NOTE_SECTIONS[track]:
         if f"## {section}" in notes:
             findings.append(_ok(f"notes.{section.lower()}", f"notes/{section}", f"{section} note exists"))
         else:
@@ -197,6 +207,32 @@ def _check_cleanup_and_exports(
                 "Archived issue still has a preserved worktree for review",
             )
         )
+
+
+def _check_publish(
+    findings: list[VerificationFinding],
+    root: Path,
+    repo_id: str,
+    issue_status: str,
+    run: dict[str, object],
+) -> None:
+    if issue_status != "archive":
+        return
+    try:
+        provider = str(pull_request_config(read_repo_config(root, repo_id)).get("provider"))
+    except (OSError, ValueError) as exc:
+        findings.append(_warning("publish.config_unreadable", "publish", f"Repo PR config unreadable: {exc}"))
+        return
+    if provider == "none":
+        findings.append(
+            _ok("publish.not_required", "publish", "Repo has no publish target; local pr.md sign-off is the gate")
+        )
+        return
+    record = run.get("pull_request")
+    if isinstance(record, dict) and isinstance(record.get("published_url"), str) and record["published_url"].strip():
+        findings.append(_ok("publish.recorded", "publish", f"Published: {record['published_url']}"))
+    else:
+        findings.append(_warning("publish.missing", "publish", "Archived without a published PR"))
 
 
 def _export_is_stale(export: dict[object, object], closed_at: object) -> bool:

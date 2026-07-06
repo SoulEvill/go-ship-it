@@ -36,6 +36,10 @@ PHASES = (
 TRACKS = ("standard", "quick")
 INNER_LOOPS = ("tdd", "debug", "spike", "none")
 REVIEW_PIPELINES = ("self", "clean-room")
+TRACK_REQUIRED_NOTE_SECTIONS = {
+    "standard": ("Investigation", "Proposal", "Implementation", "Review"),
+    "quick": ("Implementation", "Review"),
+}
 OPTIONAL_COMMAND_FIELDS = {"setup_command", "test_command", "lint_command"}
 REQUIRED_REPO_FIELDS = {"id", "path", "default_branch", "worktree_root"}
 REPO_SOURCE_TYPES = {"local", "git_url"}
@@ -466,10 +470,12 @@ def _merged_pull_request_config(existing: object, updates: object) -> dict[str, 
 
 
 def _validate_pull_request_config(config: dict[str, object]) -> None:
-    for field in ("provider", "remote"):
-        value = config.get(field)
-        if not isinstance(value, str) or not value.strip():
-            raise ValueError(f"pull_request.{field} must not be empty")
+    provider = config.get("provider")
+    if provider not in {"github", "none"}:
+        raise ValueError("pull_request.provider must be 'github' or 'none'")
+    remote = config.get("remote")
+    if not isinstance(remote, str) or not remote.strip():
+        raise ValueError("pull_request.remote must not be empty")
     if config.get("auto_publish") not in {True, False}:
         raise ValueError("pull_request.auto_publish must be true or false")
 
