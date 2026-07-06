@@ -79,7 +79,7 @@ Development fallback:
 scripts/install-claude-skills.sh
 ```
 
-The fallback copies skill folders into `.claude/skills/`. It is useful for local dogfood, but the package model is preferred because it keeps skills, hooks, and metadata versioned together.
+The fallback copies skill folders into `.claude/skills/`. It is useful for local development, but the package model is preferred because it keeps skills, hooks, and metadata versioned together.
 
 ## Codex
 
@@ -177,7 +177,7 @@ uv build
 scripts/validate-packaged-install.py --wheel dist/go_ship_it-0.1.0-py3-none-any.whl
 ```
 
-This creates a temporary fresh room, installs the wheel into a new virtual environment, initializes a temporary control root, runs `go-ship-it package-root`, `go-ship-it init`, and `go-ship-it doctor`, then checks whether Claude Code and Cursor Agent can load the installed package root when those CLIs are available.
+This creates a temporary fresh room, installs the wheel into a new virtual environment, runs `go-ship-it package-root`, initializes a temporary control root, registers a disposable target repo, and runs `go-ship-it doctor`, then checks whether Claude Code and Cursor Agent can load the installed package root when those CLIs are available.
 
 It also drives a disposable first-issue flow: create a target git repo, register it, add and start an issue, inspect `status --json`, record evidence, run the configured test check, write handoff, export evidence, run `verify-run --strict`, archive with `--remove-worktree`, and run final `doctor`.
 

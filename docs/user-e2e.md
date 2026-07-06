@@ -11,32 +11,30 @@ go-ship-it status
 
 In a clone-based GoShipit development checkout, use `uv run go-ship-it ...` if `go-ship-it` is not installed on PATH. In an installed package, use `go-ship-it ...`.
 
-For a first-time control root, initialize state and register the first target repo together:
+For a first-time control root, initialize state, then register the target repo:
 
 ```sh
-go-ship-it init \
-  --repo-id my-repo \
-  --repo-source /path/to/my-repo \
-  --test-command "uv run pytest"
+go-ship-it init
+go-ship-it register-repo my-repo /path/to/my-repo --test-command "uv run pytest"
 ```
 
-For GoShipit contributors dogfooding with ParaWave in this workspace, setup should register `parawave` as the target repo:
+For GoShipit contributors testing with ParaWave in this workspace, setup should register `parawave` as a normal target repo:
 
 ```sh
 scripts/setup/parawave.sh
 ```
 
-That helper runs `go-ship-it init` with `--repo-id parawave`, `--repo-source ../parawave`, ParaWave's test command, and the local `go-ship-it` feedback repo. Set `PARAWAVE_PATH=/path/to/parawave` when the ParaWave clone is not a sibling of this repo.
+That helper runs `go-ship-it init`, registers `parawave` from `../parawave` with ParaWave's test command, and registers the local `go-ship-it` feedback repo. Set `PARAWAVE_PATH=/path/to/parawave` when the ParaWave clone is not a sibling of this repo.
 
 Equivalent explicit command:
 
 ```sh
-go-ship-it init \
-  --repo-id parawave \
-  --repo-source /path/to/parawave \
-  --test-command "uv run --extra dev --extra sqlite pytest tests/ -v --tb=short" \
-  --feedback-repo-source /path/to/go-ship-it \
-  --feedback-test-command "uv run pytest -q"
+go-ship-it init
+go-ship-it register-repo parawave /path/to/parawave \
+  --test-command "uv run --extra dev --extra sqlite pytest tests/ -v --tb=short"
+go-ship-it register-repo go-ship-it /path/to/go-ship-it \
+  --feedback \
+  --test-command "uv run pytest -q"
 ```
 
 This creates `state/repos/parawave/` as the target repo and `state/repos/go-ship-it/` as the place for GoShipit product feedback discovered during ParaWave work.
@@ -76,7 +74,7 @@ worktrees/<repo>/<issue-id>/.go-ship-it/context.yaml
 
 `state/repos/<repo>/issues/execution/<issue-id>/run.yaml` is the active run metadata source of truth. `.go-ship-it/context.yaml` is only a worktree pointer back to that run and must match before current-run commands write notes or command records.
 
-`evidence.md` appears after `export-run`. It is an optional issue-local snapshot for review and handoff. `pr.md` appears after `prepare-pr` and is the local PR preview. GoShipit maintainers also keep committed historical dogfood reports under `docs/dogfood/`; normal user runs should not write there by default.
+`evidence.md` appears after `export-run`. It is an optional issue-local snapshot for review and handoff. `pr.md` appears after `prepare-pr` and is the local PR preview. GoShipit maintainers also keep committed historical run reports under `docs/dogfood/`; normal user runs should not write there by default.
 
 ## Disposable Target Harness
 
@@ -94,14 +92,14 @@ The harness clones the target into a temporary run root, registers that clone wi
 
 ### Contributor Fixture: Parawave
 
-GoShipit contributors can use `scripts/dev/run-parawave-e2e.sh` inside this development workspace. Parawave is a local fixture for dogfooding; it is not a default target for users.
+GoShipit contributors can use `scripts/dev/run-parawave-e2e.sh` inside this development workspace. ParaWave is a local fixture for GoShipit contributor testing; it is not a default target for users.
 
 ## Issue Flow
 
 Use `skills/manage-issues/SKILL.md` for steps 1-3 and 11-12. Use `skills/work-issue/SKILL.md` for steps 4-10.
 
-1. Initialize and register the target repo with `go-ship-it init --repo-id <repo> --repo-source <local-path-or-git-url>`, or inspect an existing target with `go-ship-it show-repo <repo>`.
-2. If every issue worktree needs local files or bootstrap work, configure `go-ship-it update-repo <repo> --worktree-setup-command "<command>"`. The command runs from each new issue worktree and records evidence under that issue's logs.
+1. Initialize the control root with `go-ship-it init`, then register the target repo with `go-ship-it register-repo <repo> <local-path-or-git-url>`, or inspect an existing target with `go-ship-it show-repo <repo>`.
+2. If every issue worktree needs local files or bootstrap work, configure `go-ship-it update-repo <repo> --worktree-setup-command "<command>"`. This automatic bootstrap command runs from each new issue worktree and records evidence under that issue's logs. Manual validation checks still use `run-check --check setup|test|lint`.
 3. Add an issue with `go-ship-it add-issue`.
 4. Start it with `go-ship-it start-issue <repo>/<issue-id>`.
 5. Inspect it with `go-ship-it show-issue <repo>/<issue-id>`.
@@ -114,11 +112,12 @@ Use `skills/manage-issues/SKILL.md` for steps 1-3 and 11-12. Use `skills/work-is
 12. Run configured checks with `go-ship-it run-check --current --check test` from the worktree, or `go-ship-it run-check <repo>/<issue-id> --check test` from the control root.
 13. Create an explicit resume snapshot with `go-ship-it handoff --write` from the worktree, or `go-ship-it handoff <repo>/<issue-id> --write` from the control root, when another session should continue.
 14. Export issue-local evidence with `go-ship-it export-run`.
-15. Run `go-ship-it verify-run <repo>/<issue-id> --strict` and resolve or explicitly report every warning before cleanup.
-16. Prepare a local PR preview with `go-ship-it prepare-pr <repo>/<issue-id> --branch <team-branch-name>`. The managed local branch is internal; this PR branch is chosen per issue and recorded in the run for later publish/rerun commands.
-17. Publish only after approval, or when `pull_request.auto_publish: true` is set for the repo. Publishing uses `go-ship-it publish-pr <repo>/<issue-id>`.
-18. Cleanup to `archive` with `--remove-worktree` for completed work, or return to `todo` with `--remove-worktree` when work should be retried later.
-19. Run `go-ship-it doctor` again.
+15. Ask an independent checker/sub-agent to review the issue problem, acceptance criteria, diff, notes, and command evidence. Record its verdict and caveats in the Review note.
+16. Run `go-ship-it verify-run <repo>/<issue-id> --strict` and resolve or explicitly report every warning before cleanup.
+17. Prepare a local PR preview with `go-ship-it prepare-pr <repo>/<issue-id> --branch <team-branch-name>`. The managed local branch is internal; this PR branch is chosen per issue and recorded in the run for later publish/rerun commands.
+18. Publish with `go-ship-it publish-pr <repo>/<issue-id> --approved` only after approval, or omit `--approved` when `pull_request.auto_publish: true` is set for the repo.
+19. Cleanup to `archive` with `--remove-worktree` for completed work, or return to `todo` with `--remove-worktree` when work should be retried later. If the managed worktree has uncommitted target changes, cleanup refuses to remove it by default. Commit/prepare the PR, preserve the worktree for review, or use `--discard-worktree-changes` only when intentionally throwing local work away.
+20. Run `go-ship-it doctor` again.
 
 For agent-driven checks, prefer structured output:
 

@@ -17,7 +17,8 @@ Avoid adding a new skill when the behavior is only a new CLI verb or a new refer
 The CLI is plumbing for skills and humans. The normal path is:
 
 ```sh
-go-ship-it init --repo-id <id> --repo-source <local-path-or-git-url> [--test-command <cmd>]
+go-ship-it init
+go-ship-it register-repo <id> <local-path-or-git-url> [--test-command <cmd>]
 go-ship-it update-repo <id> --worktree-setup-command <cmd>
 go-ship-it add-issue --repo <id> --title <title> --problem <problem>
 go-ship-it start-issue <repo>/<issue-id>
@@ -33,20 +34,19 @@ go-ship-it cleanup-issue <repo>/<issue-id> --destination archive --note <note> -
 
 `export-run` defaults to `evidence.md` inside the issue folder. Use `--output` only when the user explicitly wants a copy somewhere else.
 
-`prepare-pr` is local-only and writes `pr.md` inside the issue folder. `publish-pr` pushes the local work branch to the recorded PR branch and runs `gh pr create`; use it only after approval unless the repo allows auto publish.
+`prepare-pr` is local-only and writes `pr.md` inside the issue folder. `publish-pr` pushes the local work branch to the recorded PR branch and runs `gh pr create`; when repo auto-publish is disabled, use `publish-pr --approved` only after the user approves publishing.
 
-For GoShipit dogfood or self-improvement, setup can also register `go-ship-it` as the product-feedback repo:
+`cleanup-issue --remove-worktree` refuses to delete a dirty managed worktree by default. Preserve the worktree, commit/prepare PR first, or use `--discard-worktree-changes` only when the user explicitly chooses to discard local target work.
+
+When the control root is being used to improve GoShipit itself, setup can also register `go-ship-it` as the product-feedback repo:
 
 ```sh
-go-ship-it init \
-  --repo-id <target-repo> \
-  --repo-source <target-path-or-git-url> \
-  --test-command <target-test-command> \
-  --feedback-repo-source <go-ship-it-repo-path-or-git-url> \
-  --feedback-test-command "uv run pytest -q"
+go-ship-it init
+go-ship-it register-repo <target-repo> <target-path-or-git-url> --test-command <target-test-command>
+go-ship-it register-repo go-ship-it <go-ship-it-repo-path-or-git-url> --feedback --test-command "uv run pytest -q"
 ```
 
-In the GoShipit development workspace, use `scripts/setup/parawave.sh` to register `parawave` as the dogfood target repo and `go-ship-it` as the feedback repo.
+If the user explicitly asks to set up ParaWave in the GoShipit development workspace, use `scripts/setup/parawave.sh`. It registers `parawave` as a normal target repo and `go-ship-it` as the feedback repo.
 
 Advanced commands such as `show-run`, `handoff`, `append-note`, `set-phase`, `verify-run`, `export-run`, `doctor`, and `package-root` support the lifecycle but do not need separate skills.
 
@@ -59,6 +59,8 @@ go-ship-it verify-run <repo>/<issue-id> --json
 ```
 
 Use `go-ship-it verify-run <repo>/<issue-id> --strict` as the pre-cleanup readiness gate. It should pass before normal archive cleanup unless the user explicitly accepts the remaining warnings.
+
+Use the agent platform's native sub-agent, reviewer, or checker mechanism for semantic done/not-done review before cleanup when available. Record that judgment in the Review note; keep `verify-run --strict` as the deterministic evidence-structure gate.
 
 Registered repos use a folder shape:
 
@@ -97,7 +99,9 @@ Current-run detection reads `.go-ship-it/context.yaml` and verifies it against t
 
 Repo sources may be local paths or Git URLs. URL sources are cloned into `worktrees/<repo>/_source`; active issue worktrees are siblings such as `worktrees/<repo>/issue-001`. Do not edit `_source` during issue work.
 
-Optional worktree setup lives in `state/repos/<repo>/repo.yaml` under `worktree_setup.command`. It runs from each new issue worktree after `start-issue` creates it and records command evidence under that issue's `logs/commands/` folder.
+GoShipit does not currently auto-refresh registered sources. Git URL sources use the local `_source` clone created at registration time; local-path sources use the user's local checkout. If upstream freshness matters, refresh the source before starting a new issue.
+
+Optional worktree setup lives in `state/repos/<repo>/repo.yaml` under `worktree_setup.command`. It is automatic bootstrap: it runs from each new issue worktree after `start-issue` creates it and records command evidence under that issue's `logs/commands/` folder. Manual validation commands live in `setup_command`, `test_command`, and `lint_command`, and are invoked with `run-check`.
 
 Repo-level PR config lives in `state/repos/<repo>/repo.yaml`:
 

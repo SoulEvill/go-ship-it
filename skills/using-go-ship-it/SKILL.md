@@ -48,6 +48,8 @@ go-ship-it doctor
 
 Use `status` for orientation and `doctor` for consistency checks.
 
+If the user asks for "preflight", treat that as the lightweight readiness pair: run `status` and `doctor`, then summarize whether the control root, registered repos, package files, and active issue state are clean. Do not look for a separate `preflight` CLI subcommand.
+
 ## Working Directory Guard
 
 Before any lifecycle work, prove which repository you are in:
@@ -109,6 +111,8 @@ Do not edit target repositories from the control repo checkout. Target edits bel
 
 Use the CLI as plumbing. When talking to the user, summarize the next action in plain language first. Show exact commands only when the user asks, when a command failed, or when the command is the safest way to disambiguate what will happen.
 
+Do not narrate a list of CLI commands as the default user experience. Prefer "I found the repo and it has no active issues; I can create a todo or update repo context next" over "Run `go-ship-it add-issue ...`". Use exact command text as evidence after a failure, in a handoff, or when the user explicitly wants to run it themselves.
+
 Good user-facing phrasing:
 
 - "ParaWave is registered and has no active issues. Next I can create the first todo or update repo context."
@@ -128,25 +132,25 @@ GoShipit does not automatically launch headless agents, discover work, create PR
 
 Remote integrations are optional future extensions. Keep local lifecycle evidence useful without them.
 
-## Dogfood And Feedback Routing
+## Feedback Routing
 
-In this development workspace, `parawave` may be registered as a dogfood target repo. Treat `state/repos/parawave/repo.yaml` and `state/repos/parawave/context.md` as the source of truth before starting ParaWave work. Do not present ParaWave as a default target repo for external users.
+Treat every registered target repo the same way. The repo folder under `state/repos/<repo>/` is the source of truth for that repo's config, context, issues, and runs.
 
-If ParaWave is not registered yet in this development workspace, set it up as the dogfood target:
+If the user explicitly asks to set up ParaWave in this development workspace, use the helper:
 
 ```sh
 scripts/setup/parawave.sh
 ```
 
-Equivalent explicit setup:
+The helper registers ParaWave as a normal target repo and registers the local GoShipit repo for product feedback. Equivalent explicit setup:
 
 ```sh
-go-ship-it init \
-  --repo-id parawave \
-  --repo-source <parawave-repo-path-or-git-url> \
-  --test-command "uv run --extra dev --extra sqlite pytest tests/ -v --tb=short" \
-  --feedback-repo-source <go-ship-it-repo-path-or-git-url> \
-  --feedback-test-command "uv run pytest -q"
+go-ship-it init
+go-ship-it register-repo parawave <parawave-repo-path-or-git-url> \
+  --test-command "uv run --extra dev --extra sqlite pytest tests/ -v --tb=short"
+go-ship-it register-repo go-ship-it <go-ship-it-repo-path-or-git-url> \
+  --feedback \
+  --test-command "uv run pytest -q"
 ```
 
 When GoShipit itself is being improved, use the registered `go-ship-it` repo. If the user reports GoShipit friction, confusing behavior, install problems, bad command output, or lifecycle UX issues while working any target repo, create or offer to create a normal todo issue under `go-ship-it`. Link it back to the source repo, source issue, active run path, and a concise note about what happened.

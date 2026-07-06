@@ -48,9 +48,10 @@ In a clone-based development checkout, use `uv run go-ship-it ...` when the CLI 
 The first-run command surface is intentionally small:
 
 ```sh
-go-ship-it init --repo-id my-repo --repo-source /path/to/repo --test-command "uv run pytest"
+go-ship-it init
+go-ship-it register-repo my-repo /path/to/repo --test-command "uv run pytest"
 # or:
-go-ship-it init --repo-id my-repo --repo-source https://github.com/org/repo.git --test-command "uv run pytest"
+go-ship-it register-repo my-repo https://github.com/org/repo.git --test-command "uv run pytest"
 go-ship-it add-issue --repo my-repo --title "Fix parser" --problem "Parser drops quoted values."
 go-ship-it start-issue my-repo/issue-001
 go-ship-it status
@@ -63,22 +64,21 @@ go-ship-it prepare-pr my-repo/issue-001 --branch feature/fix-parser
 go-ship-it cleanup-issue my-repo/issue-001 --destination archive --note "Done." --remove-worktree
 ```
 
-`export-run` writes `evidence.md` inside the issue folder by default. `docs/dogfood/` is only for committed GoShipit maintainer dogfood reports, not normal user runs.
+`export-run` writes `evidence.md` inside the issue folder by default. `docs/dogfood/` is only for committed GoShipit maintainer run reports, not normal user runs.
+
+`cleanup-issue --remove-worktree` refuses to delete a dirty managed worktree by default. Commit or prepare the PR first, preserve the worktree, or use `--discard-worktree-changes` only when intentionally throwing local target work away.
 
 When the control root is being used to improve GoShipit itself, setup can also register the GoShipit repo as the product-feedback target:
 
 ```sh
-go-ship-it init \
-  --repo-id my-repo \
-  --repo-source /path/to/my-repo \
-  --test-command "uv run pytest" \
-  --feedback-repo-source /path/to/go-ship-it \
-  --feedback-test-command "uv run pytest -q"
+go-ship-it init
+go-ship-it register-repo my-repo /path/to/my-repo --test-command "uv run pytest"
+go-ship-it register-repo go-ship-it /path/to/go-ship-it --feedback --test-command "uv run pytest -q"
 ```
 
 That creates `state/repos/go-ship-it/` with product-feedback context so GoShipit friction from target-repo work can become normal `go-ship-it/<issue-id>` issues.
 
-For contributor dogfood against the sibling ParaWave repo, use the helper instead:
+For contributor testing against the sibling ParaWave repo, use the helper instead:
 
 ```sh
 scripts/setup/parawave.sh
@@ -121,13 +121,17 @@ worktrees/<repo>/<issue-id>
 
 The `_source` checkout is the canonical local clone GoShipit uses to create isolated issue worktrees. Target repo edits still belong only inside the active issue worktree, not `_source`.
 
-Some repos need local files or generated setup that Git worktrees do not copy, such as `.env`, private config, local fixtures, or dependency bootstrapping. Configure one optional script to run after every issue worktree is created:
+GoShipit does not currently auto-refresh registered sources before starting work. A Git URL source uses the local `_source` clone created at registration time; a local source uses the user's local checkout. If starting from the latest upstream state matters, refresh the registered source before starting the issue.
+
+Some repos need local files or generated setup that Git worktrees do not copy, such as `.env`, private config, local fixtures, or dependency bootstrapping. Configure one optional automatic bootstrap script to run after every issue worktree is created:
 
 ```sh
 go-ship-it update-repo my-repo --worktree-setup-command "state/repos/my-repo/setup/setup-worktree.sh"
 ```
 
 The command runs from the new issue worktree. GoShipit records stdout, stderr, and exit code under that issue's `logs/commands/` folder. If the command fails, the issue remains active in setup phase so the failure can be inspected.
+
+This is separate from repo check commands such as `setup_command`, `test_command`, and `lint_command`. Those are manual validation checks invoked with `run-check --check setup|test|lint`.
 
 Repo PR behavior also lives in `repo.yaml`:
 
@@ -146,7 +150,7 @@ The managed local work branch remains GoShipit-owned, for example `go-ship-it/is
 go-ship-it status
 go-ship-it show-run
 go-ship-it show-run --current
-go-ship-it append-note --current --section "Investigation" --phase investigate --note "Read parser tests."
+go-ship-it append-note --current --section "Investigation" --for-phase investigate --note "Read parser tests."
 go-ship-it run-check --current --check test
 go-ship-it handoff --write
 ```
@@ -182,7 +186,9 @@ go-ship-it verify-run <repo>/<issue-id> --strict
 go-ship-it prepare-pr <repo>/<issue-id> --branch <team-branch-name>
 ```
 
-`prepare-pr` is local-only. It writes `pr.md` for review and records the issue-level PR branch in `run.yaml`. `publish-pr` is the native GitHub path: it pushes the local work branch to the recorded PR branch, then runs `gh pr create --body-file pr.md`. Agents should not run `publish-pr` without explicit approval unless `pull_request.auto_publish` is true for that repo.
+`prepare-pr` is local-only. It writes `pr.md` for review and records the issue-level PR branch in `run.yaml`. `publish-pr` is the native GitHub path: it pushes the local work branch to the recorded PR branch, then runs `gh pr create --body-file pr.md`. When `pull_request.auto_publish` is false, `publish-pr` requires `--approved`.
+
+Before cleanup, agents should use a native sub-agent/reviewer/checker when available to judge whether the issue problem and acceptance criteria are actually satisfied by the diff, notes, and command evidence. Record that verdict in the Review note.
 
 `verify-run --strict` fails on warnings, including missing acceptance criteria evidence or missing handoff context. Agents can use structured output when they should not scrape Markdown:
 
@@ -217,7 +223,7 @@ Package metadata lives in:
 - `.codex-plugin/plugin.json`
 - `.cursor-plugin/plugin.json`
 
-Local fallback installers remain available for dogfood:
+Local fallback installers remain available for development:
 
 - Claude Code fallback: `scripts/install-claude-skills.sh`
 - Cursor fallback: `scripts/install-cursor-adapter.sh`

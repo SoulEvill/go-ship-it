@@ -32,6 +32,8 @@ Use the relevant sections. Omit sections that do not apply.
 - Commands run:
 - Results:
 - Acceptance criteria matched to evidence:
+- Independent checker verdict:
+- Independent checker caveats:
 - Remaining gaps:
 - Cleanup recommendation:
 
