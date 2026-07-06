@@ -4,7 +4,8 @@ Drive the approved acceptance-level failing test to green.
 
 ## Inputs
 
-- The approved proposal and the acceptance-level failing test authored during propose.
+- On the STANDARD track: the approved proposal and the acceptance-level failing test authored and pre-approved during propose.
+- On the QUICK track: propose is skipped, so there is no pre-approved propose artifact to consume. Author the acceptance-level failing test here at implement-entry instead — it is the executable definition of done for the change. `inner_loop` still defaults to `tdd` for code changes, and `none` still requires a recorded `--inner-loop-reason` (docs/config-only changes may use `none`). If the change warrants a formal pre-approved acceptance gate, promote to `standard` with `set-track` first.
 
 ## Outputs
 
@@ -15,7 +16,7 @@ go-ship-it set-phase <repo>/<issue-id> implement --inner-loop tdd --note "<propo
 go-ship-it append-note <repo>/<issue-id> --section "Implementation" --for-phase implement --note "<changed files and decisions>"
 ```
 
-The acceptance-level failing test approved during propose is the entry ticket into this phase — do not start implement without it.
+The acceptance-level failing test is the entry ticket into this phase. On the standard track it was authored and approved during propose — do not start implement without it. On the quick track propose's approval gate does not apply, so author that failing test here at implement-entry (or fold the acceptance evidence into the Implementation and Review notes); do not stall looking for a propose artifact that a quick run never produced.
 
 ## Evidence
 

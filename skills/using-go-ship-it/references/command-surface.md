@@ -36,8 +36,11 @@ go-ship-it handoff <repo>/<issue-id> --write
 go-ship-it export-run <repo>/<issue-id>
 go-ship-it verify-run <repo>/<issue-id> --strict
 go-ship-it prepare-pr <repo>/<issue-id> --branch <team-branch-name>
+go-ship-it publish-pr <repo>/<issue-id> --approved
 go-ship-it cleanup-issue <repo>/<issue-id> --destination archive --confirm --note <note> --remove-worktree
 ```
+
+Repos default to `pull_request.provider: github`, so `publish-pr --approved` comes before archive; only `provider: none` repos skip publish and go straight from `prepare-pr` to `cleanup-issue --destination archive` on the signed-off local `pr.md`.
 
 `start-issue --quick` is shorthand for `--track quick`; `set-track` promotes a `quick` issue to `standard` mid-flight (only forward, never demoted). `set-phase --inner-loop` records the implement loop (`tdd`, `debug`, `spike`, or `none`; `none` requires `--inner-loop-reason`); `set-phase --review-pipeline` records how review was run (`self`, `clean-room`, or `plugin:<name>`).
 

@@ -4,7 +4,7 @@ Write a local, reversible preview of the pull request before anything is pushed.
 
 ## Inputs
 
-- A reviewed run: review phase complete, `verify-run --strict` clean.
+- A reviewed run: review phase complete, `verify-run --strict` clean. A clean `verify-run` concretely requires all of: every track-required note section (`standard`: Investigation/Proposal/Implementation/Review; `quick`: Implementation/Review); a PASSING latest `run-check --check test` record when the repo configures a test command; a written handoff (`handoff --write`); and a `Review` note that echoes each acceptance criterion close to verbatim (the matcher is literal, so `verify-run --strict` names exactly which criterion lacks evidence). Fix every finding before moving on to `publish-pr`.
 
 ## Outputs
 

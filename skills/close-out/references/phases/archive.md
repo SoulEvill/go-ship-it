@@ -11,14 +11,16 @@ Close the issue out for good.
 - The issue moved out of execution into the archive folder, with phase `archived`.
 
 ```sh
-go-ship-it export-run <repo>/<issue-id>
 go-ship-it cleanup-issue <repo>/<issue-id> --destination archive --confirm --note "<final note>" --remove-worktree
+go-ship-it export-run <repo>/<issue-id>
 ```
+
+Archive first, then `export-run`. `export-run` works on an archived issue, and running it after cleanup records a fresh snapshot that reflects the closed state; exporting before cleanup would leave a stale `run.export_stale` warning on the archived run.
 
 ## Evidence
 
 - Cleanup metadata on the run: `cleanup_destination` and `closed_at`.
-- A fresh `export-run` evidence snapshot taken before archiving.
+- A fresh `export-run` evidence snapshot taken after archiving, so it reflects the closed state.
 
 ## Gate
 

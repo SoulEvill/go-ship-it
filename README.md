@@ -66,8 +66,11 @@ go-ship-it handoff my-repo/issue-001 --write
 go-ship-it export-run my-repo/issue-001
 go-ship-it verify-run my-repo/issue-001 --strict
 go-ship-it prepare-pr my-repo/issue-001 --branch feature/fix-parser
+go-ship-it publish-pr my-repo/issue-001 --approved
 go-ship-it cleanup-issue my-repo/issue-001 --destination archive --confirm --note "Done." --remove-worktree
 ```
+
+Repos default to `pull_request.provider: github`, so the reviewed local `pr.md` is published with `publish-pr --approved` before archiving. Only `provider: none` repos skip publish and go straight from `prepare-pr` to `cleanup-issue --destination archive`; the signed-off local `pr.md` is their final gate.
 
 A `quick`-track issue that grows beyond a small fix can be promoted to the full lifecycle: `go-ship-it set-track my-repo/issue-001 standard --note "<why the issue grew>"`.
 

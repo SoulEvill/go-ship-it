@@ -38,16 +38,16 @@ The first `prepare-pr` needs `--branch`; reruns reuse the recorded branch. This 
 go-ship-it publish-pr <repo>/<issue-id> --approved
 ```
 
-Run only after the user approves publishing (or `pull_request.auto_publish: true`). Publishing is mechanically blocked while `verify-run` reports any finding — there is no override; fix the evidence instead. Repos with `pull_request.provider: none` never publish: the reviewed local `pr.md` is their final gate.
+Run only after the user approves publishing (or `pull_request.auto_publish: true`). Publishing is mechanically blocked while `verify-run` reports any finding — there is no override; fix the evidence instead. A clean `verify-run --strict` requires all track-required note sections, a PASSING latest `run-check --check test` record (when the repo configures a test command), a written handoff (`handoff --write`), and a Review note that echoes each acceptance criterion close to verbatim; run `verify-run --strict` and fix every finding first (see `references/phases/publish.md`). Repos with `pull_request.provider: none` never publish: the reviewed local `pr.md` is their final gate.
 
 3. **archive** (terminal: no reopen or unarchive) — read `references/phases/archive.md`.
 
 ```sh
-go-ship-it export-run <repo>/<issue-id>
 go-ship-it cleanup-issue <repo>/<issue-id> --destination archive --confirm --note "<final note>" --remove-worktree
+go-ship-it export-run <repo>/<issue-id>
 ```
 
-Ask the user before archiving. Never bundle archive with publish in a single step. If the worktree has uncommitted changes, cleanup refuses to remove it; commit first or archive without `--remove-worktree` to preserve it for inspection.
+Archive first, then `export-run` — exporting after cleanup records a fresh snapshot of the closed run; exporting before it leaves a stale `run.export_stale` warning. Ask the user before archiving. Never bundle archive with publish in a single step. If the worktree has uncommitted changes, cleanup refuses to remove it; commit first or archive without `--remove-worktree` to preserve it for inspection.
 
 ## Failure Behavior
 

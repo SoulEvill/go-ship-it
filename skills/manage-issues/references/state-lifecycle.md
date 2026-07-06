@@ -6,7 +6,7 @@ GoShipit keeps coarse issue state in folders:
 todo -> execution -> archive
 ```
 
-Only `start-issue` moves `todo` to `execution`. Only `cleanup-issue` moves `execution` back to `todo` or forward to `archive`.
+Only `start-issue` moves `todo` to `execution`. `cleanup-issue` moves `execution` back to `todo` (the return path this skill owns) or forward to `archive` — but `archive` is the `close-out` skill's terminal gate (see `## Archiving`), not a routine manage-issues cleanup.
 
 ## Duplicate Starts
 
@@ -24,11 +24,21 @@ Use issue id plus claim id to keep parallel sessions from mixing runs.
 
 ## Returning To Todo
 
-Returning an issue to `todo` is a human decision. Remove the managed worktree when returning to todo so the next start creates a clean branch and worktree.
+Returning an issue to `todo` is a human decision, and it is the ONLY execution-state move this skill owns. Remove the managed worktree when returning to todo so the next start creates a clean branch and worktree.
 
 ## Archiving
 
-Archive when the user accepts the result, decides the work is no longer needed, or wants to preserve the run as closed. Record a human-readable cleanup note.
+Archiving is close-out gate 3: the LAST close-out gate, and it is terminal — there is no `reopen` or `unarchive`. It is not a routine manage-issues cleanup decided purely by user acceptance. Reach it only after the `close-out` skill's full flow has completed:
+
+```text
+verify-run <repo>/<issue-id> --strict is clean
+  -> prepare-pr
+  -> user reviews pr.md (and evidence.md)
+  -> publish-pr --approved            # provider: none repos skip publish; the signed-off local pr.md is the gate
+  -> cleanup-issue <repo>/<issue-id> --destination archive --confirm --note <note>
+```
+
+Archiving requires `--confirm` because it is irreversible; record a human-readable cleanup note. `manage-issues` owns only the `execution -> todo` return path for unfinished work — archiving a finished issue belongs to the `close-out` skill, which enforces the verify/prepare/publish gates above. Do not cross the terminal archive gate from a cleanup mindset without going through `close-out`.
 
 ## Manual Repair
 
