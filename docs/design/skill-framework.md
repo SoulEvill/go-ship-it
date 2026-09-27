@@ -1,258 +1,228 @@
-# Design: a self-tuning skill framework (successor to GoShipit)
+# Design: metaloop, a management layer that tunes your agent skills over time
 
-Status: proposal · 2026-09-27
-Working name: **whetstone** (you sharpen tools on it over time). The name is a placeholder; see Open questions.
+Status: proposal v2 · 2026-09-28 (supersedes v1 of 2026-09-27)
+Working name: **metaloop** (see §12).
 
-## 1. Why start over
+## 1. What it is
 
-GoShipit is a ~4.9k-line Python CLI built around an 8-phase issue lifecycle, worktree management, and evidence export. Its feedback loop exists, but it routes each piece of friction through that full lifecycle: register a feedback repo, file an issue, run it. That is too heavy to use casually, and it isn't used much.
+A small, tool-agnostic **management layer for agent skills**. You install it once. Then:
 
-What is worth keeping:
+1. **Add**: "add this skill to metaloop." It works for skills you already have, wherever they live, or new ones from any skill creator. metaloop creates a folder for the skill in your workspace and records where the skill lives.
+2. **Capture**: mid-use, you say "I have feedback on this." The agent writes a feedback entry with evidence into that skill's folder.
+3. **Refine**: when you're ready, "refine grill-me." The agent reads the accumulated feedback, proposes the smallest change that addresses it, and applies it once you approve.
+4. **See**: "metaloop status" lists every managed skill, its open feedback, and anything that needs attention.
 
-- **Lessons To Promote** (from `docs/dogfood/README.md`): every observation maps to *update a skill / update docs / add a check / defer*. That is the core of the new tuning loop.
-- **Repo context vs. per-run notes.** Durable learnings go in one short file. Transient notes stay out of it.
-- **Cross-tool lesson.** Maintaining separate plugin manifests for Claude, Cursor, and Codex, plus hooks, adapters, and install tests, cost a lot. The shared `SKILL.md` standard now makes most of that unnecessary.
+metaloop ships with its own skills, which are managed and refined the same way. When a lesson applies to everyone, it goes back to the public repo.
 
-What goes away: the CLI, `state/`, `worktrees/`, phase enums, hooks, and per-tool plugin manifests. The investigate/propose/implement/review phase docs can come back later as an ordinary generic skill if they earn it.
+It is **not** a skill authoring tool. Cursor `/create-skill`, Anthropic's `skill-creator`, or a text editor still create skills, and metaloop manages whatever they produce. It is also not a package manager or a runtime.
 
-## 2. Goals and non-goals
+## 2. Principles
 
-Goals
+- **Tool-agnostic, Cursor first.** It relies only on the open `SKILL.md` standard (`name` + `description`), plain files, and bash. No hooks, plugin manifests, or tool-specific frontmatter.
+- **Skills stay where they live.** metaloop never moves a skill and never requires symlinks (see §3).
+- **Management data lives in a user workspace, not a repo you clone:** `~/.metaloop/`.
+- **Scripts do the mechanical work; the agent does the judgment.** Scripts handle paths, hashes, snapshots, and status. The agent writes feedback, clusters it, and proposes edits.
+- **Capture is cheap; changing a skill is deliberate.** Nothing edits a skill without the user approving a diff.
 
-1. **A skill container.** It can list, add, import, and update skills, with one entry point that shows every skill and its state.
-2. **Layers.** Framework ("core") skills and **generic** skills are shared upstream. **Local** (company or personal) skills stay in each clone.
-3. **Feedback loop.** Using a skill produces feedback. Feedback is captured per skill, then folded back into the skill on purpose.
-4. **Safe upstream updates.** A clone can pull framework and generic updates without merge conflicts, while keeping its own tuning.
-5. **Tool-agnostic, Cursor first.** It works the same in Cursor, Codex, and Claude Code. No tool-specific feature is required.
-6. **Simple and native.** Plain folders, Markdown, git, and two small shell scripts. No package, no daemon, no database.
-
-Non-goals
-
-- Automatic merging of upstream changes into local tuning. That stays the owner's job; the framework only flags when tuning may be stale.
-- Usage telemetry. Without hooks, which aren't portable, "usage" means feedback entries only.
-- Managing MCP servers. Jira and GitHub connections are configured per tool. Skills only say which tools they expect.
-
-## 3. The portable baseline (verified 2026-09-27)
+## 3. Verified constraints (2026-09-27/28)
 
 | | Cursor | Codex | Claude Code |
 |---|---|---|---|
-| User skill dirs | `~/.agents/skills`, `~/.cursor/skills` (+ reads `~/.claude/skills`, `~/.codex/skills` for compat) | `~/.agents/skills` | `~/.claude/skills` |
-| Nested folders | recursive | per-directory `.agents/skills` walk | **one level only** |
-| Symlinked skill dirs | not documented (verify in spike) | followed | followed |
-| Invoke explicitly | `/name` | `$name` or `/skills` | `/name` |
-| Frontmatter all three honor | `name`, `description` | `name`, `description` | `name`, `description` |
+| User skill dirs | `~/.agents/skills`, `~/.cursor/skills` (+ `~/.claude/skills`, `~/.codex/skills` for compat) | `~/.agents/skills` | `~/.claude/skills` |
+| Project skill dirs | `.agents/skills`, `.cursor/skills` (recursive) | `.agents/skills` (cwd → repo root) | `.claude/skills` (one level) |
+| Symlinked skill folders | **unreliable**: staff-confirmed bug Feb 2026; an Aug 2026 post suggests discovery works now; unconfirmed | followed (Windows issues reported) | followed |
+| Invoke | `/name` | `$name`, `/skills` | `/name` |
 
-Design rules that follow from this:
+Consequences:
 
-- **Frontmatter is `name` + `description` only.** Everything else (source, layer, tuning) lives in folders and sidecar files, not metadata.
-- **Installed skills are flat**, one folder per skill. The repo can be organized by layer, and `install.sh` flattens it with symlinks.
-- **No `!cmd` injection, no `${CLAUDE_SKILL_DIR}`, no hooks.** These are Claude-only. Anything they would do is instead a plain instruction in `SKILL.md` that every agent can follow.
-- **Skill names are globally unique** across layers, because they share one flat namespace once installed.
+- Symlinks cannot be required, so managed skills stay in place and metaloop's own skills are installed by **copy**.
+- The frontmatter all three tools agree on is `name` and `description`. metaloop keeps its metadata out of `SKILL.md`.
+- Skill names share one flat namespace per tool, so metaloop's own skills are prefixed `metaloop-`.
 
-## 4. Two repos: framework and instance
+## 4. Layout
+
+### Framework repo (public GitHub)
 
 ```
-whetstone/                         ← FRAMEWORK repo (shareable, upstream)
+metaloop/
   README.md
-  AGENTS.md                        ← rules for agents editing this repo (CLAUDE.md → symlink)
-  install.sh                       ← link skills into the tools' skill dirs
-  check.sh                         ← lint (see §9)
+  AGENTS.md                      ← rules for agents editing this repo (CLAUDE.md → symlink)
+  install.sh                     ← creates the workspace, copies core skills into tool dirs
+  skills/                        ← core skills (installed for every user)
+    metaloop/                    ← hub: status, add, remove, sync, contribute
+      SKILL.md
+      scripts/ml.sh              ← all mechanical operations (bash)
+      references/{add,sync,contribute}.md
+    metaloop-feedback/SKILL.md   ← capture with evidence
+    metaloop-refine/SKILL.md     ← review feedback → propose → apply
+  catalog/                       ← optional generic skills (pr-review, grill-me, …), added on request
+```
+
+### User workspace (per machine; a private git repo you can push anywhere)
+
+```
+~/.metaloop/
+  config.yaml                    ← framework path, install targets, tools in use
+  framework/                     ← clone of the public repo (git-ignored by the workspace)
   skills/
-    core/                          ← the framework's own meta-skills
-      whetstone/                   ← entry point: list, status, new, import, update
-        SKILL.md
-        scripts/status.sh
-        references/{new,import,update-upstream}.md
-      skill-feedback/SKILL.md      ← capture feedback (auto-triggers)
-      skill-tune/SKILL.md          ← fold feedback into the skill (deliberate)
-    generic/                       ← reusable skills anyone can use
-      pr-review/SKILL.md
-      grill-me/{SKILL.md,SOURCE.md}  ← imported from a public skill
-
-whetstone-acme/                    ← INSTANCE (a clone; remote "upstream" = whetstone)
-  …everything above, never edited…
-  skills/local/                    ← skills this instance owns
-    jira-ticket/{SKILL.md,FEEDBACK.md}
-    dev-container/{SKILL.md,scripts/…}
-  skills/generic/grill-me/TUNING.md    ← instance-only overlay on an upstream skill
-  skills/generic/grill-me/FEEDBACK.md  ← instance-only feedback log
+    <name>/                      ← one folder per managed skill, created by "add"
+      skill.yaml                 ← where it lives, ownership, scope, source (see §5)
+      feedback.md                ← evidence log (see §6)
+      tuning.md                  ← overlay, only for skills you don't own (see §5)
+      snapshot/                  ← copy of the skill as of add / last refine
+      proposals/                 ← refinements that couldn't be applied in place
 ```
 
-You would run at least two instances: `whetstone-personal` and `whetstone-<company>`. Your own daily use happens in an instance too. The framework repo contains only what you'd hand to someone else.
+`snapshot/` plus workspace git gives every skill a history, even when the skill lives in a folder that isn't version-controlled, like `~/.cursor/skills`. It also lets metaloop detect when a skill changed *outside* metaloop, for example through a creator tool or an upstream update.
 
-### The one invariant
+## 5. Adding a skill, and who owns it
 
-> **The framework repo never contains instance files** (`skills/local/`, `TUNING.md`, `FEEDBACK.md`), **and an instance never edits files that came from upstream.**
+Say "add grill-me to metaloop" or "add ~/.cursor/skills/jira-ticket". To find unmanaged skills, `ml.sh scan` lists every skill in known tool and project dirs that isn't managed yet. Adding then:
 
-This invariant is what makes `git pull upstream main` conflict-free. Every file has exactly one owner:
+1. Resolves the skill's folder and reads its `name` and `description`.
+2. Asks two questions, pre-filled from what it can detect:
+   - **Ownership.** `own` means you edit this skill directly. `upstream` means it comes from somewhere that will overwrite it (a public skill, a plugin, a teammate's repo, metaloop itself).
+   - **Scope.** `generic` means it's safe to share publicly. `company` means it must never leave your machine or company.
+3. Writes `skill.yaml`, takes a `snapshot/`, and inserts the **header** (below).
+4. Commits the workspace.
 
-| Path | Owner | How it changes |
-|---|---|---|
-| `skills/core/**`, `skills/generic/**/SKILL.md` (+ scripts, references) | framework | upstream commits only |
-| `skills/generic/*/SOURCE.md` + vendored `SKILL.md` | third party, via framework | `whetstone update` re-import |
-| `skills/**/TUNING.md` | instance | `skill-tune` |
-| `skills/**/FEEDBACK.md` | instance | `skill-feedback` |
-| `skills/local/**` | instance | anything, including direct `SKILL.md` edits |
-
-"Am I in an instance?" means: does `skills/local/` exist? No config file is needed.
-
-## 5. Anatomy of a skill
-
-Every skill starts with the same two-line header, directly after the frontmatter:
-
-```markdown
----
+```yaml
+# ~/.metaloop/skills/grill-me/skill.yaml
 name: grill-me
-description: Interrogate a plan or design with sharp questions before building. Use when the user says "grill me", asks to stress-test a plan, …
----
-
-> **Tuning:** if `TUNING.md` exists in this skill's folder, read it first. It overrides anything below.
-> **Feedback:** if the user corrects how this skill behaved, offer to log it with the `skill-feedback` skill.
-
-# Grill me
-…
+path: ~/.cursor/skills/grill-me        # where the skill actually lives (left in place)
+ownership: upstream                    # own | upstream
+scope: generic                         # generic | company
+source: https://github.com/<owner>/<repo>/tree/<ref>/grill-me   # upstream only
+added: 2026-09-28
 ```
 
-This header does the job hooks or `!cmd` would do in Claude Code, and it works in all three tools. `whetstone new` and `whetstone import` add it, and `check.sh` enforces it.
+### The header (the portable "feedback hook")
 
-Sidecar files (all optional):
-
-| File | Purpose | Loaded by the agent at use-time? |
-|---|---|---|
-| `TUNING.md` | Instance overrides for a skill it doesn't own. Short: ≤ ~40 lines of do/don't. | Yes, via the header |
-| `FEEDBACK.md` | Append-only log of raw feedback | No, only by `skill-tune` and status |
-| `SOURCE.md` | Where an imported skill came from: URL, ref/commit, import date, local modifications (the header) | No |
-| `scripts/`, `references/` | Standard skill resources | On demand, per the skill |
-
-## 6. The feedback loop
-
-```
- use skill ──► user corrects / says "feedback: …"
-                     │
-                     ▼
-   skill-feedback: append entry to <skill>/FEEDBACK.md      (capture, cheap, no edits to the skill)
-                     │
-         … entries accumulate …
-                     ▼
-   skill-tune <skill>: read SKILL.md + TUNING.md + open entries
-        → cluster → propose the smallest diff → user approves
-        → apply:  owned skill  → edit SKILL.md
-                  upstream/vendored skill in an instance → edit TUNING.md
-        → mark entries applied (with commit) or declined (with reason) → git commit
-                     │
-                     ▼ (optional)
-   promote: tuning that would help everyone → patch/PR to the framework's SKILL.md
-            → once upstream has it, delete those lines from TUNING.md
-```
-
-### Capture (`skill-feedback`)
-
-- It triggers when the user explicitly says "feedback on X", or when the header prompts an offer after a correction. The description is written to fire on phrases like "that skill asked too many questions" or "next time, don't …".
-- It writes to `<skill-dir>/FEEDBACK.md`. The installed folder is a symlink, so the write lands in the instance repo.
-- It never edits `SKILL.md` or `TUNING.md`. Capture is cheap and safe; changing behavior is a separate, deliberate step.
-
-Entry format:
+Inserted directly after the frontmatter:
 
 ```markdown
-## 2026-09-27 · open
-- tool: cursor · context: reviewing PR in payments-api
-- observed: asked 14 questions before giving any assessment
-- wanted: at most ~5 questions per round, grouped by theme
+> **metaloop:** before starting, read `~/.metaloop/skills/grill-me/tuning.md` if it exists; it overrides anything below.
+> If the user gives feedback on how this skill behaved, log it with `metaloop-feedback`.
 ```
 
-Status is one of `open`, `applied <sha>`, or `declined: <reason>`.
+- **Own** skills get only the second line; refinement edits them directly, so they need no overlay.
+- **Upstream** skills get both lines. Refinement writes to `tuning.md` in the workspace, which updates never touch. Only the two-line header can be overwritten, and `sync` detects and restores it.
+- Feedback capture does **not** depend on the header. `metaloop-feedback` is always installed, and its description triggers on "feedback on this skill" for any skill, managed or not. The header just makes the agent *offer* to capture after a correction.
 
-### Tune (`skill-tune`)
+## 6. Capture: `metaloop-feedback`
 
-- Only runs when you ask: `/skill-tune grill-me`, or "tune the skills with open feedback".
-- Prefers patterns over anecdotes. A single entry becomes a proposal only if the user says so.
-- Keeps `TUNING.md` short and imperative. If it grows past ~40 lines, the overlay has become a fork. Suggest *forking*: copy the skill to `skills/local/`, rename it, and own it.
-- For skills it can't edit (upstream in an instance), it writes the overlay. If the overlay would contradict the base skill rather than refine it, it says so explicitly.
-- Flags promotion candidates: tuning with nothing company-specific in it.
+Triggers on explicit feedback ("feedback on this skill: …", "log that", "next time don't …") or when a skill's header prompts an offer after a correction.
 
-## 7. Entry point: `whetstone`
+1. Identify the skill. The agent knows which skill it loaded; if it's ambiguous, it asks. If the skill isn't managed yet, it offers to add it first.
+2. Gather the evidence and append an entry to `~/.metaloop/skills/<name>/feedback.md`:
 
-In Cursor and Claude Code it's `/whetstone`; in Codex, `$whetstone`. A single hub skill covers:
+```markdown
+## fb-0007 · 2026-09-28 14:02 · open · annoying
+- skill: grill-me @ sha256:3f9a1c… (hash of SKILL.md when this happened)
+- where: cursor · project payments-api
+- asked: "grill me on the retry design"
+- observed: asked 14 questions in one message before any assessment
+- expected: ≤ 5 questions per round, grouped by theme, with a short read of the design first
+- user said: "way too many questions, I just want the big risks first"
+- evidence: first message of the grill (trimmed): "1. What is the … 14. How will …"
+```
 
-| Ask | Does |
+3. Commit the workspace. It never edits the skill.
+
+Severity is one of `nit`, `annoying`, or `wrong`. The skill hash lets refinement tell whether feedback predates a later change. If the tool blocks writing to `~/.metaloop` (Codex's default sandbox likely does), the agent prints the entry and the path instead. See §9.
+
+## 7. Refine: `metaloop-refine`
+
+Only runs when asked: "refine grill-me", or "refine everything with open feedback".
+
+1. Read the skill (live), `tuning.md`, and all `open` feedback entries. Flag entries whose skill hash is stale.
+2. Group entries by theme and show a short summary: each theme, the entry ids behind it, and how strong the pattern is. A single entry doesn't change a skill unless the user says so.
+3. Propose the smallest diff per theme, where it depends on ownership:
+   - **own**: edit `SKILL.md` (or its references) in place.
+   - **upstream**: edit `tuning.md`. Keep it short and imperative, about 40 lines at most. If it grows past that or contradicts the base skill, suggest **forking**: copy the skill to a new name and mark it `own`.
+   - Anything that can't be applied in place (a teammate's repo you shouldn't edit) goes to `proposals/<date>.md` as a patch you can take to that repo.
+4. After approval: apply, mark entries `applied <workspace-commit>` or `declined: <reason>`, refresh `snapshot/`, and commit.
+5. If a change isn't company-specific and the skill is `generic`, offer `contribute` (§8).
+
+## 8. The hub: `metaloop` (`/metaloop` in Cursor/Claude, `$metaloop` in Codex)
+
+| Ask | What happens |
 |---|---|
-| "whetstone" / "list my skills" / "status" | runs `scripts/status.sh`, then summarizes |
-| "new skill …" | asks for layer (local vs generic) and name; writes the skeleton with header; hands authoring to the tool's own creator if it has one (Cursor `/create-skill`, Claude `skill-creator`) |
-| "import <url or path>" | copies the skill folder, writes `SOURCE.md`, inserts the header, checks the name is unique |
-| "update from upstream" | `git fetch upstream && git merge upstream/main`, re-run `install.sh`, list stale tunings |
-| "update vendored skills" | re-fetches each `SOURCE.md`, shows a diff, and on approval re-imports and re-inserts the header. `TUNING.md` is untouched |
-
-`status.sh` output (plain text, so any agent or a human can read it):
+| "metaloop" / "status" | `ml.sh status` → table below, then a one-paragraph summary and suggested next step |
+| "add …" / "what skills aren't managed?" | §5 / `ml.sh scan` |
+| "remove …" | removes the header and archives the workspace folder |
+| "sync" | pulls framework updates, re-copies core skills, restores missing headers, reports skills changed outside metaloop |
+| "contribute …" | turns a generic refinement or framework-skill feedback into a GitHub issue or PR on the source. **Company scope is always blocked, and evidence is redacted before anything leaves the machine.** |
 
 ```
-whetstone-acme  (instance · upstream whetstone@a1b2c3d, 2 commits behind)
+metaloop · workspace ~/.metaloop · framework v0.3.1 (1 update available)
 
-LAYER    SKILL            SOURCE              TUNED      FEEDBACK
-core     whetstone        framework           –          –
-core     skill-feedback   framework           –          –
-core     skill-tune       framework           –          –
-generic  pr-review        framework           yes (12)   1 open
-generic  grill-me         mattpocock/skills   yes (8) ⚠  3 open
-local    jira-ticket      own                 –          2 open
-local    dev-container    own                 –          –
+SKILL              OWNER     SCOPE    LIVES IN              FEEDBACK   NOTES
+metaloop           upstream  generic  ~/.agents/skills      –
+metaloop-feedback  upstream  generic  ~/.agents/skills      1 open
+metaloop-refine    upstream  generic  ~/.agents/skills      –
+grill-me           upstream  generic  ~/.cursor/skills      3 open     tuned (8 lines)
+jira-ticket        own       company  ~/.cursor/skills      2 open
+dev-container      own       company  work-repo/.cursor/…   –          ⚠ changed outside metaloop
+pr-review          upstream  generic  ~/.agents/skills      –          ⚠ header missing (updated?)
 
-⚠ grill-me: SKILL.md changed upstream after TUNING.md was last edited. Re-check the tuning.
-Installed: ~/.agents/skills (7/7 linked) · ~/.claude/skills (7/7 linked)
+Unmanaged skills found: 4 → "metaloop add" to review
 ```
 
-The staleness check compares `git log -1 --format=%ct` of `SKILL.md` and `TUNING.md`. That's the only "evolve" support. Deciding what to do about it stays with the owner.
+## 9. Install and updates
 
-## 8. Install and sync (`install.sh`)
+```sh
+git clone https://github.com/<you>/metaloop ~/.metaloop/framework
+~/.metaloop/framework/install.sh            # detects Cursor/Codex/Claude; asks if unsure
+```
 
-Idempotent, ~40 lines of bash:
+`install.sh` does four things:
 
-1. For each `skills/*/*/SKILL.md`, symlink its folder to `<target>/<name>`.
-2. Remove dangling symlinks in `<target>` that point into this repo (deleted or renamed skills).
-3. Refuse to overwrite a non-symlink folder of the same name, and say so.
+1. Creates the workspace: `git init`, `config.yaml`, a `.gitignore` for `framework/`.
+2. **Copies** the core skills into `~/.agents/skills`, which Cursor and Codex both read. If Claude Code is in use, it also copies them into `~/.claude/skills`.
+3. Registers the core skills as `upstream`/`generic`, so feedback on metaloop itself works from day one.
+4. Prints the next step: "Say *metaloop add* in your agent to bring in your existing skills."
 
-Targets:
+Updates: "metaloop sync" (or re-running `install.sh`) runs `git pull` in `framework/`, re-copies core skills, and runs the header and drift checks. Your `tuning.md` overlays survive every update. If an update conflicts with your tuning, sync flags it; resolving it is your call, with `metaloop-refine` to help.
 
-- **Default: `~/.agents/skills`.** Covers Cursor and Codex.
-- **`--claude`: also `~/.claude/skills`.** Needed for Claude Code. Cursor also reads this directory, so check in the spike whether Cursor shows duplicates. If it does, Claude users link only to `~/.claude/skills`; Cursor still reads it through compat.
-- **`--project <dir>`:** links into `<dir>/.agents/skills` instead, for trying a skill in one repo.
+Write access: agents write to `~/.metaloop`, outside your project. Cursor asks for approval. Codex needs `~/.metaloop` added as a writable root in `~/.codex/config.toml`; `install.sh` prints the exact line.
 
-Because skills are symlinked, edits made through tuning take effect immediately in every tool. Re-run `install.sh` only after adding, removing, or renaming a skill.
+## 10. Where things end up
 
-**Write access.** Feedback writes land outside the project you're working in. Cursor asks for approval, which is fine. Codex's default sandbox likely blocks it, so add the instance path to its writable roots in `~/.codex/config.toml` (verify in the spike). If a write is refused, `skill-feedback` prints the entry and the target path instead of losing it.
+| You want… | It lives… |
+|---|---|
+| framework + core skills | public GitHub repo → cloned to `~/.metaloop/framework`, copied into tool dirs |
+| generic skills from the framework | `catalog/` → copied into a tool dir on "add pr-review from the catalog" (`upstream`) |
+| public third-party skills (grill-me) | wherever you installed them; managed as `upstream` with overlay |
+| your company skills | wherever you keep them (`~/.cursor/skills`, a team repo); managed as `own` + `company` scope |
+| all feedback, tuning, and history | `~/.metaloop/skills/*`, a private git repo you can push anywhere |
 
-## 9. Guardrails (`check.sh`)
+Sharing company skills with teammates is out of scope for v1. The skills live in a team repo like any other; each person's metaloop manages their own copy of them.
 
-Runs in framework CI and on demand in an instance:
+## 11. What happens to GoShipit
 
-- Every `SKILL.md` has `name` and `description`, and `name` equals its folder name.
-- Names are unique across all layers.
-- The two-line header is present.
-- *Framework repo only:* no `skills/local/`, `TUNING.md`, or `FEEDBACK.md`. This enforces the invariant.
-- *Instance only:* no working-tree diffs to upstream-owned paths (`git diff upstream/main -- skills/core skills/generic ':!**/TUNING.md' ':!**/FEEDBACK.md'`).
+GoShipit (a ~4.9k-line lifecycle CLI) gets archived with a README pointer to metaloop. The one idea carried over is its dogfood rule that every lesson maps to *update a skill / update docs / add a check / defer*, which is what refinement does. Its issue-phase docs could later return as a catalog skill.
 
-## 10. Company-specific concerns
+## 12. Name
 
-- **Connectors (Jira, GitHub).** A skill says "use the Jira MCP tools. If none are available, stop and tell the user to connect Jira in their tool's MCP settings." It never embeds tool-specific MCP config.
-- **Company conventions** (container layout, ticket templates, project keys) live inside the relevant `skills/local/<skill>/references/`. Skills are self-contained, because relative paths outside a skill folder break once it's symlinked.
-- **Hosting.** The company instance should be a company-hosted repo. The framework can be a personal public repo pulled as `upstream`, if company policy allows pulling from it. Otherwise mirror it internally.
+The name should say "meta" and "loop" without "feedback", since the loop covers more than feedback.
 
-## 11. Migration from GoShipit
+| Name | Why | Invoke |
+|---|---|---|
+| **metaloop** (recommended) | says exactly what it is; easy to search; prefix `metaloop-` for core skills | `/metaloop` |
+| strangeloop | Hofstadter's self-referential loop: it refines its own skills too | `/strangeloop` |
+| ouroboros | loop that feeds itself; memorable, long to type | `/ouroboros` |
+| recurse | short, meta, verb-like | `/recurse` |
 
-1. Create `whetstone`: the core skills, `install.sh`, `check.sh`, `AGENTS.md`, and 1–2 generic skills (`pr-review`, `grill-me` imported).
-2. Create `whetstone-personal` from it and use it in Cursor for a week or two. Tune from real feedback.
-3. Create `whetstone-<company>` and add `local/` skills: container setup, Jira ticket.
-4. Archive `go-ship-it`: point its README at the new repo. Keep it read-only as a reference for the phase docs.
+Check GitHub for name collisions before creating the repo.
 
-## 12. Spike checklist (first hour of implementation)
+## 13. Build plan
 
-- [ ] Cursor follows symlinked skill folders in `~/.agents/skills`.
-- [ ] Cursor: same skill linked in both `~/.agents/skills` and `~/.claude/skills` → duplicate entries?
-- [ ] All three tools actually read `TUNING.md` when the header tells them to. Test with an overlay that changes visible output.
-- [ ] `skill-feedback` can write through the symlink in Cursor (approval flow) and Codex (sandbox).
-- [ ] `skill-feedback` triggers on a natural correction without being named.
-
-## 13. Open questions
-
-1. **Name.** `whetstone` (entry `/whetstone`)? Alternatives: `skillsmith`, `tack`, `kit`. Short matters, because you'll type it a lot.
-2. **Is Claude Code a real target** or just "nice to have"? That decides whether `--claude` is on by default.
-3. **Framework visibility.** Is it public on your GitHub, or private and mirrored into the company?
+1. **Spike (first session, in Cursor)**
+   - [ ] The header reliably makes the agent read `tuning.md` before acting. Test with an overlay that changes visible output.
+   - [ ] `metaloop-feedback` triggers on a natural correction without being named.
+   - [ ] Writing to `~/.metaloop` from a Cursor session in another project works (approval flow). Codex: writable root.
+   - [ ] The same skill in `~/.agents/skills` and `~/.claude/skills` → does Cursor show duplicates? This decides the Claude install target.
+2. **v0.1:** `install.sh`, `ml.sh` (`status`, `scan`, `add`, `snapshot`, `check`), the three core skills.
+3. **Dogfood:** manage your existing Cursor skills for 1–2 weeks and refine from real feedback, including metaloop's own skills.
+4. **v0.2:** `sync`, `contribute` (with redaction), `catalog/` with 1–2 generic skills.
