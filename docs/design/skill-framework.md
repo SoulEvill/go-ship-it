@@ -74,7 +74,7 @@ meta-skill-loop/
 ~/.meta-skill-loop/
   skills/<name>/
     skill.yaml     where it lives, where it came from (pack repo + path + commit), ownership
-    feedback.md    evidence log
+    feedback/      one file per entry (fb-0007.md): no append races between sessions, easy dedupe
     changes.md     every local change, each tied to the feedback ids that motivated it
     base/          the upstream version you last took (pristine)
     current/       the version you intend to have (upstream + your refinements)
@@ -175,18 +175,29 @@ For skills you own (no upstream), there's no merge; `current` just tracks your e
 **Capture** (`meta-skill-feedback`, always installed, triggers on "feedback on this skill…", "next time don't…").
 
 1. It identifies the skill. If the skill isn't managed yet, it runs `add`, which records location and source and snapshots base/current.
-2. It appends an entry with evidence:
+2. It writes the entry through **`msl.sh log`**, the single writer every capture path uses. The script assigns the id, stamps the time and skill hash, validates the fields, and writes `feedback/fb-0007.md`:
 
 ```markdown
-## fb-0007 · 2026-09-28 14:02 · open · annoying
-- skill: pr-review @ sha256:3f9a1c…      (hash of the live SKILL.md at the time)
-- where: cursor · project payments-api
+---
+id: fb-0007
+skill: pr-review
+skill_hash: sha256:3f9a1c…     # hash of the live SKILL.md at the time
+at: 2026-09-28T14:02
+tool: cursor
+project: payments-api
+origin: explicit               # explicit | observed   (observed = future auto-capture)
+confidence: high               # explicit is always high; observers set their own
+severity: annoying             # nit | annoying | wrong
+status: open                   # candidate | open | applied | declined | resolved-upstream
+---
 - asked: "review PR 482"
 - observed: 30 style nits, missed the unhandled retry error
 - expected: correctness first; style only if asked
 - user said: "stop with the nits, what's actually broken?"
 - evidence: first 10 lines of the review output
 ```
+
+**Built for automatic capture later.** A future observer (Task Observer-style session review, reflect-style correction detection, a hook where a tool supports one) is just another caller of `msl.sh log`, with `origin: observed` and `status: candidate`. Candidates show up in status as "to triage", and a person promotes them to `open` or dismisses them. Refine and merge never care how an entry arrived. Meanwhile, explicit entries from v1 become the ground truth for measuring how accurate an observer is.
 
 **Nudge.** At `add`, the loop inserts one line after a skill's frontmatter: *"If the user gives feedback on how this skill behaved, log it with `meta-skill-feedback`."* That line is a local change like any other (recorded in `changes.md`, preserved by merge). Capture still works without it.
 
@@ -247,6 +258,12 @@ Codex's default sandbox likely blocks writes to `~/.meta-skill-loop`; `install.s
    - [ ] Writing to `~/.meta-skill-loop` from another project works.
    - [ ] `npx skills add … --copy -g` puts skills where Cursor loads them. Does `update` overwrite local edits? (Assume yes; §4 handles it.)
    - [ ] Duplicate listing if a skill is in both `~/.agents/skills` and `~/.claude/skills`.
-2. **v0.1 loop.** `msl.sh` (`scan`, `add`, `snapshot`, `status`) plus the three skills. Dogfood on your current Cursor skills.
-3. **v0.2 loop.** `update` (three-way merge) and `contribute` (branch/PR with redaction).
-4. **Packs.** Split Wendao into `wendao-skills` and `team-skills`, and share one skill with a teammate end-to-end.
+2. **v1: capture, and the foundation.**
+   - Install for Cursor, Codex, and Claude Code (copy-based).
+   - `msl.sh` with `scan`, `add`, `snapshot`, `log`, `status`.
+   - `meta-skill-feedback` for explicit capture, and `/meta-skill-loop` for status and add.
+   - A minimal `meta-skill-refine`: group feedback into themes, propose a diff, apply after approval. Without it, feedback is write-only and you can't tell whether the entry format carries enough evidence.
+   - Dogfood on your current Cursor skills.
+3. **v2: survive updates.** `update` (three-way merge, restore refinements after `skills update`) and `contribute` (redacted PR to the source repo).
+4. **v3: learn automatically.** Observers that write `origin: observed` candidates (session review, correction detection, tool hooks where available), plus a triage step in status. Measure them against v1's explicit entries.
+5. **Alongside:** split Wendao into `wendao-skills` and `team-skills`, and share one skill with a teammate end-to-end.
