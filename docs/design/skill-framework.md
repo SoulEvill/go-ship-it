@@ -6,7 +6,7 @@ Name: **meta-skill-loop** (see §8)
 ## 1. The three things you want
 
 1. **A loop.** Give feedback on any skill while using it, store it in one consistent way, and later refine the skill from it.
-2. **A container.** One entry point that lists the skills you care about, with their status, and routes to them. Today that's your "Wendell" skill at work.
+2. **A container.** One entry point that lists the skills you care about, with their status, and routes to them. Today that's your "Wendao" skill at work.
 3. **Sharing.** Hand individual skills to teammates, keep them updated, and let their improvements flow back.
 
 These are three different jobs with different audiences and visibility, so they become **three separate layers**. Each works on its own and they compose.
@@ -22,7 +22,7 @@ These are three different jobs with different audiences and visibility, so they 
 | U5 | Send my improvement back so teammates get it | anyone | **loop** (contribute) → **pack** (PR) |
 | U6 | Share `setup-workspace` with my team; they install just that skill | team | **pack** |
 | U7 | New teammate gets the team's skills in all their tools | team | **pack** (+ loop optional) |
-| U8 | "/wendell": my curated menu of the skills I use, grouped my way | me | **hub** |
+| U8 | "/wendao": my curated menu of the skills I use, grouped my way | me | **hub** |
 | U9 | "What am I working on?" (workspace progress) | me | a **domain skill** listed by the hub; not management at all |
 | U10 | Use a public skill (grill-me) and tailor it to me | me | **loop** (manages it in place) |
 | U11 | Improve meta-skill-loop itself from my usage | me → public | **loop** (feedback on its own skills → contribute) |
@@ -38,7 +38,7 @@ What falls out:
 
 ```
 ┌───────────────────────────────────────────────────────────────────┐
-│  HUB (personal)         /wendell   → your menu, your grouping      │
+│  HUB (personal)         /wendao   → your menu, your grouping      │
 │    lives in: your personal pack (private)                          │
 │    reads: meta-skill-loop status (optional)                         │
 ├───────────────────────────────────────────────────────────────────┤
@@ -86,15 +86,60 @@ It is a **local** git repo, used only for history and undo ("what did refine cha
 
 - **One repo per audience, not one repo per skill.** A pack is `skills/<name>/SKILL.md` folders plus a README. Per-skill repos multiply overhead (access, CI, releases) without adding anything; git history per path already versions each skill.
   - `team-skills` (private, company): setup-workspace, pr-review, jira-ticket, …
-  - `wendell-skills` (private, yours): the `wendell` hub, workspace-status, personal helpers
+  - `wendao-skills` (private, yours): the `wendao` hub, workspace-status, personal helpers
   - public packs (yours or others'): anything genuinely generic, if you ever want to publish it
 - **Install individual skills** with the open-source `skills` CLI. It supports private git repos, selecting single skills, Cursor, Codex, and Claude Code, and a copy mode: `npx skills add git@github.com:acme/team-skills.git --skill setup-workspace --copy -g`. Use `--copy` because Cursor's symlink discovery is unreliable. We don't build an installer.
-- **Flat names.** Claude Code only discovers skills one level deep and all tools share a flat namespace. Wendell's "sub-skills" are therefore separate flat skills (`wendell-workspace`, `setup-workspace`), and the `wendell` skill routes to them.
+- **Flat names.** Claude Code only discovers skills one level deep and all tools share a flat namespace. Wendao's "sub-skills" are therefore separate flat skills (`wendao-workspace`, `setup-workspace`), and the `wendao` skill routes to them.
 - **Improvements flow back as PRs** to the pack repo. The loop's `contribute` step prepares them (§5).
 
-### 3.3 Hub: your `/wendell` (personal pack)
+#### How the loop uses the `skills` CLI
 
-It's just a skill. Its `SKILL.md` holds your curated, grouped list of the skills you use and when, and routes requests to them. For a health column it runs `meta-skill-loop status` if the loop is installed. It lists skills by name, so it doesn't care which pack they came from. Teammates can copy the pattern, but each person owns their own hub.
+[vercel-labs/skills](https://github.com/vercel-labs/skills) (MIT) is an npm-style installer for `SKILL.md` skills. It supports `add`, `list`, `find`, `check`, `update`, `remove`, and `init`, and targets 75+ agents. It records every global install in `~/.agents/.skill-lock.json`: source repo, path in repo, and a folder tree hash. It has no dependency resolution, and `update` re-runs `add`, which **overwrites local edits**.
+
+The loop therefore:
+
+- reads `.skill-lock.json` to learn a skill's source and upstream hash, instead of asking you;
+- treats `skills update` as "a new upstream landed" and runs the §4 merge, restoring your refinements on top;
+- works without the CLI too. Hand-copied or self-made skills just have no upstream.
+
+### 3.3 Hub: your `/wendao` (personal pack)
+
+It's just a skill. Every skill it lists stays independent and installable on its own; the hub only references them by name.
+
+```
+wendao-skills/                 (your personal pack, private)
+  skills/
+    wendao/SKILL.md            ← the hub
+    wendao-workspace/SKILL.md  ← "what am I working on"
+team-skills/                   (team pack, private)
+  skills/
+    setup-workspace/SKILL.md
+    pr-review/SKILL.md
+```
+
+```markdown
+---
+name: wendao
+description: Wendao's toolbox. Use when the user types /wendao, asks what skills they have, or which skill fits a task.
+---
+# Wendao
+
+## My skills
+| Group | Skill | Use for | Install from |
+|---|---|---|---|
+| Daily | wendao-workspace | what I'm working on | wendao-skills |
+| Build | setup-workspace | new dev container workspace | team-skills |
+| Review | pr-review | reviewing a PR | team-skills |
+| Think | grill-me | stress-test a plan | <public repo> |
+
+## How to respond
+1. If the user named a task, hand off to the matching skill.
+2. Otherwise show the table, marking each skill installed or missing (check the tool skill dirs).
+   If meta-skill-loop is installed, add its status column (open feedback, local changes, updates).
+3. For missing skills, offer the `npx skills add … --skill … --copy -g` command from "Install from".
+```
+
+The table is both your **menu** and your **manifest**. On a new machine, "/wendao, set me up" installs everything missing. Teammates never need your hub. They install `setup-workspace` directly, or copy the hub pattern into their own. A team can have a `team` hub skill in `team-skills` built the same way.
 
 The loop provides a **plain** status view on its own (`/meta-skill-loop`), so it's useful without a hub. Your hub is the opinionated view on top.
 
@@ -168,7 +213,7 @@ Codex's default sandbox likely blocks writes to `~/.meta-skill-loop`; `install.s
 
 | Today | Becomes |
 |---|---|
-| `wendell` skill (menu + sub-skills) | `wendell-skills` private pack: `wendell` (hub) + `wendell-workspace` + personal helpers |
+| `wendao` skill (menu + sub-skills) | `wendao-skills` private pack: `wendao` (hub) + `wendao-workspace` + personal helpers |
 | Skills worth sharing (pr-review, setup-workspace) | move to a `team-skills` private pack; teammates `npx skills add … --skill …` |
 | Your own copies of those | installed from `team-skills` like everyone else's; refined in place by the loop; improvements go back as PRs |
 | Feedback, tuning history | `~/.meta-skill-loop/` on your machine |
@@ -189,4 +234,4 @@ Codex's default sandbox likely blocks writes to `~/.meta-skill-loop`; `install.s
    - [ ] Duplicate listing if a skill is in both `~/.agents/skills` and `~/.claude/skills`.
 2. **v0.1 loop.** `msl.sh` (`scan`, `add`, `snapshot`, `status`) plus the three skills. Dogfood on your current Cursor skills.
 3. **v0.2 loop.** `update` (three-way merge) and `contribute` (branch/PR with redaction).
-4. **Packs.** Split Wendell into `wendell-skills` and `team-skills`, and share one skill with a teammate end-to-end.
+4. **Packs.** Split Wendao into `wendao-skills` and `team-skills`, and share one skill with a teammate end-to-end.
