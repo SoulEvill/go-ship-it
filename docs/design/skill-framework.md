@@ -225,6 +225,21 @@ Codex's default sandbox likely blocks writes to `~/.meta-skill-loop`; `install.s
 - **It groups well when typed.** All three core skills share the `meta-skill-` prefix (`meta-skill-loop`, `meta-skill-feedback`, `meta-skill-refine`), so typing `/meta-skill` lists exactly them. A name starting with `skill` would collide with Codex's built-in `/skills`, `skill-creator`, and every other `skill-*` tool in autocomplete.
 - **The repo name matches the entry point** (`meta-skill-loop` → `/meta-skill-loop`), so there's one thing to remember.
 
+## 8a. Prior art (checked 2026-09-27)
+
+| Project | Overlap | What it lacks for us |
+|---|---|---|
+| [Task Observer](https://github.com/rebelytics/one-skill-to-rule-them-all) (~3k★) | Watches sessions, logs corrections, proposes skill improvements; you approve | Claude-centric; no per-skill source tracking, upstream merge, or contribution back |
+| [claude-reflect](https://github.com/BayramAnnakov/claude-reflect) | Captures corrections with hooks; `/reflect` applies them | Claude Code only; writes to CLAUDE.md, not per skill |
+| [claude-reflect-system](https://github.com/haddock-development/claude-reflect-system), [singularity-claude](https://github.com/Shmayro/singularity-claude) | Edit skills in place from corrections or run scores | Claude only; no upstream story |
+| [retro-skill](https://github.com/netresearch/retro-skill) | `/retro` routes findings, opens PRs to the skill's source repo | Claude only, tiny; no per-skill feedback store or merge |
+| [Hermes Agent](https://github.com/nousresearch/hermes-agent) | Self-editing skills with a hash lock | Locally edited skills are skipped on update forever; 3-way merge only proposed ([#1780](https://github.com/NousResearch/hermes-agent/issues/1780)) |
+| [ECC continuous-learning](https://github.com/affaan-m/ECC), [Compound Engineering](https://github.com/EveryInc/compound-engineering-plugin) | Cross-tool learning capture | Learnings stored per project, not per skill; creates new skills rather than refining |
+| [Anthropic skill-creator](https://github.com/anthropics/skills/blob/main/skills/skill-creator/SKILL.md) | Eval → feedback → improve loop | Authoring-time only, not in-use feedback |
+| [vercel-labs/skills](https://github.com/vercel-labs/skills), openskills, skillkit, skillport | Install and update across agents | Update overwrites local edits (or skips them) |
+
+**Takeaway.** Capturing feedback (a) and refining skills (b) are crowded. Keeping refinements mergeable across upstream updates (c) and sending evidence-backed PRs to the skill's source (d) are essentially unaddressed. meta-skill-loop should borrow freely for (a)+(b), with Task Observer's observation format and skill-creator's iterate loop as references, and put its effort into (c)+(d) across Cursor, Codex, and Claude Code.
+
 ## 9. Build plan
 
 1. **Spike (Cursor first).**
